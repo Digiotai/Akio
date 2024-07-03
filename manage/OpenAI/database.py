@@ -65,6 +65,7 @@ class SQLiteDB:
                 query = f"""
                 INSERT INTO user_tracking (user_id, email) VALUES('{user_id}','{email}');"""
                 cursor.execute(query)
+                print(query)
                 c.commit()
         except Exception as e:
             print(e)
@@ -124,8 +125,9 @@ class SQLiteDB:
 
 if __name__ == "__main__":
     db = SQLiteDB()
-    # db.table_creation()
-    db.add_user('kpi')
-    print(db.get_user_data('test'))
+    #db.table_creation()
+    
+    db.add_user("example","example@gmail.com")
+    print(db.get_user_data('example'))
     # print(db.update_count('Rami'))
     # print(db.get_user_data('Rami'))
