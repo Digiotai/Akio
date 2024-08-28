@@ -1,0 +1,11 @@
+django
+pandas
+requests
+python-dotenv
+openai
+psycopg2-binary
+joblib
+numpy
+keras
+tensorflow
+matplotlib
