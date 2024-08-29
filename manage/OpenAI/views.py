@@ -19,7 +19,12 @@ from openai import OpenAI
 from digiotai.digiotai_jazz import Agent, Task, OpenAIModel, SequentialFlow, InputType, OutputType
 #from .database import PostgreSQLDB
 from .form import CreateUserForm
-
+from django.views.decorators.csrf import csrf_exempt
+from django.http import HttpResponse
+import json
+import base64
+import pandas as pd
+import matplotlib.pyplot as plt
 
 import json
 
@@ -210,6 +215,8 @@ def genAIPrompt3(request):
     return HttpResponse("Invalid Request Method", status=405)
 
 # Data Visualization and getting the graphs
+
+
 @csrf_exempt
 def genAIPrompt(request):
     if request.method == "POST":
@@ -221,35 +228,45 @@ def genAIPrompt(request):
         query = request.POST["query"]
 
         prompt_eng = (
-            f"You are graphbot. If the user asks to plot a graph, you only reply with the Python code of Matplotlib to plot the graph and save it as graph.png. "
-            f"The data is in the table '{tablename}' and its attributes are: {metadata_str}. If the user does not ask for a graph, you only reply with the answer to the query. "
-            f"The user asks: {query}"
+            f"You are an AI specialized in data analysis and visualization. "
+            f"The data is in the table '{tablename}' and its attributes are: {metadata_str}. "
+            f"If the user asks for a graph, generate only the Python code using Matplotlib to plot the graph, "
+            f"including any necessary calculations like mean, median, etc., based on the data. "
+            f"Save the graph as 'graph.png'. "
+            f"If the user does not ask for a graph, simply answer the query with the computed result. "
+            f"The user asks: {query}."
         )
 
         code = generate_code(prompt_eng)
+
         if 'import matplotlib' in code:
             try:
-                exec(code, {'df': df})  # Execute the code with 'df' in the scope
+                exec(code, {'df': df, 'plt': plt})  # Execute the code with 'df' and 'plt' in the scope
                 with open("graph.png", 'rb') as image_file:
                     return HttpResponse(json.dumps({"graph": base64.b64encode(image_file.read()).decode('utf-8')}),
                                         content_type="application/json")
             except Exception as e:
-                prompt_eng = f"There has occurred an error while executing the code, please take a look at the error and strictly only reply with the full python code do not apologize or anything just give the code {str(e)}"
+                prompt_eng = (
+                    f"There was an error in the previous code: {str(e)}. "
+                    f"Please provide the correct full Python code, including error handling."
+                )
                 code = generate_code(prompt_eng)
                 try:
-                    exec(code, {'df': df})  # Execute the corrected code with 'df' in the scope
+                    exec(code, {'df': df, 'plt': plt})  # Execute the corrected code with 'df' and 'plt' in the scope
                     with open("graph.png", 'rb') as image_file:
                         return HttpResponse(json.dumps({"graph": base64.b64encode(image_file.read()).decode('utf-8')}),
                                             content_type="application/json")
                 except Exception as e:
-                    return HttpResponse("Failed to generate the chart. Please try again")
+                    return HttpResponse(json.dumps({"error": f"Failed to generate the chart: {str(e)}"}), content_type="application/json")
         else:
-            return HttpResponse(code)
+            return HttpResponse(json.dumps({"response": code}), content_type="application/json")
+
+
 
 # Function to generate code from OpenAI API
 def generate_code(prompt_eng):
     response = client.chat.completions.create(
-        model="gpt-4-turbo",
+        model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": prompt_eng}
