@@ -119,19 +119,22 @@ def get_csv_metadata(df):
 
 
 
-# Database connection
-@csrf_exempt
-def connection(request):
-    global connection_obj
-    if request.method == 'POST':
-        username = request.POST['username']
-        password = request.POST['password']
-        database = request.POST['database']
-        host = request.POST['host']
-        port = request.POST['port']
-        connection_obj = db.create_connection(username, password, database, host, port)
-        print(connection_obj)
-        return HttpResponse(json.dumps({"tables": connection_obj}), content_type="application/json")
+# # Database connection
+# @csrf_exempt
+# def connection(request):
+#     global connection_obj
+#     if request.method == 'POST':
+#         username = request.POST['username']
+#         password = request.POST['password']
+#         database = request.POST['database']
+#         host = request.POST['host']
+#         port = request.POST['port']
+#         connection_obj = db.create_connection(username, password, database, host, port)
+#         print(connection_obj)
+#         return HttpResponse(json.dumps({"tables": connection_obj}), content_type="application/json")
+
+
+
 
 # Upload data to the database
 # Upload data to the database (CSV and Excel)
