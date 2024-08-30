@@ -135,9 +135,18 @@ def get_csv_metadata(df):
 
 # Upload data to the database
 # Upload data to the database (CSV and Excel)
+import io
+import os
+import pandas as pd
+from django.http import JsonResponse, HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+from sqlalchemy.exc import SQLAlchemyError
+import json
+
 @csrf_exempt
-def upload_data(request):
+def upload_and_analyze_data(request):
     if request.method == 'POST':
+        # Handle file upload
         files = request.FILES.get('file')
         if not files:
             return HttpResponse('No files uploaded', status=400)
@@ -146,6 +155,7 @@ def upload_data(request):
         file_extension = os.path.splitext(file_name)[1].lower()
 
         try:
+            # Process the uploaded file
             if file_extension == '.csv':
                 content = files.read().decode('utf-8')
                 csv_data = io.StringIO(content)
@@ -155,12 +165,38 @@ def upload_data(request):
             else:
                 raise SuspiciousOperation("Unsupported file format")
 
-            result = db.insert(df, file_name)  # Insert data into DB
-            return JsonResponse(result.to_dict(orient='records'), safe=False)  # Return data as JSON
+            # Insert the data into the database
+            result = db.insert(df, file_name)  # Assuming db.insert returns the DataFrame
+
+            # Extract the first 10 rows of the data
+            first_10_rows = df.head(10).to_dict(orient='records')
+
+            # Generate descriptions and questions for the data
+            prompt_eng = f"You are analytics_bot. Analyse the data: {df} and give description of the columns. Give the data in the structured format"
+            code = generate_code(prompt_eng)
+
+            prompt_eng1 = f"Generate 10 questions for the data: {df}. Give the questions in the linewise format"
+            code1 = generate_code(prompt_eng1)
+
+            prompt_eng_2 = f"Generate 10 simple possible plotting questions for the data: {df}. Give the plotting Questions in the linewise format"
+            code2 = generate_code(prompt_eng_2)
+
+            # Create a JSON response with titles corresponding to each prompt
+            response_data = {
+                "first_10_rows": first_10_rows,  # Include first 10 rows
+                "column_description": code,
+                "text_questions": code1,
+                "plotting_questions": code2
+            }
+
+            # Return the analytics response along with the first 10 rows
+            return JsonResponse(response_data, safe=False)
+
         except Exception as e:
             print(e)
-            return HttpResponse(f"Failed to upload file: {str(e)}", status=500)
+            return HttpResponse(f"Failed to upload and analyze file: {str(e)}", status=500)
 
+    return HttpResponse("Invalid Request Method", status=405)
 
 
 
@@ -179,42 +215,6 @@ def read_data(request):
         df = db.get_table_data(tablename)
         return HttpResponse(df.to_json(), content_type="application/json")
 
-# Data analysis and description of the dataset
-@csrf_exempt
-def genAIPrompt3(request):
-    if request.method == "POST":
-        tablename = request.POST.get('tablename', 'data')  # Default to 'data' if not provided
-        df = db.get_table_data(tablename)
-
-        # Generate descriptions and questions for the data
-        prompt_eng = f"You are analytics_bot. Analyse the data: {df} and give description of the columns. Give the data in the structured format"
-        code = generate_code(prompt_eng)
-
-        prompt_eng1 = f"Generate 10 questions for the data: {df}. Give the questions in the linewise format"
-        code1 = generate_code(prompt_eng1)
-
-        prompt_eng_2 = f"Generate 10 simple possible plotting questions for the data: {df}. Give the plotting Questions in the linewise format"
-        code2 = generate_code(prompt_eng_2)
-
-        # Create a JSON response with titles corresponding to each prompt
-        response_data = {
-            "column_description": code,
-            "text_questions": code1,
-            "plotting_questions": code2
-        }
-
-        # Print the responses with corresponding titles for debugging purposes
-        print("Column Description:")
-        print(code)
-        print("\nText Questions:")
-        print(code1)
-        print("\nPlotting Questions:")
-        print(code2)
-
-        # Return the response in JSON format
-        return JsonResponse(response_data)
-
-    return HttpResponse("Invalid Request Method", status=405)
 
 # Data Visualization and getting the graphs
 
