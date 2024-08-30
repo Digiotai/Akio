@@ -312,7 +312,7 @@ class PostgresDatabase:
                 connection.commit()
                 connection.close()
             # Return the original DataFrame, not the serialized blob
-            return data  # Return DataFrame directly
+            return "Records Inserted Successfully" # Return DataFrame directly
 
         except Exception as err:
             print(err)
