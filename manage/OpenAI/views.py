@@ -119,7 +119,7 @@ def get_csv_metadata(df):
 
 
 
-# # Database connection
+# Database connection
 # @csrf_exempt
 # def connection(request):
 #     global connection_obj
@@ -132,9 +132,6 @@ def get_csv_metadata(df):
 #         connection_obj = db.create_connection(username, password, database, host, port)
 #         print(connection_obj)
 #         return HttpResponse(json.dumps({"tables": connection_obj}), content_type="application/json")
-
-
-
 
 # Upload data to the database
 # Upload data to the database (CSV and Excel)
@@ -158,11 +155,13 @@ def upload_data(request):
             else:
                 raise SuspiciousOperation("Unsupported file format")
 
-            result = db.insert(df, file_name)
-            return HttpResponse(result)
+            result = db.insert(df, file_name)  # Insert data into DB
+            return JsonResponse(result.to_dict(orient='records'), safe=False)  # Return data as JSON
         except Exception as e:
             print(e)
             return HttpResponse(f"Failed to upload file: {str(e)}", status=500)
+
+
 
 
 # Showing the number of tables in the database
@@ -285,6 +284,105 @@ def generate_code(prompt_eng):
     code_end = all_text.find("```", code_start)
     code = all_text[code_start:code_end]
     return code
+
+
+
+@csrf_exempt
+def regenerate_txt(request):
+    if request.method == "POST":
+        tablename = request.POST.get('tablename', 'data')  # Default to 'data' if not provided
+        df = db.get_table_data(tablename)
+        prompt_eng = (
+             f"Regenerate 10 questions for the data: {df}"
+    )
+        code = generate_code(prompt_eng)
+        return HttpResponse(json.dumps({"questions": code}),
+                        content_type="application/json")
+
+@csrf_exempt
+def regenerate_chart(request):
+    if request.method == "POST":
+        tablename = request.POST.get('tablename', 'data')  # Default to 'data' if not provided
+        df = db.get_table_data(tablename)
+        prompt_eng = (
+            f"Regenerate 10 simple possible plotting questions for the data: {df}. start the question using plot keyword"
+    )
+        code = generate_code(prompt_eng)
+        return HttpResponse(json.dumps({"questions": code}),
+                        content_type="application/json")
+
+
+
+@csrf_exempt
+def genresponse(request):
+    if request.method == "POST":
+        tablename = request.POST.get('tablename', 'data')  # Default to 'data' if not provided
+        df = db.get_table_data(tablename)
+
+        question = request.POST["query"]
+        graph = ''
+        if os.path.exists("graph.png"):
+            os.remove("graph.png")
+        prompt_eng = (
+            f"generate python code for the question {question} based on the data: {df} from data.csv file. "
+            f"If the question is related to plotting then save the plot as graph.csv"
+        )
+        code = generate_code(prompt_eng)
+        if "import" in code:
+            old_stdout = sys.stdout
+            redirected_output = sys.stdout = StringIO()
+            exec(code)
+            sys.stdout = old_stdout
+            print(redirected_output.getvalue())
+            if os.path.exists("graph.png"):
+                with open("graph.png", 'rb') as image_file:
+                    graph = base64.b64encode(image_file.read()).decode('utf-8')
+
+            return HttpResponse(json.dumps({"answer": redirected_output.getvalue(), "graph": graph}),
+                                content_type="application/json")
+        return HttpResponse(json.dumps({"answer": code}),
+                            content_type="application/json")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 #Predict and forecast purpose
