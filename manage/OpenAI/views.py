@@ -219,49 +219,49 @@ def read_data(request):
 # Data Visualization and getting the graphs
 
 
-@csrf_exempt
-def genAIPrompt(request):
-    if request.method == "POST":
-        tablename = request.POST.get('tablename', 'data')  # Default to 'data' if not provided
-        df = db.get_table_data(tablename)
-
-        csv_metadata = {"columns": df.columns.tolist()}
-        metadata_str = ", ".join(csv_metadata["columns"])
-        query = request.POST["query"]
-
-        prompt_eng = (
-            f"You are an AI specialized in data analysis and visualization. "
-            f"The data is in the table '{tablename}' and its attributes are: {metadata_str}. "
-            f"If the user asks for a graph, generate only the Python code using Matplotlib to plot the graph, "
-            f"including any necessary calculations like mean, median, etc., based on the data. "
-            f"Save the graph as 'graph.png'. "
-            f"If the user does not ask for a graph, simply answer the query with the computed result. "
-            f"The user asks: {query}."
-        )
-
-        code = generate_code(prompt_eng)
-
-        if 'import matplotlib' in code:
-            try:
-                exec(code, {'df': df, 'plt': plt})  # Execute the code with 'df' and 'plt' in the scope
-                with open("graph.png", 'rb') as image_file:
-                    return HttpResponse(json.dumps({"graph": base64.b64encode(image_file.read()).decode('utf-8')}),
-                                        content_type="application/json")
-            except Exception as e:
-                prompt_eng = (
-                    f"There was an error in the previous code: {str(e)}. "
-                    f"Please provide the correct full Python code, including error handling."
-                )
-                code = generate_code(prompt_eng)
-                try:
-                    exec(code, {'df': df, 'plt': plt})  # Execute the corrected code with 'df' and 'plt' in the scope
-                    with open("graph.png", 'rb') as image_file:
-                        return HttpResponse(json.dumps({"graph": base64.b64encode(image_file.read()).decode('utf-8')}),
-                                            content_type="application/json")
-                except Exception as e:
-                    return HttpResponse(json.dumps({"error": f"Failed to generate the chart: {str(e)}"}), content_type="application/json")
-        else:
-            return HttpResponse(json.dumps({"response": code}), content_type="application/json")
+# @csrf_exempt
+# def genAIPrompt(request):
+#     if request.method == "POST":
+#         tablename = request.POST.get('tablename', 'data')  # Default to 'data' if not provided
+#         df = db.get_table_data(tablename)
+#
+#         csv_metadata = {"columns": df.columns.tolist()}
+#         metadata_str = ", ".join(csv_metadata["columns"])
+#         query = request.POST["query"]
+#
+#         prompt_eng = (
+#             f"You are an AI specialized in data analysis and visualization. "
+#             f"The data is in the table '{tablename}' and its attributes are: {metadata_str}. "
+#             f"If the user asks for a graph, generate only the Python code using Matplotlib to plot the graph, "
+#             f"including any necessary calculations like mean, median, etc., based on the data. "
+#             f"Save the graph as 'graph.png'. "
+#             f"If the user does not ask for a graph, simply answer the query with the computed result. "
+#             f"The user asks: {query}."
+#         )
+#
+#         code = generate_code(prompt_eng)
+#
+#         if 'import matplotlib' in code:
+#             try:
+#                 exec(code, {'df': df, 'plt': plt})  # Execute the code with 'df' and 'plt' in the scope
+#                 with open("graph.png", 'rb') as image_file:
+#                     return HttpResponse(json.dumps({"graph": base64.b64encode(image_file.read()).decode('utf-8')}),
+#                                         content_type="application/json")
+#             except Exception as e:
+#                 prompt_eng = (
+#                     f"There was an error in the previous code: {str(e)}. "
+#                     f"Please provide the correct full Python code, including error handling."
+#                 )
+#                 code = generate_code(prompt_eng)
+#                 try:
+#                     exec(code, {'df': df, 'plt': plt})  # Execute the corrected code with 'df' and 'plt' in the scope
+#                     with open("graph.png", 'rb') as image_file:
+#                         return HttpResponse(json.dumps({"graph": base64.b64encode(image_file.read()).decode('utf-8')}),
+#                                             content_type="application/json")
+#                 except Exception as e:
+#                     return HttpResponse(json.dumps({"error": f"Failed to generate the chart: {str(e)}"}), content_type="application/json")
+#         else:
+#             return HttpResponse(json.dumps({"response": code}), content_type="application/json")
 
 
 
@@ -312,9 +312,90 @@ def regenerate_chart(request):
                         content_type="application/json")
 
 
+#
+# @csrf_exempt
+# def genresponse(request):
+#     if request.method == "POST":
+#         tablename = request.POST.get('tablename', 'data')  # Default to 'data' if not provided
+#         df = db.get_table_data(tablename)
+#
+#         csv_metadata = {"columns": df.columns.tolist()}
+#         metadata_str = ", ".join(csv_metadata["columns"])
+#         query = request.POST["query"]
+#
+#         graph = ''
+#         if os.path.exists("graph.png"):
+#             os.remove("graph.png")
+#
+#         prompt_eng = (
+#             f"You are an AI specialized in data analysis and visualization. "
+#             f"The data is in the table '{tablename}' and its attributes are: {metadata_str}. "
+#             f"If the user asks for a graph, generate only the Python code using Matplotlib to plot the graph, "
+#             f"including any necessary calculations like mean, median, etc., based on the data. "
+#             f"Save the graph as 'graph.png'. "
+#             f"If the user does not ask for a graph, simply answer the query with the computed result. "
+#             f"The user asks: {query}."
+#             f"generate python code for the question {query} based on the data: {df} "
+#             f"If the question is related to plotting then save the plot as graph.csv"
+#         )
+#
+#         code = generate_code(prompt_eng)
+#         if "import" in code:
+#             old_stdout = sys.stdout
+#             redirected_output = sys.stdout = StringIO()
+#             exec(code)
+#             sys.stdout = old_stdout
+#             print(redirected_output.getvalue())
+#             if os.path.exists("graph.png"):
+#                 with open("graph.png", 'rb') as image_file:
+#                     graph = base64.b64encode(image_file.read()).decode('utf-8')
+#
+#             return HttpResponse(json.dumps({"answer": redirected_output.getvalue(), "graph": graph}),
+#                                 content_type="application/json")
+#         return HttpResponse(json.dumps({"answer": code}),
+#                             content_type="application/json")
+
+
+
+from django.http import JsonResponse, HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+import sys
+from io import StringIO
 
 @csrf_exempt
 def genresponse(request):
+    if request.method == "POST":
+        tablename = request.POST.get('tablename', 'data')  # Default to 'data' if not provided
+        df = db.get_table_data(tablename)
+
+        csv_metadata = {"columns": df.columns.tolist()}
+        metadata_str = ", ".join(csv_metadata["columns"])
+        query = request.POST["query"]
+
+        prompt_eng = (
+            f"You are an AI specialized in data analysis. "
+            f"The data is in the table '{tablename}' and its attributes are: {metadata_str}. "
+            f"Answer the following question based on the data: {query}. "
+            f"Do not generate any graph or Python code for plotting. Just provide the computed result."
+        )
+
+        code = generate_code(prompt_eng)
+        return HttpResponse(json.dumps({"answer": code}), content_type="application/json")
+
+    return HttpResponse("Invalid Request Method", status=405)
+
+
+
+
+from django.http import JsonResponse, HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+import sys
+from io import StringIO
+import os
+import base64
+
+@csrf_exempt
+def genAIPrompt(request):
     if request.method == "POST":
         tablename = request.POST.get('tablename', 'data')  # Default to 'data' if not provided
         df = db.get_table_data(tablename)
@@ -330,13 +411,8 @@ def genresponse(request):
         prompt_eng = (
             f"You are an AI specialized in data analysis and visualization. "
             f"The data is in the table '{tablename}' and its attributes are: {metadata_str}. "
-            f"If the user asks for a graph, generate only the Python code using Matplotlib to plot the graph, "
-            f"including any necessary calculations like mean, median, etc., based on the data. "
-            f"Save the graph as 'graph.png'. "
-            f"If the user does not ask for a graph, simply answer the query with the computed result. "
-            f"The user asks: {query}."
-            f"generate python code for the question {query} based on the data: {df} "
-            f"If the question is related to plotting then save the plot as graph.csv"
+            f"Generate only the Python code using Matplotlib to plot the graph based on the following question: {query}. "
+            f"Save the graph as 'graph.png'. Do not provide any textual answer."
         )
 
         code = generate_code(prompt_eng)
@@ -345,21 +421,16 @@ def genresponse(request):
             redirected_output = sys.stdout = StringIO()
             exec(code)
             sys.stdout = old_stdout
-            print(redirected_output.getvalue())
+
             if os.path.exists("graph.png"):
                 with open("graph.png", 'rb') as image_file:
                     graph = base64.b64encode(image_file.read()).decode('utf-8')
 
-            return HttpResponse(json.dumps({"answer": redirected_output.getvalue(), "graph": graph}),
-                                content_type="application/json")
-        return HttpResponse(json.dumps({"answer": code}),
-                            content_type="application/json")
+            return HttpResponse(json.dumps({"graph": graph}), content_type="application/json")
 
+        return HttpResponse("Failed to generate graph.", status=500)
 
-
-
-
-
+    return HttpResponse("Invalid Request Method", status=405)
 
 
 
