@@ -319,14 +319,26 @@ def genresponse(request):
         tablename = request.POST.get('tablename', 'data')  # Default to 'data' if not provided
         df = db.get_table_data(tablename)
 
-        question = request.POST["query"]
+        csv_metadata = {"columns": df.columns.tolist()}
+        metadata_str = ", ".join(csv_metadata["columns"])
+        query = request.POST["query"]
+
         graph = ''
         if os.path.exists("graph.png"):
             os.remove("graph.png")
+
         prompt_eng = (
-            f"generate python code for the question {question} based on the data: {df} from data.csv file. "
+            f"You are an AI specialized in data analysis and visualization. "
+            f"The data is in the table '{tablename}' and its attributes are: {metadata_str}. "
+            f"If the user asks for a graph, generate only the Python code using Matplotlib to plot the graph, "
+            f"including any necessary calculations like mean, median, etc., based on the data. "
+            f"Save the graph as 'graph.png'. "
+            f"If the user does not ask for a graph, simply answer the query with the computed result. "
+            f"The user asks: {query}."
+            f"generate python code for the question {query} based on the data: {df} "
             f"If the question is related to plotting then save the plot as graph.csv"
         )
+
         code = generate_code(prompt_eng)
         if "import" in code:
             old_stdout = sys.stdout
