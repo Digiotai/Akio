@@ -182,14 +182,17 @@ def upload_and_analyze_data(request):
 
             prompt_eng1 = (
                 f"Based on the table '{file_name}' and its columns: {columns_list}, "
-                f"generate 10  simple  relevant questions that could be asked about this data like averages etc. "
+                f"generate 10 simple questions that are related to data preprocessing steps like handling missing values, normalizing data, or calculating basic statistics such as averages, sums, or counts. "
+                f"Do not include any questions related to graph plotting or visualization. "
                 f"Provide these questions in a linewise format."
             )
             text_questions = generate_code(prompt_eng1)
 
             prompt_eng2 = (
                 f"Based on the table '{file_name}' and its columns: {columns_list}, "
-                f"generate 10 simple  plotting questions for the graph generation  that could be visualized using the data. "
+                f"generate 10 simple questions that focus on graph plotting and visualizations, such as creating histograms, scatter plots, bar charts, or line graphs. "
+                f"These questions should be related to visualizing patterns, trends, distributions, or comparisons in the data. "
+                f"Do not include any questions about data preprocessing or analysis. "
                 f"Provide these questions in a linewise format."
             )
             plotting_questions = generate_code(prompt_eng2)
