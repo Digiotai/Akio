@@ -252,14 +252,12 @@ import psycopg2
 #     # print(pdd.get_table_data('retail_sales_data'))
 
 
-
-
 from sqlalchemy import create_engine
 import pandas as pd
 import pickle
 from datetime import datetime
-
 from sqlalchemy.sql import text
+import psycopg2
 
 
 class PostgresDatabase:
@@ -270,7 +268,7 @@ class PostgresDatabase:
     def get_tables(self):
         try:
             with self.engine.connect() as connection:
-                result = connection.execute( """SELECT table_name 
+                result = connection.execute("""SELECT table_name 
                                                 FROM information_schema.tables 
                                                 WHERE table_schema = 'public'  
                                                 AND table_type = 'BASE TABLE';""")
@@ -285,13 +283,11 @@ class PostgresDatabase:
                 connection.execute(f"DROP TABLE IF EXISTS data;")
                 query = """CREATE TABLE data(
                             id SERIAL PRIMARY KEY,
-                            name VARCHAR(255),
+                            name VARCHAR(255) UNIQUE,  -- Ensure 'name' is unique
                             lastupdate TIMESTAMP,
                             datecreated TIMESTAMP,
                             fileobj BYTEA)"""
                 connection.execute(query)
-                connection.commit()
-                connection.close()
         except Exception as err:
             print(err)
             return str(err)
@@ -300,19 +296,26 @@ class PostgresDatabase:
         try:
             tb_name_clean = tb_name.split('.')[0]  # Strip extension
             blob_data = psycopg2.Binary(pickle.dumps(data))  # Serialize the data
-            query = text("""INSERT INTO data (name, lastupdate, datecreated, fileobj) 
-                            VALUES (:name, :lastupdate, :datecreated, :fileobj)""")
+
+            # First, check if the entry exists, if so, delete it to avoid duplicates
+            query_check = text("SELECT COUNT(*) FROM data WHERE name = :name")
+            query_delete = text("DELETE FROM data WHERE name = :name")
+            query_insert = text("""INSERT INTO data (name, lastupdate, datecreated, fileobj) 
+                                   VALUES (:name, :lastupdate, :datecreated, :fileobj)""")
+
             with self.engine.connect() as connection:
-                connection.execute(query, {
+                result = connection.execute(query_check, {'name': tb_name_clean})
+                if result.scalar() > 0:
+                    connection.execute(query_delete, {'name': tb_name_clean})
+
+                # Insert the new data after deleting the existing one
+                connection.execute(query_insert, {
                     'name': tb_name_clean,
                     'lastupdate': datetime.now(),
                     'datecreated': datetime.now(),
                     'fileobj': blob_data
                 })
-                connection.commit()
-                connection.close()
-            # Return the original DataFrame, not the serialized blob
-            return "records inserted successfully" # Return DataFrame directly
+            return "Record inserted/updated successfully"
 
         except Exception as err:
             print(err)
@@ -347,6 +350,19 @@ class PostgresDatabase:
             print(err)
             return pd.DataFrame()
 
+    def delete_table_data(self, table_name):
+        try:
+            query = text("DELETE FROM data WHERE name = :name")
+            with self.engine.connect() as connection:
+                result = connection.execute(query, {'name': table_name})
+                if result.rowcount == 0:
+                    return f"No data found for table: {table_name}"
+            return f"Record deleted successfully for table: {table_name}"
+        except Exception as err:
+            print(err)
+            return str(err)
+
+
 if __name__ == '__main__':
     pdd = PostgresDatabase()  # Uses default credentials
     # Example usage:
@@ -355,3 +371,4 @@ if __name__ == '__main__':
     # print(pdd.insert(df, "your_file.csv"))
     print(pdd.get_tables_info())
     # print(pdd.get_table_data('your_table_name'))
+    #pdd.delete_table_data('data')
