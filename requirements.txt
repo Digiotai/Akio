@@ -10,3 +10,4 @@ keras
 tensorflow
 openpyxl
 matplotlib
+scikit-learn
