@@ -252,42 +252,47 @@ import psycopg2
 #     # print(pdd.get_table_data('retail_sales_data'))
 
 
-from sqlalchemy import create_engine
+import psycopg2
 import pandas as pd
 import pickle
 from datetime import datetime
-from sqlalchemy.sql import text
-import psycopg2
 
 
 class PostgresDatabase:
     def __init__(self, user='mabpfgiu', password='vzKsrtuh2PTCsQwoExC7gympinp57ADp',
                  database='mabpfgiu', host='abul.db.elephantsql.com', port=5432):
-        self.engine = create_engine(f'postgresql://{user}:{password}@{host}:{port}/{database}')
+        self.connection = psycopg2.connect(
+            user=user,
+            password=password,
+            database=database,
+            host=host,
+            port=port
+        )
+        self.connection.autocommit = True
 
     def get_tables(self):
         try:
-            with self.engine.connect() as connection:
-                result = connection.execute("""SELECT table_name 
-                                                FROM information_schema.tables 
-                                                WHERE table_schema = 'public'  
-                                                AND table_type = 'BASE TABLE';""")
-                table_names = [row[0] for row in result.fetchall()]
+            with self.connection.cursor() as cursor:
+                cursor.execute("""SELECT table_name 
+                                  FROM information_schema.tables 
+                                  WHERE table_schema = 'public'  
+                                  AND table_type = 'BASE TABLE';""")
+                table_names = [row[0] for row in cursor.fetchall()]
             return table_names
         except Exception as e:
             print(e)
 
     def create_table(self):
         try:
-            with self.engine.connect() as connection:
-                connection.execute(f"DROP TABLE IF EXISTS data;")
-                query = """CREATE TABLE data(
+            with self.connection.cursor() as cursor:
+                query = """CREATE TABLE IF NOT EXISTS data(
                             id SERIAL PRIMARY KEY,
                             name VARCHAR(255) UNIQUE,  -- Ensure 'name' is unique
                             lastupdate TIMESTAMP,
                             datecreated TIMESTAMP,
                             fileobj BYTEA)"""
-                connection.execute(query)
+                cursor.execute(query)
+                print("Table 'data' created successfully.")
         except Exception as err:
             print(err)
             return str(err)
@@ -295,26 +300,18 @@ class PostgresDatabase:
     def insert(self, data, tb_name):
         try:
             tb_name_clean = tb_name.split('.')[0]  # Strip extension
-            blob_data = psycopg2.Binary(pickle.dumps(data))  # Serialize the data
+            blob_data = pickle.dumps(data)  # Serialize the data
 
-            # First, check if the entry exists, if so, delete it to avoid duplicates
-            query_check = text("SELECT COUNT(*) FROM data WHERE name = :name")
-            query_delete = text("DELETE FROM data WHERE name = :name")
-            query_insert = text("""INSERT INTO data (name, lastupdate, datecreated, fileobj) 
-                                   VALUES (:name, :lastupdate, :datecreated, :fileobj)""")
+            with self.connection.cursor() as cursor:
+                # Check if the entry exists
+                cursor.execute("SELECT COUNT(*) FROM data WHERE name = %s", (tb_name_clean,))
+                if cursor.fetchone()[0] > 0:
+                    cursor.execute("DELETE FROM data WHERE name = %s", (tb_name_clean,))
 
-            with self.engine.connect() as connection:
-                result = connection.execute(query_check, {'name': tb_name_clean})
-                if result.scalar() > 0:
-                    connection.execute(query_delete, {'name': tb_name_clean})
-
-                # Insert the new data after deleting the existing one
-                connection.execute(query_insert, {
-                    'name': tb_name_clean,
-                    'lastupdate': datetime.now(),
-                    'datecreated': datetime.now(),
-                    'fileobj': blob_data
-                })
+                # Insert the new data
+                cursor.execute("""INSERT INTO data (name, lastupdate, datecreated, fileobj) 
+                                  VALUES (%s, %s, %s, %s)""",
+                               (tb_name_clean, datetime.now(), datetime.now(), psycopg2.Binary(blob_data)))
             return "Record inserted/updated successfully"
 
         except Exception as err:
@@ -323,9 +320,15 @@ class PostgresDatabase:
 
     def read(self):
         try:
-            query = "SELECT * FROM data"
-            df = pd.read_sql_query(query, self.engine)
+            with self.connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM data")
+                rows = cursor.fetchall()
+
+            # Convert the result to a DataFrame
+            columns = ['id', 'name', 'lastupdate', 'datecreated', 'fileobj']
+            df = pd.DataFrame(rows, columns=columns)
             return df
+
         except Exception as err:
             print(err)
             return pd.DataFrame()  # Return an empty DataFrame in case of error
@@ -352,12 +355,31 @@ class PostgresDatabase:
 
     def delete_table_data(self, table_name):
         try:
-            query = text("DELETE FROM data WHERE name = :name")
-            with self.engine.connect() as connection:
-                result = connection.execute(query, {'name': table_name})
-                if result.rowcount == 0:
+            with self.connection.cursor() as cursor:
+                cursor.execute("DELETE FROM data WHERE name = %s", (table_name,))
+                if cursor.rowcount == 0:
                     return f"No data found for table: {table_name}"
             return f"Record deleted successfully for table: {table_name}"
+        except Exception as err:
+            print(err)
+            return str(err)
+
+    def drop_table(self, table_name):
+        """Drop a specific table from the database."""
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(f"DROP TABLE IF EXISTS {table_name} CASCADE")
+            return f"Table '{table_name}' dropped successfully."
+        except Exception as err:
+            print(err)
+            return str(err)
+
+    def truncate_data_table(self):
+        """Truncate the data table to delete all rows but keep the structure intact."""
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute("TRUNCATE TABLE data CASCADE")
+            return "All data truncated from the 'data' table successfully."
         except Exception as err:
             print(err)
             return str(err)
@@ -366,9 +388,13 @@ class PostgresDatabase:
 if __name__ == '__main__':
     pdd = PostgresDatabase()  # Uses default credentials
     # Example usage:
-    # pdd.create_table()
+    #pdd.create_table()
+
     # df = pd.read_csv(r"path_to_your_file.csv")
     # print(pdd.insert(df, "your_file.csv"))
+
     print(pdd.get_tables_info())
-    # print(pdd.get_table_data('your_table_name'))
-    #pdd.delete_table_data('data')
+    #pdd.drop_table("data")
+    # pdd.delete_table_data('data')
+    # Truncate all data in the 'data' table
+    #print(pdd.truncate_data_table())
