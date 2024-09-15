@@ -182,7 +182,7 @@ def upload_and_analyze_data(request):
 
             prompt_eng1 = (
                 f"Based on the table '{file_name}' and its columns: {columns_list}, "
-                f"generate 10 simple questions that are related to data preprocessing steps like handling missing values, normalizing data, or calculating basic statistics such as averages, sums, or counts. "
+                f"generate 10 simple  and very basic questions that are related to data preprocessing steps and  calculating basic statistics such as averages, sums, or counts based on the given tablename only. "
                 f"Do not include any questions related to graph plotting or visualization. "
                 f"Provide these questions in a linewise format."
             )
@@ -403,21 +403,34 @@ import pandas as pd
 import io
 import sys
 
-
 @csrf_exempt
 def genresponse(request):
     if request.method == "POST":
-        tablename = request.POST.get('tablename', 'data')  # Default to 'data' if not provided
+        tablename = request.POST.get('tablename', "data")  # Default to 'data' if not provided
         df = db.get_table_data(tablename)
+        print(df)
 
+        # Save the data to a CSV file
+        csv_file_path = 'data1.csv'
+        df.to_csv(csv_file_path, index=False)
+
+        # Generate CSV metadata
         csv_metadata = {"columns": df.columns.tolist()}
         metadata_str = ", ".join(csv_metadata["columns"])
+
         query = request.POST["query"]
+
         print("execution started")
+
         prompt_eng = (
+            f"You are an AI specialized in data preprocessing."
+            f"Data related to the {query} is stored in a CSV file data1.csv.Consider the data1.csv as the data source"
             f"Generate Python code to answer the question: '{query}' based on the data from '{tablename}'. "
             f"The DataFrame 'df' contains the following columns: {metadata_str}. "
             f"Return only the Python code that computes the result .Result should describe the parameters in it, without any plotting or visualization."
+            f"If the {query} related to the theoretical concept.You will give a small description about the concept also."
+
+
         )
 
         code = generate_code(prompt_eng)
@@ -452,6 +465,7 @@ def execute_code(code, df):
             last_line = code.strip().split('\n')[-1]
             if not last_line.startswith(('print', 'return')):
                 output = eval(last_line, globals(), local_vars)
+                print(output)
     except Exception as e:
         output = f"Error executing code: {str(e)}"
     finally:
