@@ -14,6 +14,8 @@ urlpatterns = [
     path("api/regenerate", regenerate_txt, name="regenerate"),
     path("api/regenerate_chart", regenerate_chart, name="regenerate_chart"),
     path("api/genresponse", genresponse, name="regenerate_chart"),
+    path("api/genresponse2", genresponse2, name="regenerate_chart"),
+    path("api/getResult2", genAIPrompt2, name="GenAIPrompt"),
     # forecast/predict apis
     path('api/predict/<str:data>/<str:field>', get_prediction_info, name='get_prediction_info'),
     path('api/predict/<str:data>', get_columns, name='get_columns'),
