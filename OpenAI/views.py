@@ -396,6 +396,10 @@ def regenerate_chart(request):
 #
 #     return HttpResponse("Invalid Request Method", status=405)
 
+
+
+#For genai
+
 import json
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -475,7 +479,7 @@ def execute_code(code, df):
     return str(output)
 
 
-
+# For Genai
 import os
 import json
 import pandas as pd
@@ -537,6 +541,190 @@ def genAIPrompt(request):
                     return HttpResponse("Failed to generate the chart. Please try again")
         else:
             return HttpResponse(code)
+
+
+#For genbi
+import json
+from django.http import HttpResponse, JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import pandas as pd
+import io
+import sys
+
+@csrf_exempt
+def genresponse2(request):
+    if request.method == "POST":
+        tablename = request.POST.get('tablename', "data")  # Default to 'data' if not provided
+        df = db.get_table_data(tablename)
+        print(df)
+
+        # Save the data to a CSV file
+        csv_file_path = 'data1.csv'
+        df.to_csv(csv_file_path, index=False)
+
+        # Generate CSV metadata
+        csv_metadata = {"columns": df.columns.tolist()}
+        metadata_str = ", ".join(csv_metadata["columns"])
+
+        query = request.POST["query"]
+
+        print("execution started")
+
+        prompt_eng = (
+            f"You are an AI specialized in data preprocessing."
+            f"Data related to the {query} is stored in a CSV file data1.csv.Consider the data1.csv as the data source"
+            f"Generate Python code to answer the question: '{query}' based on the data from '{tablename}'. "
+            f"The DataFrame 'df' contains the following columns: {metadata_str}. "
+            f"Return only the Python code that computes the result .Result should describe the parameters in it, without any plotting or visualization."
+            f"If the {query} related to the theoretical concept.You will give a small description about the concept also."
+
+
+        )
+
+        code = generate_code(prompt_eng)
+
+        print(code)
+
+        # Execute the generated code
+        result = execute_code(code, df)
+
+        return JsonResponse({"answer": result})
+
+    return HttpResponse("Invalid Request Method", status=405)
+
+
+def execute_code(code, df):
+    # Create a string buffer to capture the output
+    buffer = io.StringIO()
+    sys.stdout = buffer
+
+    # Create a local namespace for execution
+    local_vars = {'df': df}
+
+    try:
+        # Execute the code
+        exec(code, globals(), local_vars)
+
+        # Get the captured output
+        output = buffer.getvalue().strip()
+
+        # If there's no output, try to get the last evaluated expression
+        if not output:
+            last_line = code.strip().split('\n')[-1]
+            if not last_line.startswith(('print', 'return')):
+                output = eval(last_line, globals(), local_vars)
+                print(output)
+    except Exception as e:
+        output = f"Error executing code: {str(e)}"
+    finally:
+        # Reset stdout
+        sys.stdout = sys.__stdout__
+
+    return str(output)
+
+
+# For Genbi
+import os
+import json
+import pandas as pd
+from django.http import HttpResponse, FileResponse
+from django.views.decorators.csrf import csrf_exempt
+
+@csrf_exempt
+def genAIPrompt2(request):
+    if request.method == "POST":
+        tablename = request.POST.get('tablename', "data")  # Default to 'data' if not provided
+        df = db.get_table_data(tablename)
+        print(df)
+
+        # Save the data to a CSV file
+        csv_file_path = 'data.csv'
+        df.to_csv(csv_file_path, index=False)
+
+        # Generate CSV metadata
+        csv_metadata = {"columns": df.columns.tolist()}
+        metadata_str = ", ".join(csv_metadata["columns"])
+
+        query = request.POST["query"]
+
+        prompt_eng = (
+            f"You are an AI specialized in data analytics and visualization. "
+            f" Data used for analysis is stored in a CSV file data.csv. "
+            f"Attributes of the data are: {metadata_str}. "
+            f"Consider 'data.csv' as the data source for any analysis."
+            f"If the user asks for a graph, generate only the Python code using Matplotlib to plot the graph. "
+            f"Save the graph as 'graph.png'. "
+            f"If the user does not ask for a graph, simply answer the query with the computed result. "
+            f"The user asks: {query}"
+        )
+
+        code = generate_code(prompt_eng)
+        print(code)
+
+        if 'import matplotlib' in code:
+            try:
+                exec(code)
+                # Send the generated 'graph.png' as the file response
+                image_path = "graph.png"
+                if os.path.exists(image_path):
+                    return FileResponse(open(image_path, 'rb'), content_type='image/png')
+                else:
+                    return HttpResponse("Graph image not found", status=404)
+            except Exception as e:
+                prompt_eng = f"There has occurred an error while executing the code, please take a look at the error and strictly only reply with the full python code. Do not apologize or anything; just give the code. {str(e)}"
+                code = generate_code(prompt_eng)
+                try:
+                    exec(code)
+                    # Send the generated 'graph.png' as the file response
+                    image_path = "graph.png"
+                    if os.path.exists(image_path):
+                        return FileResponse(open(image_path, 'rb'), content_type='image/png')
+                    else:
+                        return HttpResponse("Graph image not found", status=404)
+                except Exception as e:
+                    return HttpResponse("Failed to generate the chart. Please try again")
+        else:
+            return HttpResponse(code)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
