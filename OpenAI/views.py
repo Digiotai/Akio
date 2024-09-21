@@ -559,7 +559,7 @@ def genresponse2(request):
         print(df)
 
         # Save the data to a CSV file
-        csv_file_path = 'data1.csv'
+        csv_file_path = 'data2.csv'
         df.to_csv(csv_file_path, index=False)
 
         # Generate CSV metadata
@@ -572,7 +572,7 @@ def genresponse2(request):
 
         prompt_eng = (
             f"You are an AI specialized in data preprocessing."
-            f"Data related to the {query} is stored in a CSV file data1.csv.Consider the data1.csv as the data source"
+            f"Data related to the {query} is stored in a CSV file data2.csv.Consider the data1.csv as the data source"
             f"Generate Python code to answer the question: '{query}' based on the data from '{tablename}'. "
             f"The DataFrame 'df' contains the following columns: {metadata_str}. "
             f"Return only the Python code that computes the result .Result should describe the parameters in it, without any plotting or visualization."
@@ -638,7 +638,7 @@ def genAIPrompt2(request):
         print(df)
 
         # Save the data to a CSV file
-        csv_file_path = 'data.csv'
+        csv_file_path = 'data3.csv'
         df.to_csv(csv_file_path, index=False)
 
         # Generate CSV metadata
@@ -649,9 +649,9 @@ def genAIPrompt2(request):
 
         prompt_eng = (
             f"You are an AI specialized in data analytics and visualization. "
-            f" Data used for analysis is stored in a CSV file data.csv. "
+            f" Data used for analysis is stored in a CSV file data3.csv. "
             f"Attributes of the data are: {metadata_str}. "
-            f"Consider 'data.csv' as the data source for any analysis."
+            f"Consider 'data3.csv' as the data source for any analysis."
             f"If the user asks for a graph, generate only the Python code using Matplotlib to plot the graph. "
             f"Save the graph as 'graph.png'. "
             f"If the user does not ask for a graph, simply answer the query with the computed result. "
