@@ -17,7 +17,7 @@ from django.views.decorators.csrf import csrf_exempt
 from dotenv import load_dotenv
 from openai import OpenAI
 from digiotai.digiotai_jazz import Agent, Task, OpenAIModel, SequentialFlow, InputType, OutputType
-#from .database import PostgreSQLDB
+# from .database import PostgreSQLDB
 from .form import CreateUserForm
 from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse
@@ -56,7 +56,8 @@ output_type = OutputType("Image")
 agent = Agent(expertise, task, input_type, output_type)
 api_key = OPENAI_API_KEY
 
-#db = PostgreSQLDB(dbname='uibmogli', user='uibmogli', password='8ogImHfL_1G249lXtM3k2EAIWTRDH2mX')
+
+# db = PostgreSQLDB(dbname='uibmogli', user='uibmogli', password='8ogImHfL_1G249lXtM3k2EAIWTRDH2mX')
 
 
 def get_csv_metadata(df):
@@ -67,6 +68,8 @@ def get_csv_metadata(df):
         "example_data": df.head().to_dict()
     }
     return metadata
+
+
 #
 # #login page
 # @csrf_exempt
@@ -117,8 +120,6 @@ def get_csv_metadata(df):
 #     return HttpResponse("Registration Failed")
 
 
-
-
 # Database connection
 # @csrf_exempt
 # def connection(request):
@@ -142,6 +143,7 @@ import io
 import pandas as pd
 import json
 from django.core.exceptions import SuspiciousOperation
+
 
 @csrf_exempt
 def upload_and_analyze_data(request):
@@ -222,6 +224,7 @@ def get_tableinfo(request):
         table_info = db.get_tables_info()
         return HttpResponse(table_info, content_type="application/json")
 
+
 # Showing the data to the user based on the table name
 @csrf_exempt
 def read_data(request):
@@ -279,7 +282,6 @@ def read_data(request):
 #             return HttpResponse(json.dumps({"response": code}), content_type="application/json")
 
 
-
 # Function to generate code from OpenAI API
 def generate_code(prompt_eng):
     response = client.chat.completions.create(
@@ -301,18 +303,18 @@ def generate_code(prompt_eng):
     return code
 
 
-
 @csrf_exempt
 def regenerate_txt(request):
     if request.method == "POST":
         tablename = request.POST.get('tablename', 'data')  # Default to 'data' if not provided
         df = db.get_table_data(tablename)
         prompt_eng = (
-             f"Regenerate 10 questions for the data: {df}"
-    )
+            f"Regenerate 10 questions for the data: {df}"
+        )
         code = generate_code(prompt_eng)
         return HttpResponse(json.dumps({"questions": code}),
-                        content_type="application/json")
+                            content_type="application/json")
+
 
 @csrf_exempt
 def regenerate_chart(request):
@@ -321,10 +323,10 @@ def regenerate_chart(request):
         df = db.get_table_data(tablename)
         prompt_eng = (
             f"Regenerate 10 simple possible plotting questions for the data: {df}. start the question using plot keyword"
-    )
+        )
         code = generate_code(prompt_eng)
         return HttpResponse(json.dumps({"questions": code}),
-                        content_type="application/json")
+                            content_type="application/json")
 
 
 #
@@ -370,7 +372,6 @@ def regenerate_chart(request):
 #                             content_type="application/json")
 
 
-
 # from django.http import JsonResponse, HttpResponse
 # from django.views.decorators.csrf import csrf_exempt
 # import sys
@@ -397,8 +398,7 @@ def regenerate_chart(request):
 #     return HttpResponse("Invalid Request Method", status=405)
 
 
-
-#For genai
+# For genai
 
 import json
 from django.http import HttpResponse, JsonResponse
@@ -406,6 +406,7 @@ from django.views.decorators.csrf import csrf_exempt
 import pandas as pd
 import io
 import sys
+
 
 @csrf_exempt
 def genresponse(request):
@@ -433,7 +434,6 @@ def genresponse(request):
             f"The DataFrame 'df' contains the following columns: {metadata_str}. "
             f"Return only the Python code that computes the result .Result should describe the parameters in it, without any plotting or visualization."
             f"If the {query} related to the theoretical concept.You will give a small description about the concept also."
-
 
         )
 
@@ -485,6 +485,7 @@ import json
 import pandas as pd
 from django.http import HttpResponse, FileResponse
 from django.views.decorators.csrf import csrf_exempt
+
 
 @csrf_exempt
 def genAIPrompt(request):
@@ -543,13 +544,14 @@ def genAIPrompt(request):
             return HttpResponse(code)
 
 
-#For genbi
+# For genbi
 import json
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 import pandas as pd
 import io
 import sys
+
 
 @csrf_exempt
 def genresponse2(request):
@@ -577,7 +579,6 @@ def genresponse2(request):
             f"The DataFrame 'df' contains the following columns: {metadata_str}. "
             f"Return only the Python code that computes the result .Result should describe the parameters in it, without any plotting or visualization."
             f"If the {query} related to the theoretical concept.You will give a small description about the concept also."
-
 
         )
 
@@ -629,6 +630,7 @@ import json
 import pandas as pd
 from django.http import HttpResponse, FileResponse
 from django.views.decorators.csrf import csrf_exempt
+
 
 @csrf_exempt
 def genAIPrompt2(request):
@@ -687,75 +689,8 @@ def genAIPrompt2(request):
             return HttpResponse(code)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#Predict and forecast purpose
-#Getting the prediction result
+# Predict and forecast purpose
+# Getting the prediction result
 @csrf_exempt
 def get_prediction_info(request, data, field):
     with open(f"data/{data.lower()}/{field}/results.json", 'r') as fp:
@@ -763,7 +698,7 @@ def get_prediction_info(request, data, field):
     return HttpResponse(json.dumps({"data": res}), content_type="application/json")
 
 
-#This will return the columns for the table
+# This will return the columns for the table
 @csrf_exempt
 def get_columns(request, data):
     df = pd.read_csv(f"data/{data.lower()}/processed_data.csv")
@@ -771,7 +706,7 @@ def get_columns(request, data):
     return HttpResponse(json.dumps({"columns": list(cols)}), content_type="application/json")
 
 
-#Generating the URL for the prediction
+# Generating the URL for the prediction
 @csrf_exempt
 def generate_deployment(request, data, field):
     hash_object = hashlib.sha256(f'{data}__{field}'.encode('ascii'))
@@ -780,7 +715,7 @@ def generate_deployment(request, data, field):
     return HttpResponse(json.dumps({"deployment_url": hex_dig}), content_type="application/json")
 
 
-#THis will be helpful for the prediction on which columns.
+# THis will be helpful for the prediction on which columns.
 @csrf_exempt
 def deployment(request, data):
     model = get_deployment_txt(data)
@@ -790,7 +725,7 @@ def deployment(request, data):
     return HttpResponse(json.dumps({"columns": data["columns"]}), content_type="application/json")
 
 
-#For prediction based on the deployment url
+# For prediction based on the deployment url
 @csrf_exempt
 def deployment_predict(request, data):
     if request.method == 'POST':
@@ -809,14 +744,19 @@ def deployment_predict(request, data):
         return HttpResponse(json.dumps({"result": result}), content_type="application/json")
 
 
-#Forecast of the data with the help of the deployment url
+# Forecast of the data with the help of the deployment url
 @csrf_exempt
-def deployment_forecast(request,data, col):
+def deployment_forecast(request, data, col):
     if request.method == 'POST':
-        col=col.lower().replace(" ","_")
-        with open(os.path.join('data',data, col,'results.json'),'r') as fp:
-            data= json.load(fp)
-        return HttpResponse(json.dumps({"result": data}), content_type="application/json")
+        col = col.lower().replace(" ", "_")
+        msg = ''
+        res = {}
+        try:
+            with open(os.path.join('data', data, col, 'results.json'), 'r') as fp:
+                res = json.load(fp)
+        except FileNotFoundError:
+            msg = 'Forecast not possible'
+        return HttpResponse(json.dumps({"result": res, "msg": msg}), content_type="application/json")
 
 
 def load_models(path, prediction_col, df):
@@ -852,6 +792,7 @@ def load_models(path, prediction_col, df):
     except Exception as e:
         print(e)
 
+
 def save_deployments(hex_data, data, field):
     if not os.path.exists("deployments.json"):
         deployment_data = {}
@@ -867,6 +808,3 @@ def get_deployment_txt(hex_data):
     with open("deployments.json", 'r') as fp:
         deployment_data = json.load(fp)
     return deployment_data[hex_data]
-
-
-
