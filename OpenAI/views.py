@@ -838,6 +838,7 @@ def load_models(path, prediction_col, df):
                 df[column.replace("_", " ")] = joblib.load(encoder_path).fit_transform(df[column.replace("_", " ")])
             else:
                 df[column] = df[column].astype(float)
+        print(df)
         res = model.predict(df.iloc[0, :].to_numpy().reshape(1, -1))
         model_type = deployment_data["model_type"]
         if model_type == 'classification':
