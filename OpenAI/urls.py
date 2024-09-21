@@ -22,5 +22,5 @@ urlpatterns = [
     path('api/deployments/<str:data>', deployment, name='deployment'),
     path('api/generatedeployment/<str:data>/<str:field>', generate_deployment, name='generate_deployment'),
     path('api/deployments/<str:data>/predict', deployment_predict, name='deployment_predict'),
-    path('api/forecast/<str:col>', deployment_forecast, name='deployment_forecast')
+    path('api/forecast/<str:data>/<str:col>', deployment_forecast, name='deployment_forecast')
 ]

@@ -787,8 +787,7 @@ def deployment(request, data):
     data, field = model.split('___')
     with open(f"data/{data.lower()}/{field.replace(' ', '_')}/deployment.json", 'r') as fp:
         data = json.load(fp)
-    cols = set(data["columns"]) - {"Date", field}
-    return HttpResponse(json.dumps({"columns": list(cols)}), content_type="application/json")
+    return HttpResponse(json.dumps({"columns": data["columns"]}), content_type="application/json")
 
 
 #For prediction based on the deployment url
@@ -812,10 +811,10 @@ def deployment_predict(request, data):
 
 #Forecast of the data with the help of the deployment url
 @csrf_exempt
-def deployment_forecast(request, col):
+def deployment_forecast(request,data, col):
     if request.method == 'POST':
         col=col.lower().replace(" ","_")
-        with open(os.path.join('data', col+'_results.json'),'r') as fp:
+        with open(os.path.join('data',data, col,'results.json'),'r') as fp:
             data= json.load(fp)
         return HttpResponse(json.dumps({"result": data}), content_type="application/json")
 
