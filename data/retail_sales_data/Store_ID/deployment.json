@@ -1,0 +1,17 @@
+{
+    "columns": {
+        "Employee Number": null,
+        "Area": [
+            "Asia",
+            "North America",
+            "South America",
+            "Europe"
+        ],
+        "Sales": null,
+        "Marketing Spend": null,
+        "Electronics Sales": null,
+        "Home Sales": null,
+        "Clothes Sales": null
+    },
+    "model_type": "regression"
+}
