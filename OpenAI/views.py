@@ -832,6 +832,7 @@ def load_models(path, prediction_col, df):
         model = load_model(os.path.join('data', path.lower(), prediction_col.replace(" ", "_"), "model.h5"))
         with open(os.path.join('data', path.lower(), prediction_col.replace(" ", "_"), "deployment.json"), 'r') as fp:
             deployment_data = json.load(fp)
+        print(df)
         for column in deployment_data["columns"]:
             if isinstance(deployment_data["columns"][column], list):
                 encoder_path = os.path.join('data', path.lower(), prediction_col.replace(" ", "_"),
