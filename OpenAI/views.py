@@ -787,7 +787,7 @@ def deployment(request, data):
     data, field = model.split('___')
     with open(f"data/{data.lower()}/{field.replace(' ', '_')}/deployment.json", 'r') as fp:
         data = json.load(fp)
-    cols = set(data["columns"]) - {"Date", field, "Area"}
+    cols = set(data["columns"]) - {"Date", field}
     return HttpResponse(json.dumps({"columns": list(cols)}), content_type="application/json")
 
 
