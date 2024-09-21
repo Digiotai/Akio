@@ -828,6 +828,7 @@ def load_models(path, prediction_col, df):
         #     res = model.predict(df.iloc[0, :].to_numpy().reshape(1, -1))
         #     return res
         # else:
+        print("Hai")
         model = load_model(os.path.join('data', path.lower(), prediction_col.replace(" ", "_"), "model.h5"))
         with open(os.path.join('data', path.lower(), prediction_col.replace(" ", "_"), "deployment.json"), 'r') as fp:
             deployment_data = json.load(fp)
