@@ -822,31 +822,31 @@ def deployment_forecast(request, col):
 
 def load_models(path, prediction_col, df):
     try:
-        if 'retail_sales_data' in path:
-            print(df)
-            model = joblib.load(os.path.join('data', path.lower(), prediction_col.replace(" ", "_"), "model.joblib"))
-            res = model.predict(df.iloc[0, :].to_numpy().reshape(1, -1))
-            return res
-        else:
-            model = load_model(os.path.join('data', path.lower(), prediction_col.replace(" ", "_"), "model.h5"))
-            with open(os.path.join('data', path.lower(), prediction_col.replace(" ", "_"), "deployment.json"), 'r') as fp:
-                deployment_data = json.load(fp)
-            for column in deployment_data["columns"]:
-                if isinstance(deployment_data["columns"][column], list):
-                    encoder_path = os.path.join('data', path.lower(), prediction_col.replace(" ", "_"),
-                                                f'{column.replace(" ", "_")}_encoder.pkl')
-                    df[column.replace("_", " ")] = joblib.load(encoder_path).fit_transform(df[column.replace("_", " ")])
-                else:
-                    df[column] = df[column].astype(float)
-            res = model.predict(df.iloc[0, :].to_numpy().reshape(1, -1))
-            model_type = deployment_data["model_type"]
-            if model_type == 'classification':
-                result = np.argmax(res, axis=-1)
-                res = joblib.load(
-                    os.path.join('data', path.lower(), prediction_col.replace(" ", "_"),
-                                 f'{prediction_col.replace(" ", "_")}_encoder.pkl')).inverse_transform(
-                    result)
-            return res[0]
+        # if 'retail_sales_data' in path:
+        #     print(df)
+        #     model = joblib.load(os.path.join('data', path.lower(), prediction_col.replace(" ", "_"), "model.joblib"))
+        #     res = model.predict(df.iloc[0, :].to_numpy().reshape(1, -1))
+        #     return res
+        # else:
+        model = load_model(os.path.join('data', path.lower(), prediction_col.replace(" ", "_"), "model.h5"))
+        with open(os.path.join('data', path.lower(), prediction_col.replace(" ", "_"), "deployment.json"), 'r') as fp:
+            deployment_data = json.load(fp)
+        for column in deployment_data["columns"]:
+            if isinstance(deployment_data["columns"][column], list):
+                encoder_path = os.path.join('data', path.lower(), prediction_col.replace(" ", "_"),
+                                            f'{column.replace(" ", "_")}_encoder.pkl')
+                df[column.replace("_", " ")] = joblib.load(encoder_path).fit_transform(df[column.replace("_", " ")])
+            else:
+                df[column] = df[column].astype(float)
+        res = model.predict(df.iloc[0, :].to_numpy().reshape(1, -1))
+        model_type = deployment_data["model_type"]
+        if model_type == 'classification':
+            result = np.argmax(res, axis=-1)
+            res = joblib.load(
+                os.path.join('data', path.lower(), prediction_col.replace(" ", "_"),
+                             f'{prediction_col.replace(" ", "_")}_encoder.pkl')).inverse_transform(
+                result)
+        return res[0]
     except Exception as e:
         print(e)
 
