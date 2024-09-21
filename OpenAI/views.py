@@ -796,7 +796,9 @@ def deployment(request, data):
 def deployment_predict(request, data):
     if request.method == 'POST':
         model = get_deployment_txt(data)
+        print(model)
         data, field = model.split('___')
+        print(data, field)
         res = {}
         for col in request.POST:
             res.update({col: request.POST[col]})
