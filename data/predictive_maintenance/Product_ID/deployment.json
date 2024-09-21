@@ -1,0 +1,25 @@
+{
+    "columns": {
+        "UDI": null,
+        "Type": [
+            "M",
+            "L",
+            "H"
+        ],
+        "Air temperature [K]": null,
+        "Process temperature [K]": null,
+        "Rotational speed [rpm]": null,
+        "Torque [Nm]": null,
+        "Tool wear [min]": null,
+        "Target": null,
+        "Failure Type": [
+            "No Failure",
+            "Power Failure",
+            "Tool Wear Failure",
+            "Overstrain Failure",
+            "Random Failures",
+            "Heat Dissipation Failure"
+        ]
+    },
+    "model_type": "classification"
+}

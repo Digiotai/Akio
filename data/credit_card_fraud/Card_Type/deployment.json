@@ -1,0 +1,35 @@
+{
+    "columns": {
+        "Transaction Amount": null,
+        "Transaction Country": [
+            "US",
+            "CA",
+            "Other",
+            "AU",
+            "UK"
+        ],
+        "Transaction Currency": [
+            "AUD",
+            "CAD",
+            "USD",
+            "GBP"
+        ],
+        "Transaction Time": null,
+        "Transaction Day": [
+            "Weekday",
+            "Weekend"
+        ],
+        "Card Issuer": [
+            "MasterCard",
+            "Discover",
+            "Visa",
+            "Amex"
+        ],
+        "Online Purchase": null,
+        "First Purchase": null,
+        "Customer Age": null,
+        "Account Age": null,
+        "Fraudulent": null
+    },
+    "model_type": "classification"
+}

@@ -1,0 +1,16 @@
+{
+    "columns": [
+        "Transaction Amount",
+        "Transaction Country",
+        "Transaction Currency",
+        "Transaction Time",
+        "Transaction Day",
+        "Card Issuer",
+        "Card Type",
+        "Online Purchase",
+        "First Purchase",
+        "Customer Age",
+        "Fraudulent"
+    ],
+    "model_type": "regression"
+}
