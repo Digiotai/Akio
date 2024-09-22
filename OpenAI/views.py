@@ -121,18 +121,18 @@ def get_csv_metadata(df):
 
 
 # Database connection
-# @csrf_exempt
-# def connection(request):
-#     global connection_obj
-#     if request.method == 'POST':
-#         username = request.POST['username']
-#         password = request.POST['password']
-#         database = request.POST['database']
-#         host = request.POST['host']
-#         port = request.POST['port']
-#         connection_obj = db.create_connection(username, password, database, host, port)
-#         print(connection_obj)
-#         return HttpResponse(json.dumps({"tables": connection_obj}), content_type="application/json")
+@csrf_exempt
+def connection(request):
+    global connection_obj
+    if request.method == 'POST':
+        username = request.POST['username']
+        password = request.POST['password']
+        database = request.POST['database']
+        host = request.POST['host']
+        port = request.POST['port']
+        connection_obj = db.create_connection(username, password, database, host, port)
+        print(connection_obj)
+        return HttpResponse(json.dumps({"tables": connection_obj}), content_type="application/json")
 
 # Upload data to the database
 # Upload data to the database (CSV and Excel)
@@ -730,15 +730,12 @@ def deployment(request, data):
 def deployment_predict(request, data):
     if request.method == 'POST':
         model = get_deployment_txt(data)
-        print(model)
         data, field = model.split('___')
-        print(data, field)
         res = {}
         for col in request.POST:
             res.update({col: request.POST[col]})
         df = pd.DataFrame([res])
         result = load_models(data, field, df)
-        print(result)
         if isinstance(result, np.ndarray):
             result = str(result[0])
         return HttpResponse(json.dumps({"result": result}), content_type="application/json")
@@ -761,17 +758,9 @@ def deployment_forecast(request, data, col):
 
 def load_models(path, prediction_col, df):
     try:
-        # if 'retail_sales_data' in path:
-        #     print(df)
-        #     model = joblib.load(os.path.join('data', path.lower(), prediction_col.replace(" ", "_"), "model.joblib"))
-        #     res = model.predict(df.iloc[0, :].to_numpy().reshape(1, -1))
-        #     return res
-        # else:
-        print("Hai")
         model = load_model(os.path.join('data', path.lower(), prediction_col.replace(" ", "_"), "model.h5"))
         with open(os.path.join('data', path.lower(), prediction_col.replace(" ", "_"), "deployment.json"), 'r') as fp:
             deployment_data = json.load(fp)
-        print(df)
         for column in deployment_data["columns"]:
             if isinstance(deployment_data["columns"][column], list):
                 encoder_path = os.path.join('data', path.lower(), prediction_col.replace(" ", "_"),
@@ -779,7 +768,6 @@ def load_models(path, prediction_col, df):
                 df[column.replace("_", " ")] = joblib.load(encoder_path).fit_transform(df[column.replace("_", " ")])
             else:
                 df[column] = df[column].astype(float)
-        print(df)
         res = model.predict(df.iloc[0, :].to_numpy().reshape(1, -1))
         model_type = deployment_data["model_type"]
         if model_type == 'classification':
