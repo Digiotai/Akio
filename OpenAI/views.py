@@ -749,7 +749,7 @@ def deployment_forecast(request, data, col):
         msg = ''
         res = {}
         try:
-            with open(os.path.join('data', data, col, '_results.json'), 'r') as fp:
+            with open(os.path.join('data', data, col, col+'_results.json'), 'r') as fp:
                 res = json.load(fp)
         except FileNotFoundError as e:
             print(e)
