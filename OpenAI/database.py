@@ -259,16 +259,27 @@ from datetime import datetime
 
 
 class PostgresDatabase:
-    def __init__(self, user='mabpfgiu', password='vzKsrtuh2PTCsQwoExC7gympinp57ADp',
-                 database='mabpfgiu', host='abul.db.elephantsql.com', port=5432):
-        self.connection = psycopg2.connect(
-            user=user,
-            password=password,
-            database=database,
-            host=host,
-            port=port
-        )
-        self.connection.autocommit = True
+    def __init__(self, dbname, user, password, host='cornelius.db.elephantsql.com', port=5432):
+        self.dbname = dbname
+        self.user = user
+        self.password = password
+        self.host = host
+        self.port = port
+
+    def connect(self):
+        try:
+            self.connection = psycopg2.connect(
+                dbname=self.dbname,
+                user=self.user,
+                password=self.password,
+                host=self.host,
+                port=self.port
+            )
+            self.connection.autocommit = True
+            return self.connection
+        except Exception as e:
+            print(e)
+            return None
 
     def get_tables(self):
         try:
