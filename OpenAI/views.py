@@ -745,11 +745,11 @@ def deployment_predict(request, data):
 @csrf_exempt
 def deployment_forecast(request, data, col):
     if request.method == 'POST':
-        col = col.lower().replace(" ", "_")
+        col = col.replace(" ", "_")
         msg = ''
         res = {}
         try:
-            with open(os.path.join('data', data, col, col+'_results.json'), 'r') as fp:
+            with open(os.path.join('data', data, col, col.lower()+'_results.json'), 'r') as fp:
                 res = json.load(fp)
         except FileNotFoundError as e:
             print(e)
