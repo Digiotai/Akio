@@ -751,7 +751,8 @@ def deployment_forecast(request, data, col):
         try:
             with open(os.path.join('data', data, col, '_results.json'), 'r') as fp:
                 res = json.load(fp)
-        except FileNotFoundError:
+        except FileNotFoundError as e:
+            print(e)
             msg = 'Forecast not possible'
         return HttpResponse(json.dumps({"result": res, "msg": msg}), content_type="application/json")
 
