@@ -166,7 +166,7 @@ def upload_and_analyze_data(request):
                 df = pd.read_excel(files)
             else:
                 raise SuspiciousOperation("Unsupported file format")
-
+            df.to_csv('data1.csv')
             # Insert the data into the database
             result = db.insert(df, file_name)  # Assuming db.insert returns the DataFrame
 
@@ -177,27 +177,17 @@ def upload_and_analyze_data(request):
             columns_list = ", ".join(df.columns)
 
             prompt_eng = (
-                f"You are an AI specializing in data analysis. The table '{file_name}' has the following columns: {columns_list}. "
-                f"Provide a detailed description of each column in the table."
+                f"You are analytics_bot. Analyse the data: {df.head()} and give description of the columns"
             )
             column_description = generate_code(prompt_eng)
 
             prompt_eng1 = (
-                f"Based on the table '{file_name}' and its columns: {columns_list}, "
-                f"generate 10 simple  and very basic questions that are related to data preprocessing steps and  calculating basic statistics such as averages, sums, or counts based on the given tablename only. "
-                f"Do not include any questions related to graph plotting or visualization. "
-                f"Provide these questions in a linewise format."
+                f"Based on the data with sample records as {df.head()}, generate 10 analytical questions."
             )
             text_questions = generate_code(prompt_eng1)
 
-            prompt_eng2 = (
-                f"Based on the table '{file_name}' and its columns: {columns_list}, "
-                f"generate 10 simple questions that focus on graph plotting and visualizations, such as creating histograms, scatter plots, bar charts, or line graphs. "
-                f"These questions should be related to visualizing patterns, trends, distributions, or comparisons in the data. "
-                f"Do not include any questions about data preprocessing or analysis. "
-                f"Provide these questions in a linewise format."
-            )
-            plotting_questions = generate_code(prompt_eng2)
+            prompt_eng_2 = f"Generate 10 simple possible plotting questions for the data: {df}"
+            plotting_questions = generate_code(prompt_eng_2)
 
             # Create a JSON response with titles corresponding to each prompt
             response_data = {
@@ -296,10 +286,13 @@ def generate_code(prompt_eng):
         message = choice.message
         chunk_message = message.content if message else ''
         all_text += chunk_message
-
-    code_start = all_text.find("```python") + 9
-    code_end = all_text.find("```", code_start)
-    code = all_text[code_start:code_end]
+    print(all_text)
+    if "```python" in all_text:
+        code_start = all_text.find("```python") + 9
+        code_end = all_text.find("```", code_start)
+        code = all_text[code_start:code_end]
+    else:
+        code = all_text
     return code
 
 
@@ -414,11 +407,13 @@ def genresponse(request):
         tablename = request.POST.get('tablename', "data")  # Default to 'data' if not provided
         df = db.get_table_data(tablename)
         print(df)
-
-        # Save the data to a CSV file
         csv_file_path = 'data1.csv'
-        df.to_csv(csv_file_path, index=False)
+        if df:
+            os.remove(csv_file_path)
+            # Save the data to a CSV file
+            df.to_csv(csv_file_path, index=False)
 
+        df = pd.read_csv(csv_file_path)
         # Generate CSV metadata
         csv_metadata = {"columns": df.columns.tolist()}
         metadata_str = ", ".join(csv_metadata["columns"])
@@ -434,7 +429,6 @@ def genresponse(request):
             f"The DataFrame 'df' contains the following columns: {metadata_str}. "
             f"Return only the Python code that computes the result .Result should describe the parameters in it, without any plotting or visualization."
             f"If the {query} related to the theoretical concept.You will give a small description about the concept also."
-
         )
 
         code = generate_code(prompt_eng)
@@ -749,7 +743,7 @@ def deployment_forecast(request, data, col):
         msg = ''
         res = {}
         try:
-            with open(os.path.join('data', data, col, col.lower()+'_results.json'), 'r') as fp:
+            with open(os.path.join('data', data, col, col.lower() + '_results.json'), 'r') as fp:
                 res = json.load(fp)
         except FileNotFoundError as e:
             print(e)
