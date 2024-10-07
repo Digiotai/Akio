@@ -8,14 +8,15 @@ urlpatterns = [
    path('api/connect', connection, name='connection'),
     path("api/upload", upload_and_analyze_data, name='upload_data'),
     path('api/tableinfo', get_tableinfo, name='get_table_info'),
-    path("api/tabledata", read_data, name='read_table_data'),
-    #path("api/getAnalytics", genAIPrompt3, name="GenAIPrompt3"),
-    path("api/getResult", genAIPrompt, name="GenAIPrompt"),
-    path("api/regenerate", regenerate_txt, name="regenerate"),
-    path("api/regenerate_chart", regenerate_chart, name="regenerate_chart"),
-    path("api/genresponse", genresponse, name="regenerate_chart"),
-    path("api/genresponse2", genresponse2, name="regenerate_chart"),
-    path("api/getResult2", genAIPrompt2, name="GenAIPrompt"),
+    path("api/read_db_table_data", read_db_table_data, name='read_table_data'),
+
+    # Analytical
+   path("api/gen_txt_response", gen_txt_response, name="regenerate_chart"),
+    path("api/gen_graph_response", gen_graph_response, name="GenAIPrompt"),
+    path("api/regenerate_txt_questions", regenerate_txt, name="regenerate"),
+    path("api/regenerate_graph_questions", regenerate_chart, name="regenerate_chart"),
+
+
     # forecast/predict apis
     path('api/predict/<str:data>/<str:field>', get_prediction_info, name='get_prediction_info'),
     path('api/predict/<str:data>', get_columns, name='get_columns'),

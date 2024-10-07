@@ -134,6 +134,7 @@ def connection(request):
         print(connection_obj)
         return HttpResponse(json.dumps({"tables": connection_obj}), content_type="application/json")
 
+
 # Upload data to the database
 # Upload data to the database (CSV and Excel)
 from django.http import HttpResponse, JsonResponse
@@ -166,37 +167,12 @@ def upload_and_analyze_data(request):
                 df = pd.read_excel(files)
             else:
                 raise SuspiciousOperation("Unsupported file format")
-            df.to_csv('data1.csv')
-            # Insert the data into the database
-            result = db.insert(df, file_name)  # Assuming db.insert returns the DataFrame
 
-            # Extract the first 10 rows of the data
-            first_10_rows = df.head(10).to_dict(orient='records')
-
-            # Generate descriptions and questions for the data based on table name and columns
-            columns_list = ", ".join(df.columns)
-
-            prompt_eng = (
-                f"You are analytics_bot. Analyse the data: {df.head()} and give description of the columns"
-            )
-            column_description = generate_code(prompt_eng)
-
-            prompt_eng1 = (
-                f"Based on the data with sample records as {df.head()}, generate 10 analytical questions."
-            )
-            text_questions = generate_code(prompt_eng1)
-
-            prompt_eng_2 = f"Generate 10 simple possible plotting questions for the data: {df}"
-            plotting_questions = generate_code(prompt_eng_2)
-
-            # Create a JSON response with titles corresponding to each prompt
-            response_data = {
-                "first_10_rows": first_10_rows,  # Include first 10 rows
-                "column_description": column_description,
-                "text_questions": text_questions,
-                "plotting_questions": plotting_questions
-            }
-
+            df.to_csv('data.csv')
+            if db.connection:
+                # Insert the data into the database
+                result = db.insert(df, file_name)  # Assuming db.insert returns the DataFrame
+            response_data = analyze_data(df)
             # Return the analytics response along with the first 10 rows
             return JsonResponse(response_data, safe=False)
 
@@ -205,6 +181,37 @@ def upload_and_analyze_data(request):
             return HttpResponse(f"Failed to upload and analyze file: {str(e)}", status=500)
 
     return HttpResponse("Invalid Request Method", status=405)
+
+
+def analyze_data(df):
+    # Extract the first 10 rows of the data
+    first_10_rows = df.head(10).to_dict(orient='records')
+
+    # Generate descriptions and questions for the data based on table name and columns
+    columns_list = ", ".join(df.columns)
+
+    prompt_eng = (
+        f"You are analytics_bot. Analyse the data: {df.head()} and give description of the columns"
+    )
+    column_description = generate_code(prompt_eng)
+
+    prompt_eng1 = (
+        f"Based on the data with sample records as {df.head()}, generate 10 analytical questions."
+    )
+    text_questions = generate_code(prompt_eng1)
+
+    prompt_eng_2 = f"Generate 10 simple possible plotting questions for the data: {df}"
+    plotting_questions = generate_code(prompt_eng_2)
+
+    # Create a JSON response with titles corresponding to each prompt
+    response_data = {
+        "all_records": df.to_json(),
+        "first_10_rows": first_10_rows,  # Include first 10 rows
+        "column_description": column_description,
+        "text_questions": text_questions,
+        "plotting_questions": plotting_questions
+    }
+    return response_data
 
 
 # Showing the number of tables in the database
@@ -217,11 +224,13 @@ def get_tableinfo(request):
 
 # Showing the data to the user based on the table name
 @csrf_exempt
-def read_data(request):
+def read_db_table_data(request):
     if request.method == 'POST':
         tablename = request.POST['tablename']
         df = db.get_table_data(tablename)
-        return HttpResponse(df.to_json(), content_type="application/json")
+        df.to_csv('data.cv', index=False)
+        response_data = analyze_data(df)
+        return JsonResponse(response_data, safe=False)
 
 
 # Data Visualization and getting the graphs
@@ -299,10 +308,9 @@ def generate_code(prompt_eng):
 @csrf_exempt
 def regenerate_txt(request):
     if request.method == "POST":
-        tablename = request.POST.get('tablename', 'data')  # Default to 'data' if not provided
-        df = db.get_table_data(tablename)
+        df = pd.read_csv('data.csv')
         prompt_eng = (
-            f"Regenerate 10 questions for the data: {df}"
+            f"Based on the data with sample records as {df.head()}, generate 10 analytical questions."
         )
         code = generate_code(prompt_eng)
         return HttpResponse(json.dumps({"questions": code}),
@@ -312,8 +320,7 @@ def regenerate_txt(request):
 @csrf_exempt
 def regenerate_chart(request):
     if request.method == "POST":
-        tablename = request.POST.get('tablename', 'data')  # Default to 'data' if not provided
-        df = db.get_table_data(tablename)
+        df = pd.read_csv('data.csv')
         prompt_eng = (
             f"Regenerate 10 simple possible plotting questions for the data: {df}. start the question using plot keyword"
         )
@@ -402,17 +409,9 @@ import sys
 
 
 @csrf_exempt
-def genresponse(request):
+def gen_txt_response(request):
     if request.method == "POST":
-        tablename = request.POST.get('tablename', "data")  # Default to 'data' if not provided
-        df = db.get_table_data(tablename)
-        print(df)
-        csv_file_path = 'data1.csv'
-        if df:
-            os.remove(csv_file_path)
-            # Save the data to a CSV file
-            df.to_csv(csv_file_path, index=False)
-
+        csv_file_path = 'data.csv'
         df = pd.read_csv(csv_file_path)
         # Generate CSV metadata
         csv_metadata = {"columns": df.columns.tolist()}
@@ -420,14 +419,13 @@ def genresponse(request):
 
         query = request.POST["query"]
 
-        print("execution started")
-
         prompt_eng = (
             f"You are an AI specialized in data preprocessing."
-            f"Data related to the {query} is stored in a CSV file data1.csv.Consider the data1.csv as the data source"
-            f"Generate Python code to answer the question: '{query}' based on the data from '{tablename}'. "
-            f"The DataFrame 'df' contains the following columns: {metadata_str}. "
-            f"Return only the Python code that computes the result .Result should describe the parameters in it, without any plotting or visualization."
+            f"Data related to the {query} is stored in a CSV file data.csv.Consider the data.csv as the data source"
+            f"Generate Python code to answer the question: {query}"
+            f"The data contains the following columns: {metadata_str}."
+            f"Return only the Python code that computes the result .Result should describe the parameters in it, "
+            f"without any plotting or visualization."
             f"If the {query} related to the theoretical concept.You will give a small description about the concept also."
         )
 
@@ -482,15 +480,11 @@ from django.views.decorators.csrf import csrf_exempt
 
 
 @csrf_exempt
-def genAIPrompt(request):
+def gen_graph_response(request):
     if request.method == "POST":
-        tablename = request.POST.get('tablename', "data")  # Default to 'data' if not provided
-        df = db.get_table_data(tablename)
-        print(df)
 
-        # Save the data to a CSV file
         csv_file_path = 'data.csv'
-        df.to_csv(csv_file_path, index=False)
+        df = pd.read_csv(csv_file_path)
 
         # Generate CSV metadata
         csv_metadata = {"columns": df.columns.tolist()}
@@ -499,13 +493,12 @@ def genAIPrompt(request):
         query = request.POST["query"]
 
         prompt_eng = (
-            f"You are an AI specialized in data analytics and visualization. "
-            f" Data used for analysis is stored in a CSV file data.csv. "
-            f"Attributes of the data are: {metadata_str}. "
+            f"You are an AI specialized in data analytics and visualization."
+            f" Data used for analysis is stored in a CSV file data.csv."
+            f"Attributes of the data are: {metadata_str}."
             f"Consider 'data.csv' as the data source for any analysis."
-            f"If the user asks for a graph, generate only the Python code using Matplotlib to plot the graph. "
-            f"Save the graph as 'graph.png'. "
-            f"If the user does not ask for a graph, simply answer the query with the computed result. "
+            f"Based on the query generate only the Python code using Matplotlib to plot the graph."
+            f"Save the graph as 'graph.png'."
             f"The user asks: {query}"
         )
 
@@ -522,7 +515,9 @@ def genAIPrompt(request):
                 else:
                     return HttpResponse("Graph image not found", status=404)
             except Exception as e:
-                prompt_eng = f"There has occurred an error while executing the code, please take a look at the error and strictly only reply with the full python code. Do not apologize or anything; just give the code. {str(e)}"
+                prompt_eng = f"There has occurred an error while executing the code, please take a look at the error " \
+                             f"and strictly only reply with the full python code. Do not apologize or anything; just " \
+                             f"give the code. {str(e)}"
                 code = generate_code(prompt_eng)
                 try:
                     exec(code)
@@ -550,13 +545,7 @@ import sys
 @csrf_exempt
 def genresponse2(request):
     if request.method == "POST":
-        tablename = request.POST.get('tablename', "data")  # Default to 'data' if not provided
-        df = db.get_table_data(tablename)
-        print(df)
-
-        # Save the data to a CSV file
-        csv_file_path = 'data2.csv'
-        df.to_csv(csv_file_path, index=False)
+        df = pd.read_csv('data.csv')
 
         # Generate CSV metadata
         csv_metadata = {"columns": df.columns.tolist()}
@@ -568,12 +557,12 @@ def genresponse2(request):
 
         prompt_eng = (
             f"You are an AI specialized in data preprocessing."
-            f"Data related to the {query} is stored in a CSV file data2.csv.Consider the data1.csv as the data source"
-            f"Generate Python code to answer the question: '{query}' based on the data from '{tablename}'. "
-            f"The DataFrame 'df' contains the following columns: {metadata_str}. "
-            f"Return only the Python code that computes the result .Result should describe the parameters in it, without any plotting or visualization."
+            f"Data related to the {query} is stored in a CSV file data.csv. Consider the data.csv as the data source"
+            f"Generate Python code to answer the question: {query}."
+            f"The data contains the following columns: {metadata_str}. "
+            f"Return only the Python code that computes the result .Result should describe the parameters in it, "
+            f"without any plotting or visualization."
             f"If the {query} related to the theoretical concept.You will give a small description about the concept also."
-
         )
 
         code = generate_code(prompt_eng)
@@ -629,13 +618,7 @@ from django.views.decorators.csrf import csrf_exempt
 @csrf_exempt
 def genAIPrompt2(request):
     if request.method == "POST":
-        tablename = request.POST.get('tablename', "data")  # Default to 'data' if not provided
-        df = db.get_table_data(tablename)
-        print(df)
-
-        # Save the data to a CSV file
-        csv_file_path = 'data3.csv'
-        df.to_csv(csv_file_path, index=False)
+        df = pd.read_csv("data.csv")
 
         # Generate CSV metadata
         csv_metadata = {"columns": df.columns.tolist()}
@@ -645,9 +628,9 @@ def genAIPrompt2(request):
 
         prompt_eng = (
             f"You are an AI specialized in data analytics and visualization. "
-            f" Data used for analysis is stored in a CSV file data3.csv. "
+            f" Data used for analysis is stored in a CSV file data.csv. "
             f"Attributes of the data are: {metadata_str}. "
-            f"Consider 'data3.csv' as the data source for any analysis."
+            f"Consider 'data.csv' as the data source for any analysis."
             f"If the user asks for a graph, generate only the Python code using Matplotlib to plot the graph. "
             f"Save the graph as 'graph.png'. "
             f"If the user does not ask for a graph, simply answer the query with the computed result. "
