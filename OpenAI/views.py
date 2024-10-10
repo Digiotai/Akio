@@ -715,7 +715,7 @@ def deployment_predict(request, data):
         result = load_models(data, field, df)
         if isinstance(result, np.ndarray):
             result = str(result[0])
-        return HttpResponse(json.dumps({"result": result}), content_type="application/json")
+        return HttpResponse(json.dumps({"result": str(result)}), content_type="application/json")
 
 
 # Forecast of the data with the help of the deployment url
