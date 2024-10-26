@@ -295,7 +295,7 @@ def train_data(request, train_type,file_name):
 
                 # Infer frequency of datetime index
                 freq = pd.infer_freq(data.index)
-
+                print(date_column, freq)
                 # Determine m based on inferred frequency
                 if freq == '15T':  # Quarter-hourly data (every 15 minutes)
                     m = 96  # Daily seasonality (96 intervals in a day)
