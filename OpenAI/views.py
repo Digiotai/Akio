@@ -5,8 +5,12 @@ import json
 import os
 import sys
 from io import StringIO
+import json
+from django.http import HttpResponse, JsonResponse
+from django.views.decorators.csrf import csrf_exempt
 import pandas as pd
-
+import io
+import sys
 import requests
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
@@ -24,6 +28,11 @@ from django.http import HttpResponse
 import json
 import base64
 import pandas as pd
+import numpy as np
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+import pmdarima as pm
+import matplotlib.pyplot as plt
+import json
 import matplotlib.pyplot as plt
 
 import json
@@ -38,8 +47,20 @@ from .database import *
 import io
 import hashlib
 import joblib
-import numpy as np
 from keras.models import load_model
+
+# Import necessary libraries
+import numpy as np
+import tensorflow as tf
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.metrics import accuracy_score, mean_squared_error
+import joblib
+from sklearn.inspection import permutation_importance
+import json
+import os
 
 global connection_obj
 db = PostgresDatabase()
@@ -55,9 +76,67 @@ input_type = InputType("Text")
 output_type = OutputType("Image")
 agent = Agent(expertise, task, input_type, output_type)
 api_key = OPENAI_API_KEY
-
+name = "file_name"
 
 # db = PostgreSQLDB(dbname='uibmogli', user='uibmogli', password='8ogImHfL_1G249lXtM3k2EAIWTRDH2mX')
+
+os.makedirs('uploads', exist_ok=True)
+
+
+def updatedtypes(df):
+    datatypes = df.dtypes
+    for col in df.columns:
+        if datatypes[col] == 'object':
+            try:
+                pd.to_datetime(df[col])
+                df.drop(col, axis=1, inplace=True)
+                print(df.columns)
+            except Exception as e:
+                pass
+    return df
+
+
+def get_importance(X_train, y_train, model_type):
+    if model_type == 'regression':
+        model_ = RandomForestRegressor(n_estimators=100, random_state=42)
+    else:
+        model_ = RandomForestClassifier(n_estimators=100, random_state=42)
+    model_.fit(X_train, y_train)
+
+    # Get feature importances
+    feature_importance = model_.feature_importances_
+
+    # Normalize feature importance to percentages
+    feature_importance_percent = (feature_importance / np.sum(feature_importance)) * 100
+
+    # Print feature importance scores in percentage
+    df = pd.DataFrame({"Features": X_train.columns, "Importances": feature_importance_percent})
+    df.sort_values(by='Importances', inplace=True, ascending=False)
+    df.reset_index(inplace=True, drop=True)
+    return df
+
+
+def iscatcol(col,t, threshold=10):
+    unique_values = col.dropna().unique()
+    if len(unique_values) <= threshold or t == 'object':
+        if t == 'object':
+            return True, True  # Categorical and needs encoding
+        return True, False  # Categorical but doesn't require encoding
+    return False, False
+
+
+def getcatcols(df):
+    catcols = []
+    catcols_encode = []
+    unique_cols = {}
+    for col in df.columns:
+        a, b = iscatcol(df[col], df.dtypes[col])
+        if a:
+            catcols.append(col)
+        if b:
+            catcols_encode.append(col)
+            unique_cols[col] = list(df[col].unique())
+    return catcols, catcols_encode, unique_cols
 
 
 def get_csv_metadata(df):
@@ -70,54 +149,225 @@ def get_csv_metadata(df):
     return metadata
 
 
-#
-# #login page
-# @csrf_exempt
-# def loginpage(request):
-#     if request.method == 'POST':
-#         username = request.POST.get('username')
-#         password = request.POST.get('password')
-#         user = authenticate(request, username=username, password=password)
-#         if user is not None:
-#             login(request, user)
-#             user_details = db.get_user_data(username)
-#             return HttpResponse(json.dumps({"status": "Success", "user_details": user_details}),
-#                                 content_type="application/json")
-#         else:
-#             return HttpResponse('User Name or Password is incorrect')
-#     return HttpResponse("Login failed")
-#
-#
-# #logout page
-# @csrf_exempt
-# def logoutpage(request):
-#     try:
-#         logout(request)
-#         request.session.clear()
-#         return redirect('demo:login')
-#     except Exception as e:
-#         return HttpResponse(str(e))
-#
-#
-# #register page
-# @csrf_exempt
-# def register(request):
-#     if request.method == 'POST':
-#         form = CreateUserForm(request.POST)
-#         try:
-#             if form.is_valid():
-#                 form.save()
-#                 user = form.cleaned_data.get('username')
-#                 email = form.cleaned_data.get('email')
-#                 db.add_user(user, email)
-#                 user_details = db.get_user_data(user)
-#                 return HttpResponse(json.dumps({"status": "Success", "user_details": user_details}),
-#                                     content_type="application/json")
-#             else:
-#                 return HttpResponse(str(form.errors))
-#         except Exception as e:
-#             return HttpResponse(str(e))
-#     return HttpResponse("Registration Failed")
+@csrf_exempt
+def train_data(request, train_type,file_name):
+    try:
+        df = pd.read_csv(os.path.join("uploads", file_name+'.csv'))
+        df = df.iloc[:300, :]
+        print(df.columns)
+        if train_type.lower() == 'predict':
+            for i in df.columns:
+                try:
+                    col_predict = i
+                    print(col_predict)
+                    label_encoders = {}
+                    cat_col = False
+                    # Split the data into features (X) and target variable (y)
+                    X = df.drop(columns=[col_predict])
+                    y = df[col_predict]
+                    catcols, cat_cols_to_encode, unique_cols = getcatcols(X)
+                    print(catcols, cat_cols_to_encode)
+                    for column in cat_cols_to_encode:
+                        label_encoders[column] = LabelEncoder()
+                        X[column] = label_encoders[column].fit_transform(X[column])
+                    dense_c = 1
+                    if iscatcol(y, y.dtype)[0]:
+                        label_encoders[col_predict] = LabelEncoder()
+                        y = label_encoders[col_predict].fit_transform(y)
+                        dense_c = len(label_encoders[col_predict].classes_)
+                        cat_col = True
+                    print(dense_c, "h")
+                    scaler = StandardScaler()
+                    numerical_features = list(set(X.columns) - set(catcols))
+                    X[numerical_features] = scaler.fit_transform(X[numerical_features])
+                    model_type = None
+                    # Split the data into training and testing sets
+                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                    model = tf.keras.models.Sequential([
+                        tf.keras.layers.Dense(64, activation='relu', input_shape=(X_train.shape[1],)),
+                        tf.keras.layers.Dense(64, activation='relu')
+                    ])
+                    if iscatcol(df[col_predict], df.dtypes[col_predict])[0]:
+                        # Define the architecture of the ANN model
+                        model.add(tf.keras.layers.Dense(dense_c, activation='softmax'))  # Output layer for binary classification
+                        loss_function = 'sparse_categorical_crossentropy'
+                        metrics = ['accuracy']
+                        model_type = 'classification'
+
+                    else:
+                        model.add(tf.keras.layers.Dense(1))  # Output layer for regression
+                        loss_function = 'mean_squared_error'
+                        metrics = ['mae']
+                        model_type = 'regression'
+                    print(model_type)
+                    # Compile the model
+                    model.compile(optimizer='adam', loss=loss_function, metrics=metrics)
+
+                    # Train the model
+                    model.fit(X_train, y_train, epochs=500, batch_size=64, validation_split=0.1)
+
+                    # Evaluate the model on the testing data
+                    loss, accuracy = model.evaluate(X_test, y_test)
+                    print("Test Accuracy:", accuracy)
+                    if model_type == 'classification':
+                        predictions = np.argmax(model.predict(X_test), axis=-1)
+                    else:
+                        predictions = model.predict(X_test)
+
+                    for column in cat_cols_to_encode:
+                        X_test[column] = label_encoders[column].inverse_transform(X_test[column])
+
+                    if cat_col:
+                        y_test = label_encoders[col_predict].inverse_transform(y_test)
+                        predictions = label_encoders[col_predict].inverse_transform(predictions)
+
+                    predicted_data = X_test.copy()
+                    predicted_data["Actual"] = y_test
+                    predicted_data["Predicted"] = predictions
+                    print(predicted_data.head(5))
+                    # Sort the DataFrame by importance
+                    importance_df = get_importance(X_train, y_train, model_type)
+
+                    # Print or plot the top features
+                    print(importance_df)
+                    if not os.path.exists(os.path.join("data", file_name, col_predict.replace(" ", "_"))):
+                        os.makedirs(os.path.join("data", file_name, col_predict.replace(" ", "_")))
+
+                    predicted_data.to_csv(os.path.join("data", file_name, col_predict.replace(" ", "_"), 'predictions.csv'),
+                                          index=False)
+                    # Save the label encoders
+                    for column, encoder in label_encoders.items():
+                        joblib.dump(encoder,
+                                    os.path.join("data", file_name, col_predict.replace(" ", "_"),
+                                                 f'{column.replace(" ", "_")}_encoder.pkl'))
+
+                    # Save the trained model
+                    print("saved_path", os.path.join("data", file_name, col_predict.replace(" ", "_"), "model.h5"))
+                    model.save(os.path.join("data", file_name, col_predict.replace(" ", "_"), "model.h5"))
+                    if model_type == 'classification':
+                        accuracy = accuracy * 100
+                        metrics = "Accuracy"
+                    else:
+                        metrics = "MAE"
+
+                    results = {
+                        "accuracy": accuracy,
+                        "metrics": metrics,
+                        "Top Fields": importance_df.to_json(),
+                        "Plot": [int(value) for value in X_train[importance_df[importance_df.columns[0]][0]].values],
+                        "sample_rows": predicted_data.to_json()
+                    }
+                    cols = {c: unique_cols[c] if c in unique_cols else None for c in X_train.columns}
+
+                    with open(os.path.join("data", file_name, col_predict.replace(" ", "_"), "deployment.json"), "w") as fp:
+                        json.dump({"columns": cols, "model_type": model_type}, fp, indent=4)
+                    with open(os.path.join("data", file_name, col_predict.replace(" ", "_"), "results.json"), "w") as fp:
+                        json.dump(results, fp, indent=4)
+                except Exception as e:
+                    print(e)
+            return HttpResponse('Success')
+        elif train_type.lower() == 'forecast':
+            data=df
+            try:
+                # Identify date column by checking for datetime type
+                date_column = None
+                for col in data.columns:
+                    if data.dtypes[col] == 'object':
+                        try:
+                            # Attempt to convert column to datetime
+                            pd.to_datetime(data[col])
+                            date_column = col
+                            break
+                        except (ValueError, TypeError):
+                            continue
+                if not date_column:
+                    raise ValueError("No datetime column found in the dataset.")
+
+                # Set the date column as index
+                data[date_column] = pd.to_datetime(data[date_column])
+                data.set_index(date_column, inplace=True)
+
+                # Identify forecast columns (numeric columns)
+                forecast_columns = data.select_dtypes(include=[np.number]).columns.tolist()
+                if not forecast_columns:
+                    raise ValueError("No numeric columns found for forecasting in the dataset.")
+
+                # Infer frequency of datetime index
+                freq = pd.infer_freq(data.index)
+
+                # Determine m based on inferred frequency
+                if freq == '15T':  # Quarter-hourly data (every 15 minutes)
+                    m = 96  # Daily seasonality (96 intervals in a day)
+                elif freq == '30T':  # Half-hourly data (every 30 minutes)
+                    m = 48  # Daily seasonality (48 intervals in a day)
+                elif freq == 'H':  # Hourly data
+                    m = 24  # Daily seasonality (24 intervals in a day)
+                elif freq == 'D':  # Daily data
+                    m = 7  # Weekly seasonality (7 days in a week)
+                elif freq == 'W':  # Weekly data
+                    m = 52  # Yearly seasonality (52 weeks in a year)
+                elif freq == 'M':  # Monthly data
+                    m = 12  # Yearly seasonality (12 months in a year)
+                elif freq == 'Q':  # Quarterly data
+                    m = 4  # Yearly seasonality (4 quarters in a year)
+                elif freq == 'A':  # Annual data
+                    m = 1  # No further seasonality within a year
+                else:
+                    raise ValueError(
+                        f"Unsupported frequency '{freq}'. Ensure data is in a common time interval.")
+
+                results = {}
+                for col in forecast_columns:
+                    try:
+                        data_actual = data[col].dropna()  # Remove NaNs if any
+
+                        # Split data into train and test sets
+                        train = data_actual.iloc[:-m]
+                        test = data_actual.iloc[-m:]
+
+                        # Auto ARIMA model selection
+                        model = pm.auto_arima(train,
+                                              m=m,  # frequency of seasonality
+                                              seasonal=True,  # Enable seasonal ARIMA
+                                              d=None,  # determine differencing
+                                              test='adf',  # adf test for differencing
+                                              start_p=0, start_q=0,
+                                              max_p=12, max_q=12,
+                                              D=None,  # let model determine seasonal differencing
+                                              trace=True,
+                                              error_action='ignore',
+                                              suppress_warnings=True,
+                                              stepwise=True)
+
+                        # Forecast and calculate errors
+                        fc, confint = model.predict(n_periods=m, return_conf_int=True)
+                        # Save results to dictionary
+                        results = {
+                            "actual": {
+                                "date": list(test.index.astype(str)),
+                                "values": [float(val) if isinstance(val, np.float_) else int(val) for val in
+                                           test.values]
+                            },
+                            "forecast": {
+                                "date": list(test.index.astype(str)),
+                                "values": [float(val) if isinstance(val, np.float_) else int(val) for val in fc]
+                            }
+                        }
+                        if not os.path.exists(os.path.join("data", file_name, col.replace(" ", "_"))):
+                            os.makedirs(os.path.join("data", file_name, col.replace(" ", "_")),exist_ok=True)
+                        col=col.replace(" ", "_")
+                        with open(os.path.join('data', file_name, col,
+                                               col.lower() + '_results.json'), 'w') as fp:
+                            json.dump(results, fp)
+                        print("Results saved to forecast_results.json")
+                    except Exception as e:
+                        print(e)
+                return HttpResponse("Success")
+            except Exception as e:
+                print(e)
+    except Exception as e:
+        print(e)
+        return HttpResponse("Error "+str(e))
 
 
 # Database connection
@@ -153,10 +403,8 @@ def upload_and_analyze_data(request):
         files = request.FILES.get('file')
         if not files:
             return HttpResponse('No files uploaded', status=400)
-
         file_name = files.name
         file_extension = os.path.splitext(file_name)[1].lower()
-
         try:
             # Process the uploaded file
             if file_extension == '.csv':
@@ -167,42 +415,35 @@ def upload_and_analyze_data(request):
                 df = pd.read_excel(files)
             else:
                 raise SuspiciousOperation("Unsupported file format")
-
-            df.to_csv('data.csv')
+            df.to_csv(os.path.join("uploads", file_name), index=False)
+            df.to_csv('data.csv', index=False)
             if db.connection:
                 # Insert the data into the database
                 result = db.insert(df, file_name)  # Assuming db.insert returns the DataFrame
             response_data = analyze_data(df)
             # Return the analytics response along with the first 10 rows
             return JsonResponse(response_data, safe=False)
-
         except Exception as e:
             print(e)
             return HttpResponse(f"Failed to upload and analyze file: {str(e)}", status=500)
-
     return HttpResponse("Invalid Request Method", status=405)
 
 
 def analyze_data(df):
     # Extract the first 10 rows of the data
     first_10_rows = df.head(10).to_dict(orient='records')
-
     # Generate descriptions and questions for the data based on table name and columns
     columns_list = ", ".join(df.columns)
-
     prompt_eng = (
         f"You are analytics_bot. Analyse the data: {df.head()} and give description of the columns"
     )
     column_description = generate_code(prompt_eng)
-
     prompt_eng1 = (
         f"Based on the data with sample records as {df.head()}, generate 10 analytical questions."
     )
     text_questions = generate_code(prompt_eng1)
-
     prompt_eng_2 = f"Generate 10 simple possible plotting questions for the data: {df}"
     plotting_questions = generate_code(prompt_eng_2)
-
     # Create a JSON response with titles corresponding to each prompt
     response_data = {
         "all_records": df.to_json(),
@@ -229,56 +470,9 @@ def read_db_table_data(request):
         tablename = request.POST['tablename']
         df = db.get_table_data(tablename)
         df.to_csv('data.cv', index=False)
+        df.to_csv(os.path.join("uploads", tablename), index=False)
         response_data = analyze_data(df)
         return JsonResponse(response_data, safe=False)
-
-
-# Data Visualization and getting the graphs
-
-
-# @csrf_exempt
-# def genAIPrompt(request):
-#     if request.method == "POST":
-#         tablename = request.POST.get('tablename', 'data')  # Default to 'data' if not provided
-#         df = db.get_table_data(tablename)
-#
-#         csv_metadata = {"columns": df.columns.tolist()}
-#         metadata_str = ", ".join(csv_metadata["columns"])
-#         query = request.POST["query"]
-#
-#         prompt_eng = (
-#             f"You are an AI specialized in data analysis and visualization. "
-#             f"The data is in the table '{tablename}' and its attributes are: {metadata_str}. "
-#             f"If the user asks for a graph, generate only the Python code using Matplotlib to plot the graph, "
-#             f"including any necessary calculations like mean, median, etc., based on the data. "
-#             f"Save the graph as 'graph.png'. "
-#             f"If the user does not ask for a graph, simply answer the query with the computed result. "
-#             f"The user asks: {query}."
-#         )
-#
-#         code = generate_code(prompt_eng)
-#
-#         if 'import matplotlib' in code:
-#             try:
-#                 exec(code, {'df': df, 'plt': plt})  # Execute the code with 'df' and 'plt' in the scope
-#                 with open("graph.png", 'rb') as image_file:
-#                     return HttpResponse(json.dumps({"graph": base64.b64encode(image_file.read()).decode('utf-8')}),
-#                                         content_type="application/json")
-#             except Exception as e:
-#                 prompt_eng = (
-#                     f"There was an error in the previous code: {str(e)}. "
-#                     f"Please provide the correct full Python code, including error handling."
-#                 )
-#                 code = generate_code(prompt_eng)
-#                 try:
-#                     exec(code, {'df': df, 'plt': plt})  # Execute the corrected code with 'df' and 'plt' in the scope
-#                     with open("graph.png", 'rb') as image_file:
-#                         return HttpResponse(json.dumps({"graph": base64.b64encode(image_file.read()).decode('utf-8')}),
-#                                             content_type="application/json")
-#                 except Exception as e:
-#                     return HttpResponse(json.dumps({"error": f"Failed to generate the chart: {str(e)}"}), content_type="application/json")
-#         else:
-#             return HttpResponse(json.dumps({"response": code}), content_type="application/json")
 
 
 # Function to generate code from OpenAI API
@@ -329,85 +523,6 @@ def regenerate_chart(request):
                             content_type="application/json")
 
 
-#
-# @csrf_exempt
-# def genresponse(request):
-#     if request.method == "POST":
-#         tablename = request.POST.get('tablename', 'data')  # Default to 'data' if not provided
-#         df = db.get_table_data(tablename)
-#
-#         csv_metadata = {"columns": df.columns.tolist()}
-#         metadata_str = ", ".join(csv_metadata["columns"])
-#         query = request.POST["query"]
-#
-#         graph = ''
-#         if os.path.exists("graph.png"):
-#             os.remove("graph.png")
-#
-#         prompt_eng = (
-#             f"You are an AI specialized in data analysis and visualization. "
-#             f"The data is in the table '{tablename}' and its attributes are: {metadata_str}. "
-#             f"If the user asks for a graph, generate only the Python code using Matplotlib to plot the graph, "
-#             f"including any necessary calculations like mean, median, etc., based on the data. "
-#             f"Save the graph as 'graph.png'. "
-#             f"If the user does not ask for a graph, simply answer the query with the computed result. "
-#             f"The user asks: {query}."
-#
-#         )
-#
-#         code = generate_code(prompt_eng)
-#         if "import" in code:
-#             old_stdout = sys.stdout
-#             redirected_output = sys.stdout = StringIO()
-#             exec(code)
-#             sys.stdout = old_stdout
-#             print(redirected_output.getvalue())
-#             if os.path.exists("graph.png"):
-#                 with open("graph.png", 'rb') as image_file:
-#                     graph = base64.b64encode(image_file.read()).decode('utf-8')
-#
-#             return HttpResponse(json.dumps({"answer": redirected_output.getvalue(), "graph": graph}),
-#                                 content_type="application/json")
-#         return HttpResponse(json.dumps({"answer": code}),
-#                             content_type="application/json")
-
-
-# from django.http import JsonResponse, HttpResponse
-# from django.views.decorators.csrf import csrf_exempt
-# import sys
-# from io import StringIO
-
-# @csrf_exempt
-# def genresponse(request):
-#     if request.method == "POST":
-#         tablename = request.POST.get('tablename', 'data')  # Default to 'data' if not provided
-#         df = db.get_table_data(tablename)
-#
-#         csv_metadata = {"columns": df.columns.tolist()}
-#         metadata_str = ", ".join(csv_metadata["columns"])
-#         query = request.POST["query"]
-#
-#         prompt_eng = (
-#             f"generate python code for the question {query} based on the data: {df} from {tablename} and columns are{metadata_str}. "
-#             f"Do not generate any graph or Python code for plotting. Just provide the computed result."
-#         )
-#
-#         code = generate_code(prompt_eng)
-#         return HttpResponse(json.dumps({"answer": code}), content_type="application/json")
-#
-#     return HttpResponse("Invalid Request Method", status=405)
-
-
-# For genai
-
-import json
-from django.http import HttpResponse, JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-import pandas as pd
-import io
-import sys
-
-
 @csrf_exempt
 def gen_txt_response(request):
     if request.method == "POST":
@@ -416,9 +531,7 @@ def gen_txt_response(request):
         # Generate CSV metadata
         csv_metadata = {"columns": df.columns.tolist()}
         metadata_str = ", ".join(csv_metadata["columns"])
-
         query = request.POST["query"]
-
         prompt_eng = (
             f"You are an AI specialized in data preprocessing."
             f"Data related to the {query} is stored in a CSV file data.csv.Consider the data.csv as the data source"
@@ -428,16 +541,10 @@ def gen_txt_response(request):
             f"without any plotting or visualization."
             f"If the {query} related to the theoretical concept.You will give a small description about the concept also."
         )
-
         code = generate_code(prompt_eng)
-
-        print(code)
-
         # Execute the generated code
         result = execute_code(code, df)
-
         return JsonResponse({"answer": result})
-
     return HttpResponse("Invalid Request Method", status=405)
 
 

@@ -16,6 +16,8 @@ urlpatterns = [
     path("api/regenerate_txt_questions", regenerate_txt, name="regenerate"),
     path("api/regenerate_graph_questions", regenerate_chart, name="regenerate_chart"),
 
+    # train
+    path("api/train/<train_type>/<file_name>", train_data, name="train"),
 
     # forecast/predict apis
     path('api/predict/<str:data>/<str:field>', get_prediction_info, name='get_prediction_info'),
