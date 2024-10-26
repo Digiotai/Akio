@@ -155,6 +155,7 @@ def train_data(request, train_type,file_name):
         df = pd.read_csv(os.path.join("uploads", file_name+'.csv'))
         df = df.iloc[:300, :]
         print(df.columns)
+
         if train_type.lower() == 'predict':
             for i in df.columns:
                 try:
@@ -282,7 +283,7 @@ def train_data(request, train_type,file_name):
                             continue
                 if not date_column:
                     raise ValueError("No datetime column found in the dataset.")
-
+                print(date_column)
                 # Set the date column as index
                 data[date_column] = pd.to_datetime(data[date_column])
                 data.set_index(date_column, inplace=True)
