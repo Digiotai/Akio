@@ -287,7 +287,7 @@ def train_data(request, train_type,file_name):
                 # Set the date column as index
                 data[date_column] = pd.to_datetime(data[date_column])
                 data.set_index(date_column, inplace=True)
-
+                print(data.head(15))
                 # Identify forecast columns (numeric columns)
                 forecast_columns = data.select_dtypes(include=[np.number]).columns.tolist()
                 if not forecast_columns:
