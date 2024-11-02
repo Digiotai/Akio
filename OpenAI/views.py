@@ -156,7 +156,8 @@ def train_data(request, train_type, file_name):
         df = df.iloc[:300, :]
         if train_type.lower() == 'predict':
             df = updatedtypes(df)
-            df.to_csv(os.path.join(name, "processed_data.csv"), index=False)
+            os.makedirs(os.path.join("data", file_name), exist_ok=True)
+            df.to_csv(os.path.join("data", file_name, "processed_data.csv"), index=False)
             for i in df.columns:
                 try:
                     col_predict = i
