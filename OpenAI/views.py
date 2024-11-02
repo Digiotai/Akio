@@ -182,6 +182,7 @@ def train_data(request, train_type, file_name):
                     scaler = StandardScaler()
                     numerical_features = list(set(X.columns) - set(catcols))
                     X[numerical_features] = scaler.fit_transform(X[numerical_features])
+                    print(numerical_features)
                     model_type = None
                     # Split the data into training and testing sets
                     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -365,7 +366,7 @@ def train_data(request, train_type, file_name):
                         with open(os.path.join('data', file_name.lower(), col,
                                                col.lower() + '_results.json'), 'w') as fp:
                             json.dump(results, fp)
-                        print("Results saved to forecast_results.json")
+                        print(f"Results saved to {os.path.join('data', file_name.lower(), col, col.lower() + '_results.json')}")
                     except Exception as e:
                         print(e)
                 return HttpResponse("Success")
