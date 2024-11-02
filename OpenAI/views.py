@@ -805,11 +805,16 @@ def get_prediction_info(request, data, field):
 
 # This will return the columns for the table
 @csrf_exempt
-def get_columns(request, data):
-    df = pd.read_csv(f"data/{data.lower()}/processed_data.csv")
-    cols = set(df.columns) - {"Store ID", "Employee Number", "Area"}
-    return HttpResponse(json.dumps({"columns": list(cols)}), content_type="application/json")
-
+def get_columns(request, train_type, data):
+    if train_type == 'predict':
+        df = pd.read_csv(f"data/{data.lower()}/processed_data.csv")
+        cols = set(df.columns) - {"Store ID", "Employee Number", "Area"}
+        return HttpResponse(json.dumps({"columns": list(cols)}), content_type="application/json")
+    elif train_type == 'forecast':
+        cols = os.listdir(f"data/{data.lower()}")
+        return HttpResponse(json.dumps({"columns": list(cols)}), content_type="application/json")
+    else:
+        return HttpResponse(json.dumps({"columns": []}), content_type="application/json")
 
 # Generating the URL for the prediction
 @csrf_exempt

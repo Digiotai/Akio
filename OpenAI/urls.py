@@ -22,7 +22,7 @@ urlpatterns = [
 
     # forecast/predict apis
     path('api/predict/<str:data>/<str:field>', get_prediction_info, name='get_prediction_info'),
-    path('api/predict/<str:data>', get_columns, name='get_columns'),
+    path('api/<str:train_type>/<str:data>', get_columns, name='get_columns'),
     path('api/deployments/<str:data>', deployment, name='deployment'),
     path('api/generatedeployment/<str:data>/<str:field>', generate_deployment, name='generate_deployment'),
     path('api/deployments/<str:data>/predict', deployment_predict, name='deployment_predict'),
