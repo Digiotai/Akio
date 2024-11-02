@@ -155,6 +155,8 @@ def train_data(request, train_type, file_name):
         df = pd.read_csv(os.path.join("uploads", file_name + '.csv'))
         df = df.iloc[:300, :]
         if train_type.lower() == 'predict':
+            df = updatedtypes(df)
+            df.to_csv(os.path.join(name, "processed_data.csv"), index=False)
             for i in df.columns:
                 try:
                     col_predict = i
