@@ -452,7 +452,7 @@ def analyze_data(df):
     plotting_questions = generate_code(prompt_eng_2)
     # Create a JSON response with titles corresponding to each prompt
     response_data = {
-        "all_records": df.to_json(),
+        "all_records": df.to_json(orient='records'),
         "first_10_rows": first_10_rows,  # Include first 10 rows
         "column_description": column_description,
         "text_questions": text_questions,
