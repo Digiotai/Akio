@@ -480,7 +480,7 @@ def read_db_table_data(request):
         df.to_csv(os.path.join("uploads", tablename.lower()+'.csv'), index=False)
         response_data = analyze_data(df)
         # return JsonResponse(response_data, safe=False)
-        return HttpResponse( orjson.dumps({"result": response_data}).decode("utf-8"),
+        return HttpResponse( orjson.dumps({"result": response_data},option=orjson.OPT_SERIALIZE_DATETIME).decode("utf-8"),
                             content_type="application/json")
 
 
