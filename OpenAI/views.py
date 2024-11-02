@@ -247,7 +247,7 @@ def train_data(request, train_type, file_name):
 
                     # Save the trained model
                     print("saved_path", os.path.join("data", file_name.lower(), col_predict.replace(" ", "_"), "model.h5"))
-                    model.save(os.path.join("data", file_name, col_predict.replace(" ", "_"), "model.h5"))
+                    model.save(os.path.join("data", file_name.lower(), col_predict.replace(" ", "_"), "model.h5"))
                     if model_type == 'classification':
                         accuracy = accuracy * 100
                         metrics = "Accuracy"
@@ -263,10 +263,10 @@ def train_data(request, train_type, file_name):
                     }
                     cols = {c: unique_cols[c] if c in unique_cols else None for c in X_train.columns}
 
-                    with open(os.path.join("data", file_name, col_predict.replace(" ", "_"), "deployment.json"),
+                    with open(os.path.join("data", file_name.lower(), col_predict.replace(" ", "_"), "deployment.json"),
                               "w") as fp:
                         json.dump({"columns": cols, "model_type": model_type}, fp, indent=4)
-                    with open(os.path.join("data", file_name, col_predict.replace(" ", "_"), "results.json"),
+                    with open(os.path.join("data", file_name.lower(), col_predict.replace(" ", "_"), "results.json"),
                               "w") as fp:
                         json.dump(results, fp, indent=4)
                 except Exception as e:
