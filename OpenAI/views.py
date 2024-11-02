@@ -4,7 +4,6 @@ import io
 import json
 import os
 import sys
-import orjson
 from io import StringIO
 import json
 from django.http import HttpResponse, JsonResponse
@@ -480,7 +479,7 @@ def read_db_table_data(request):
         df.to_csv(os.path.join("uploads", tablename.lower()+'.csv'), index=False)
         response_data = analyze_data(df)
         # return JsonResponse(response_data, safe=False)
-        return HttpResponse( orjson.dumps({"result": response_data},option=orjson.OPT_SERIALIZE_DATETIME).decode("utf-8"),
+        return HttpResponse(json.dumps({"result": response_data}),
                             content_type="application/json")
 
 
