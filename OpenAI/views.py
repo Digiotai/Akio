@@ -152,7 +152,7 @@ def get_csv_metadata(df):
 @csrf_exempt
 def train_data(request, train_type, file_name):
     try:
-        df = pd.read_csv(os.path.join("uploads", file_name))
+        df = pd.read_csv(os.path.join("uploads", file_name + '.csv'))
         df = df.iloc[:300, :]
         if train_type.lower() == 'predict':
             for i in df.columns:
