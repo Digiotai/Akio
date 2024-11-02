@@ -459,7 +459,10 @@ def analyze_data(df):
         "plotting_questions": plotting_questions
     }
     return response_data
-
+def serialize_datetime(obj):
+    if isinstance(obj, (datetime, pd.Timestamp)):
+        return obj.isoformat()
+    raise TypeError("Type not serializable")
 
 # Showing the number of tables in the database
 @csrf_exempt
@@ -479,7 +482,8 @@ def read_db_table_data(request):
         df.to_csv(os.path.join("uploads", tablename.lower()+'.csv'), index=False)
         response_data = analyze_data(df)
         # return JsonResponse(response_data, safe=False)
-        return HttpResponse(json.dumps({"result": response_data}),
+        print(response_data)
+        return HttpResponse(json.dumps({"result": response_data}, default=serialize_datetime),
                             content_type="application/json")
 
 
