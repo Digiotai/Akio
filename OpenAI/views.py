@@ -486,6 +486,14 @@ def read_db_table_data(request):
         # return HttpResponse(json.dumps({"result": response_data}, default=serialize_datetime),
         #                     content_type="application/json")
 
+@csrf_exempt
+def read_data(request):
+    if request.method == 'POST':
+        tablename = request.POST['tablename']
+        df = db.get_table_data(tablename)
+        df.to_csv('data.csv', index=False)
+        df.to_csv(os.path.join("uploads", tablename.lower() + '.csv'), index=False)
+        return HttpResponse(df.to_json(), content_type="application/json")
 
 # Function to generate code from OpenAI API
 def generate_code(prompt_eng):

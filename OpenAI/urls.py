@@ -8,6 +8,7 @@ urlpatterns = [
     path('api/connect', connection, name='connection'),
     path("api/upload", upload_and_analyze_data, name='upload_data'),
     path('api/tableinfo', get_tableinfo, name='get_table_info'),
+    path("api/tabledata", read_data, name='read_table_data'),
     path("api/read_db_table_data", read_db_table_data, name='read_table_data'),
 
     # Analytical
