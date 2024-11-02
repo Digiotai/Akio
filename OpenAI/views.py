@@ -481,10 +481,10 @@ def read_db_table_data(request):
         df.to_csv('data.csv', index=False)
         df.to_csv(os.path.join("uploads", tablename.lower()+'.csv'), index=False)
         response_data = analyze_data(df)
-        # return JsonResponse(response_data, safe=False)
-        print(response_data)
-        return HttpResponse(json.dumps({"result": response_data}, default=serialize_datetime),
-                            content_type="application/json")
+        return JsonResponse(response_data, safe=False)
+        # print(response_data)
+        # return HttpResponse(json.dumps({"result": response_data}, default=serialize_datetime),
+        #                     content_type="application/json")
 
 
 # Function to generate code from OpenAI API
