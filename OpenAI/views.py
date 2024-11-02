@@ -418,7 +418,7 @@ def upload_and_analyze_data(request):
                 df = pd.read_excel(files)
             else:
                 raise SuspiciousOperation("Unsupported file format")
-            df.to_csv(os.path.join("uploads", file_name), index=False)
+            df.to_csv(os.path.join("uploads", file_name.replace(file_extension,'.csv')), index=False)
             df.to_csv('data.csv', index=False)
             if db.connection:
                 # Insert the data into the database
