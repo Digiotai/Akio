@@ -477,7 +477,7 @@ def read_db_table_data(request):
         tablename = request.POST['tablename']
         df = db.get_table_data(tablename)
         df.to_csv('data.cv', index=False)
-        df.to_csv(os.path.join("uploads", tablename.lower()), index=False)
+        df.to_csv(os.path.join("uploads", tablename.lower()+'.csv'), index=False)
         response_data = analyze_data(df)
         return JsonResponse(response_data, safe=False)
 
