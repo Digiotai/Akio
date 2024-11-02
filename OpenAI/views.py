@@ -116,7 +116,7 @@ def get_importance(X_train, y_train, model_type):
     return df
 
 
-def iscatcol(col,t, threshold=10):
+def iscatcol(col, t, threshold=10):
     unique_values = col.dropna().unique()
     if len(unique_values) <= threshold or t == 'object':
         if t == 'object':
@@ -150,12 +150,10 @@ def get_csv_metadata(df):
 
 
 @csrf_exempt
-def train_data(request, train_type,file_name):
+def train_data(request, train_type, file_name):
     try:
-        df = pd.read_csv(os.path.join("uploads", file_name+'.csv'))
+        df = pd.read_csv(os.path.join("uploads", file_name))
         df = df.iloc[:300, :]
-        print(df.columns)
-
         if train_type.lower() == 'predict':
             for i in df.columns:
                 try:
@@ -190,7 +188,8 @@ def train_data(request, train_type,file_name):
                     ])
                     if iscatcol(df[col_predict], df.dtypes[col_predict])[0]:
                         # Define the architecture of the ANN model
-                        model.add(tf.keras.layers.Dense(dense_c, activation='softmax'))  # Output layer for binary classification
+                        model.add(tf.keras.layers.Dense(dense_c,
+                                                        activation='softmax'))  # Output layer for binary classification
                         loss_function = 'sparse_categorical_crossentropy'
                         metrics = ['accuracy']
                         model_type = 'classification'
@@ -234,8 +233,9 @@ def train_data(request, train_type,file_name):
                     if not os.path.exists(os.path.join("data", file_name, col_predict.replace(" ", "_"))):
                         os.makedirs(os.path.join("data", file_name, col_predict.replace(" ", "_")))
 
-                    predicted_data.to_csv(os.path.join("data", file_name, col_predict.replace(" ", "_"), 'predictions.csv'),
-                                          index=False)
+                    predicted_data.to_csv(
+                        os.path.join("data", file_name, col_predict.replace(" ", "_"), 'predictions.csv'),
+                        index=False)
                     # Save the label encoders
                     for column, encoder in label_encoders.items():
                         joblib.dump(encoder,
@@ -260,15 +260,17 @@ def train_data(request, train_type,file_name):
                     }
                     cols = {c: unique_cols[c] if c in unique_cols else None for c in X_train.columns}
 
-                    with open(os.path.join("data", file_name, col_predict.replace(" ", "_"), "deployment.json"), "w") as fp:
+                    with open(os.path.join("data", file_name, col_predict.replace(" ", "_"), "deployment.json"),
+                              "w") as fp:
                         json.dump({"columns": cols, "model_type": model_type}, fp, indent=4)
-                    with open(os.path.join("data", file_name, col_predict.replace(" ", "_"), "results.json"), "w") as fp:
+                    with open(os.path.join("data", file_name, col_predict.replace(" ", "_"), "results.json"),
+                              "w") as fp:
                         json.dump(results, fp, indent=4)
                 except Exception as e:
                     print(e)
             return HttpResponse('Success')
         elif train_type.lower() == 'forecast':
-            data=df
+            data = df
             try:
                 # Identify date column by checking for datetime type
                 date_column = None
@@ -355,8 +357,8 @@ def train_data(request, train_type,file_name):
                             }
                         }
                         if not os.path.exists(os.path.join("data", file_name, col.replace(" ", "_"))):
-                            os.makedirs(os.path.join("data", file_name, col.replace(" ", "_")),exist_ok=True)
-                        col=col.replace(" ", "_")
+                            os.makedirs(os.path.join("data", file_name, col.replace(" ", "_")), exist_ok=True)
+                        col = col.replace(" ", "_")
                         with open(os.path.join('data', file_name, col,
                                                col.lower() + '_results.json'), 'w') as fp:
                             json.dump(results, fp)
@@ -368,7 +370,7 @@ def train_data(request, train_type,file_name):
                 print(e)
     except Exception as e:
         print(e)
-        return HttpResponse("Error "+str(e))
+        return HttpResponse("Error " + str(e))
 
 
 # Database connection
