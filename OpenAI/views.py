@@ -156,8 +156,8 @@ def train_data(request, train_type, file_name):
         df = df.iloc[:300, :]
         if train_type.lower() == 'predict':
             df = updatedtypes(df)
-            os.makedirs(os.path.join("data", file_name), exist_ok=True)
-            df.to_csv(os.path.join("data", file_name, "processed_data.csv"), index=False)
+            os.makedirs(os.path.join("data", file_name.lower()), exist_ok=True)
+            df.to_csv(os.path.join("data", file_name.lower(), "processed_data.csv"), index=False)
             for i in df.columns:
                 try:
                     col_predict = i
@@ -233,20 +233,20 @@ def train_data(request, train_type, file_name):
 
                     # Print or plot the top features
                     print(importance_df)
-                    if not os.path.exists(os.path.join("data", file_name, col_predict.replace(" ", "_"))):
-                        os.makedirs(os.path.join("data", file_name, col_predict.replace(" ", "_")))
+                    if not os.path.exists(os.path.join("data", file_name.lower(), col_predict.replace(" ", "_"))):
+                        os.makedirs(os.path.join("data", file_name.lower(), col_predict.replace(" ", "_")))
 
                     predicted_data.to_csv(
-                        os.path.join("data", file_name, col_predict.replace(" ", "_"), 'predictions.csv'),
+                        os.path.join("data", file_name.lower(), col_predict.replace(" ", "_"), 'predictions.csv'),
                         index=False)
                     # Save the label encoders
                     for column, encoder in label_encoders.items():
                         joblib.dump(encoder,
-                                    os.path.join("data", file_name, col_predict.replace(" ", "_"),
+                                    os.path.join("data", file_name.lower(), col_predict.replace(" ", "_"),
                                                  f'{column.replace(" ", "_")}_encoder.pkl'))
 
                     # Save the trained model
-                    print("saved_path", os.path.join("data", file_name, col_predict.replace(" ", "_"), "model.h5"))
+                    print("saved_path", os.path.join("data", file_name.lower(), col_predict.replace(" ", "_"), "model.h5"))
                     model.save(os.path.join("data", file_name, col_predict.replace(" ", "_"), "model.h5"))
                     if model_type == 'classification':
                         accuracy = accuracy * 100
@@ -359,10 +359,10 @@ def train_data(request, train_type, file_name):
                                 "values": [float(val) if isinstance(val, np.float_) else int(val) for val in fc]
                             }
                         }
-                        if not os.path.exists(os.path.join("data", file_name, col.replace(" ", "_"))):
-                            os.makedirs(os.path.join("data", file_name, col.replace(" ", "_")), exist_ok=True)
+                        if not os.path.exists(os.path.join("data", file_name.lower(), col.replace(" ", "_"))):
+                            os.makedirs(os.path.join("data", file_name.lower(), col.replace(" ", "_")), exist_ok=True)
                         col = col.replace(" ", "_")
-                        with open(os.path.join('data', file_name, col,
+                        with open(os.path.join('data', file_name.lower(), col,
                                                col.lower() + '_results.json'), 'w') as fp:
                             json.dump(results, fp)
                         print("Results saved to forecast_results.json")
@@ -421,7 +421,7 @@ def upload_and_analyze_data(request):
                 df = pd.read_excel(files)
             else:
                 raise SuspiciousOperation("Unsupported file format")
-            df.to_csv(os.path.join("uploads", file_name.replace(file_extension,'.csv')), index=False)
+            df.to_csv(os.path.join("uploads", file_name.replace(file_extension,'.csv').lower()), index=False)
             df.to_csv('data.csv', index=False)
             if db.connection:
                 # Insert the data into the database
@@ -476,7 +476,7 @@ def read_db_table_data(request):
         tablename = request.POST['tablename']
         df = db.get_table_data(tablename)
         df.to_csv('data.cv', index=False)
-        df.to_csv(os.path.join("uploads", tablename), index=False)
+        df.to_csv(os.path.join("uploads", tablename.lower()), index=False)
         response_data = analyze_data(df)
         return JsonResponse(response_data, safe=False)
 
