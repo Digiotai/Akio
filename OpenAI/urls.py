@@ -16,6 +16,7 @@ urlpatterns = [
     path("api/gen_graph_response", gen_graph_response, name="GenAIPrompt"),
     path("api/regenerate_txt_questions", regenerate_txt, name="regenerate"),
     path("api/regenerate_graph_questions", regenerate_chart, name="regenerate_chart"),
+    path('api/get_description', get_description, name='get_description'),
 
     # train
     path("api/train/<train_type>/<file_name>", train_data, name="train"),

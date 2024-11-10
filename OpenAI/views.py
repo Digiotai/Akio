@@ -34,9 +34,7 @@ import pmdarima as pm
 import matplotlib.pyplot as plt
 import json
 import matplotlib.pyplot as plt
-
 import json
-
 from django.shortcuts import render
 import os
 import pandas as pd
@@ -626,7 +624,7 @@ def gen_graph_response(request):
             f"Attributes of the data are: {metadata_str}."
             f"Consider 'data.csv' as the data source for any analysis."
             f"Based on the query generate only the Python code using Matplotlib to plot the graph."
-            f"Save the graph as 'graph.png'."
+            f"Save the graph as 'graph.png'. Also save the graph description in description.txt"
             f"The user asks: {query}"
         )
 
@@ -659,6 +657,16 @@ def gen_graph_response(request):
                     return HttpResponse("Failed to generate the chart. Please try again")
         else:
             return HttpResponse(code)
+
+
+@csrf_exempt
+def get_description(request):
+    try:
+        with open('description.txt', 'r') as fp:
+            data = fp.read()
+        return HttpResponse(json.dumps({"description": data}), content_type="application/json")
+    except Exception as e:
+        print(e)
 
 
 # For genbi
@@ -760,7 +768,7 @@ def genAIPrompt2(request):
             f"Attributes of the data are: {metadata_str}. "
             f"Consider 'data.csv' as the data source for any analysis."
             f"If the user asks for a graph, generate only the Python code using Matplotlib to plot the graph. "
-            f"Save the graph as 'graph.png'. "
+            f"Save the graph as 'graph.png'. Also describe the graph and store the description in description.txt"
             f"If the user does not ask for a graph, simply answer the query with the computed result. "
             f"The user asks: {query}"
         )
