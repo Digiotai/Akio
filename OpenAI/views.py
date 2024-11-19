@@ -147,6 +147,45 @@ def get_csv_metadata(df):
     return metadata
 
 
+def data_cleanup(df):
+
+    if 'Date' in df.columns and 'Time' in df.columns:
+        df['DateTime'] = pd.to_datetime(df['Date'] + ' ' + df['Time'])
+        df.drop(['Date', 'Time'], axis=1, inplace=True)  # Drop original columns if needed
+
+    for col in df.select_dtypes(include='object').columns:
+        try:
+            df[col] = pd.to_datetime(df[col])
+        except Exception:
+            pass
+    # 1. Removing columns with unique value
+    for col in df.columns:
+        if df[col].nunique() <= 5:
+            print('dropping columns with single value', col)
+            df.drop(col, axis=1, inplace=True)
+    df = df.select_dtypes(include=['number', 'datetime'])
+    # Selecting numeric columns
+    numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+
+    # 2. Dropping low variance columns
+    variances = df[numeric_cols].var()
+    dynamic_variance_threshold = variances.median() * 0.1  # 10% of median variance
+    low_variance_numeric = variances[variances < dynamic_variance_threshold].index.tolist()
+
+    # variance_std_dev = variances.std()
+    # variance_mean = variances.mean()
+    #
+    # # Define threshold as mean - 1 standard deviation
+    # threshold = variance_mean - variance_std_dev
+    #
+    # # Identify low variance columns
+    # low_variance_numeric = variances[variances < threshold].index.tolist()
+
+    print('dropping low variance columns', low_variance_numeric)
+    df.drop(low_variance_numeric, axis=1, inplace=True)
+    return df
+
+
 @csrf_exempt
 def train_data(request, train_type, file_name):
     try:
@@ -270,21 +309,14 @@ def train_data(request, train_type, file_name):
                         json.dump(results, fp, indent=4)
                 except Exception as e:
                     print(e)
+                    return HttpResponse("Error " + str(e))
             return HttpResponse('Success')
         elif train_type.lower() == 'forecast':
+            df = data_cleanup(df)
             data = df
             try:
-                # Identify date column by checking for datetime type
-                date_column = None
-                for col in data.columns:
-                    if data.dtypes[col] == 'object':
-                        try:
-                            # Attempt to convert column to datetime
-                            pd.to_datetime(data[col])
-                            date_column = col
-                            break
-                        except (ValueError, TypeError):
-                            continue
+                numeric_cols = df.select_dtypes(include=['datetime']).columns.tolist()
+                date_column = numeric_cols[0]
                 if not date_column:
                     raise ValueError("No datetime column found in the dataset.")
                 print(date_column)
@@ -296,6 +328,12 @@ def train_data(request, train_type, file_name):
                 forecast_columns = data.select_dtypes(include=[np.number]).columns.tolist()
                 if not forecast_columns:
                     raise ValueError("No numeric columns found for forecasting in the dataset.")
+
+                time_differences = data.index.to_series().diff().dropna()
+                print(time_differences)
+                inconsistent_intervals = time_differences[time_differences != time_differences.mode()[0]]
+                print(inconsistent_intervals)
+
 
                 # Infer frequency of datetime index
                 freq = pd.infer_freq(data.index)
@@ -367,9 +405,11 @@ def train_data(request, train_type, file_name):
                         print(f"Results saved to {os.path.join('data', file_name.lower(), col, col.lower() + '_results.json')}")
                     except Exception as e:
                         print(e)
+                        return HttpResponse("Error " + str(e))
                 return HttpResponse("Success")
             except Exception as e:
                 print(e)
+                return HttpResponse("Error " + str(e))
     except Exception as e:
         print(e)
         return HttpResponse("Error " + str(e))
@@ -552,13 +592,18 @@ def gen_txt_response(request):
         metadata_str = ", ".join(csv_metadata["columns"])
         query = request.POST["query"]
         prompt_eng = (
-            f"You are an AI specialized in data preprocessing."
-            f"Data related to the {query} is stored in a CSV file data.csv.Consider the data.csv as the data source"
-            f"Generate Python code to answer the question: {query}"
-            f"The data contains the following columns: {metadata_str}."
-            f"Return only the Python code that computes the result .Result should describe the parameters in it, "
-            f"without any plotting or visualization."
-            f"If the {query} related to the theoretical concept.You will give a small description about the concept also."
+            f"""
+            You are an AI specialized in data preprocessing.
+
+            1. If the user's query is generic and not related to any data, provide a generic response as a print statement.
+            2. For data-related queries, assume that `data.csv` is the data source. Generate Python code that addresses the user's query: {query}.
+               - The file `data.csv` contains the following columns: {metadata_str}.
+               - Return only the Python code needed to compute the result, with descriptions for any parameters used.
+               - Exclude any plotting or visualization.
+
+            3. If the query relates to a theoretical concept, provide a brief explanation of the concept as a print statement.
+            """
+
         )
         code = generate_code(prompt_eng)
         # Execute the generated code
