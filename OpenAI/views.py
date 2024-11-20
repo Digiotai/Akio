@@ -191,6 +191,8 @@ def train_data(request, train_type, file_name):
     try:
         df = pd.read_csv(os.path.join("uploads", file_name.lower() + '.csv'))
         df = df.iloc[:300, :]
+        if os.path.exists(os.path.join("data", file_name.lower())):
+            return HttpResponse("Success")
         if train_type.lower() == 'predict':
             df = updatedtypes(df)
             os.makedirs(os.path.join("data", file_name.lower()), exist_ok=True)
