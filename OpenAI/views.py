@@ -61,7 +61,7 @@ import json
 import os
 
 global connection_obj
-db = PostgresDatabase()
+db = MongoDBDatabase()
 
 # Configure OpenAI
 load_dotenv()
@@ -448,35 +448,57 @@ from django.core.exceptions import SuspiciousOperation
 @csrf_exempt
 def upload_and_analyze_data(request):
     if request.method == 'POST':
+
         # Handle file upload
-        files = request.FILES.get('file')
+        files = request.FILES.get('file')  # Retrieve the uploaded file
         if not files:
             return HttpResponse('No files uploaded', status=400)
+
         file_name = files.name
-        file_extension = os.path.splitext(file_name)[1].lower()
+        file_extension = os.path.splitext(file_name)[1].lower()  # Extract file extension
+
         try:
-            # Process the uploaded file
+            # Process the uploaded file based on its extension
             if file_extension == '.csv':
+                # Read CSV file
                 content = files.read().decode('utf-8')
                 csv_data = io.StringIO(content)
                 df = pd.read_csv(csv_data)
             elif file_extension in ['.xls', '.xlsx']:
+                # Read Excel file
                 df = pd.read_excel(files)
             else:
+                # Unsupported file type
                 raise SuspiciousOperation("Unsupported file format")
-            df.to_csv(os.path.join("uploads", file_name.replace(file_extension,'.csv').lower()), index=False)
+
+            # Save the uploaded file locally for backup/logging purposes
+            upload_dir = "uploads"
+            os.makedirs(upload_dir, exist_ok=True)
+            csv_file_path = os.path.join(upload_dir, file_name.replace(file_extension, '.csv').lower())
+            df.to_csv(csv_file_path, index=False)
+
+            # Save a working copy as 'data.csv'
             df.to_csv('data.csv', index=False)
-            if db.connection:
-                # Insert the data into the database
-                result = db.insert(df, file_name)  # Assuming db.insert returns the DataFrame
-            response_data = analyze_data(df)
+
+            # Insert the data into MongoDB
+            result = db.insert(df, file_name)  # Uses MongoDBDatabase's `insert` method
+
+            # Perform data analysis on the DataFrame
+            response_data = analyze_data(df)  # Assuming `analyze_data` is a function that analyzes data
+
             # Return the analytics response along with the first 10 rows
+            response_data['preview'] = df.head(10).to_dict(orient='records')
+            response_data['upload_status'] = result  # Include database insert result
+
             return JsonResponse(response_data, safe=False)
+
         except Exception as e:
+            # Handle errors during file processing or database interaction
             print(e)
             return HttpResponse(f"Failed to upload and analyze file: {str(e)}", status=500)
-    return HttpResponse("Invalid Request Method", status=405)
 
+    # If the request method is not POST
+    return HttpResponse("Invalid Request Method", status=405)
 
 def analyze_data(df):
     # Extract the first 10 rows of the data
@@ -502,6 +524,7 @@ def analyze_data(df):
         "plotting_questions": plotting_questions
     }
     return response_data
+
 def serialize_datetime(obj):
     if isinstance(obj, (datetime, pd.Timestamp)):
         return obj.isoformat()
@@ -511,7 +534,7 @@ def serialize_datetime(obj):
 @csrf_exempt
 def get_tableinfo(request):
     if request.method == 'POST':
-        table_info = db.get_tables_info()
+        table_info = db.get_documents_info()
         return HttpResponse(table_info, content_type="application/json")
 
 
@@ -520,7 +543,7 @@ def get_tableinfo(request):
 def read_db_table_data(request):
     if request.method == 'POST':
         tablename = request.POST['tablename']
-        df = db.get_table_data(tablename)
+        df = db.get_document_data(tablename)
         df.to_csv('data.csv', index=False)
         df.to_csv(os.path.join("uploads", tablename.lower()+'.csv'), index=False)
         response_data = analyze_data(df)
@@ -533,7 +556,7 @@ def read_db_table_data(request):
 def read_data(request):
     if request.method == 'POST':
         tablename = request.POST['tablename']
-        df = db.get_table_data(tablename)
+        df = db.get_document_data(tablename)
         df.to_csv('data.csv', index=False)
         df.to_csv(os.path.join("uploads", tablename.lower() + '.csv'), index=False)
         return HttpResponse(df.to_json(), content_type="application/json")
