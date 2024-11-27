@@ -10,6 +10,7 @@ urlpatterns = [
     path('api/tableinfo', get_tableinfo, name='get_table_info'),
     path("api/tabledata", read_data, name='read_table_data'),
     path("api/read_db_table_data", read_db_table_data, name='read_table_data'),
+    path("api/get_user_data", get_user_data, name='gwt_user_data'),
 
     # Analytical
     path("api/gen_txt_response", gen_txt_response, name="regenerate_chart"),
