@@ -475,11 +475,18 @@ def upload_and_analyze_data(request):
             # Save the uploaded file locally for backup/logging purposes
             upload_dir = "uploads"
             os.makedirs(upload_dir, exist_ok=True)
+
+            #For csv file
             csv_file_path = os.path.join(upload_dir, file_name.replace(file_extension, '.csv').lower())
             df.to_csv(csv_file_path, index=False)
 
+            # Save as Excel file
+            excel_file_path = os.path.join(upload_dir, file_name.replace(file_extension, '.xlsx').lower())
+            df.to_excel(excel_file_path, index=False, engine='openpyxl')  # Use openpyxl as the Excel write
+
             # Save a working copy as 'data.csv'
             df.to_csv('data.csv', index=False)
+            df.to_excel('data1.xlsx', index=False, engine='openpyxl')  # Excel
 
             # Insert the data into MongoDB
             results = db.insert(email,df, file_name)  # Uses MongoDBDatabase's `insert` method
@@ -1064,7 +1071,7 @@ DATABASE = 'test'
 
 
 
-def handle_forecasting(file, openai_api_key, user_prompt):
+def handle_forecasting(df, openai_api_key, user_prompt,table_name="default_table"):
     """
     Processes an uploaded Excel file for forecasting tasks by storing it in the database,
     converting it to SQL, and generating a forecast based on the user query.
@@ -1078,17 +1085,13 @@ def handle_forecasting(file, openai_api_key, user_prompt):
     - Dictionary with forecast results and optionally an image path.
     """
     # Extract table name from the file name
-    table_name = file.name.split('.')[0]
-
-    # Save the uploaded file temporarily
-    file_path = os.path.join(settings.MEDIA_ROOT, file.name)
-    with default_storage.open(file_path, 'wb+') as f:
-        for chunk in file.chunks():
-            f.write(chunk)
+    # Save the DataFrame to a temporary CSV file
+    csv_file_path = os.path.join(settings.MEDIA_ROOT, f"{table_name}.csv")
+    df.to_csv(csv_file_path, index=False)
 
     # Convert the Excel file to an SQL table
     try:
-        file_to_sql(file_path, table_name, USER, PASSWORD, HOST, DATABASE)
+        file_to_sql(csv_file_path, table_name, USER, PASSWORD, HOST, DATABASE)
     except Exception as e:
         print("Error converting file to SQL:", str(e))
         return JsonResponse({"error": "Failed to convert file to SQL table."}, status=500)
@@ -1139,7 +1142,7 @@ def handle_forecasting(file, openai_api_key, user_prompt):
 
     # Clean up temporary file
     try:
-        os.remove(file_path)
+        os.remove(csv_file_path)
     except OSError as e:
         print(f"Error removing temporary file: {e}")
 
@@ -1166,11 +1169,12 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 @csrf_exempt
 def forecast_sales(request):
-    if request.method == 'POST' and 'file' in request.FILES and 'user_prompt' in request.POST:
-        file = request.FILES['file']
+    if request.method == 'POST':
+        df = pd.read_excel('data1.xlsx')
+        print(df.head(5))
         openai_api_key =os.getenv("OPENAI_API_KEY")
         user_prompt = request.POST.get('user_prompt')
-        result = handle_forecasting(file, openai_api_key, user_prompt)
+        result = handle_forecasting(df, openai_api_key, user_prompt,table_name="forecast_table")
         if isinstance(result, dict):
             if 'image_path' in result:
                 response_data["image_base64"] = image_to_base64(result["image_path"])
