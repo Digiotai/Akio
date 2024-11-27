@@ -1164,3 +1164,82 @@ def forecast_sales(request):
     else:
         return JsonResponse({"error": "Invalid request."}, status=400)
 
+
+# Synthetic Data Generation through wyge
+import os
+import pandas as pd
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from .generator import  generate_data_from_text
+import json
+
+# Helper function: Extract number of rows from user prompt
+def extract_num_rows_from_prompt(user_prompt):
+    """
+    Parses the user prompt to find the number of rows.
+    Example: "Generate 100 rows of data" -> 100
+    """
+    import re
+    match = re.search(r'(\d+)\s+rows', user_prompt, re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+@csrf_exempt
+def handle_synthetic_data_api(request):
+    """
+    API Endpoint to generate synthetic data from a user's uploaded file and prompt.
+
+    Method: POST
+    Payload:
+      - uploaded_file (File): The empty Excel or CSV file with column names
+      - user_prompt (String): A prompt specifying the number of rows
+      - openai_api_key (String): OpenAI API key
+    """
+    if request.method == "POST":
+        try:
+            # Extract uploaded file, user prompt, and API key from the request
+            uploaded_file = request.FILES.get('file')
+            user_prompt = request.POST.get('user_prompt')
+            openai_api_key = os.getenv('OPENAI_API_KEY')
+
+            if not uploaded_file or not user_prompt or not openai_api_key:
+                return JsonResponse({"error": "Missing required parameters"}, status=400)
+
+            # Determine file type and extract column names
+            file_extension = os.path.splitext(uploaded_file.name)[1].lower()
+            if file_extension == ".xlsx":
+                df = pd.read_excel(uploaded_file)
+            elif file_extension == ".csv":
+                df = pd.read_csv(uploaded_file)
+            else:
+                return JsonResponse({"error": "Unsupported file format. Please upload an Excel or CSV file."}, status=400)
+
+            column_names = df.columns.tolist()
+
+            # Check if column names exist
+            if not column_names:
+                return JsonResponse({"error": "The uploaded file contains no column names."}, status=400)
+
+            # Extract number of rows from the prompt
+            num_rows = extract_num_rows_from_prompt(user_prompt)
+            if num_rows is None:
+                return JsonResponse({"error": "Number of rows not found in the prompt."}, status=400)
+
+            # Generate synthetic data
+            generated_df = generate_data_from_text(openai_api_key, user_prompt, column_names, num_rows=num_rows)
+
+            # Convert to CSV format
+            combined_csv = generated_df.to_csv(index=False)
+
+            return JsonResponse({
+                "data": combined_csv
+            }, status=200)
+
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
+
+    return JsonResponse({"error": "Invalid request method. Use POST."}, status=405)
+
+
