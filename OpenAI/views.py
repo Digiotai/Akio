@@ -642,12 +642,12 @@ def gen_txt_response(request):
         )
         code = generate_code(prompt_eng)
         # Execute the generated code
-        result = execute_code(code, df)
+        result = execute_py_code(code, df)
         return JsonResponse({"answer": result})
     return HttpResponse("Invalid Request Method", status=405)
 
 
-def execute_code(code, df):
+def execute_py_code(code, df):
     # Create a string buffer to capture the output
     buffer = io.StringIO()
     sys.stdout = buffer
@@ -786,14 +786,14 @@ def genresponse2(request):
         print(code)
 
         # Execute the generated code
-        result = execute_code(code, df)
+        result = execute_py_code(code, df)
 
         return JsonResponse({"answer": result})
 
     return HttpResponse("Invalid Request Method", status=405)
 
 
-def execute_code(code, df):
+def execute_py_code(code, df):
     # Create a string buffer to capture the output
     buffer = io.StringIO()
     sys.stdout = buffer
