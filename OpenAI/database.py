@@ -258,15 +258,9 @@ import pickle
 from datetime import datetime
 
 
-
 class PostgresDatabase:
     def __init__(self):
         self.connection = None
-        self.headers = {
-            'Authorization':
-                'FlespiToken axLBthbazeJkKKkpr2sVK9rAeXfFJGmH1V9k18iqaSyKqHYHzetadIyitBL15WyU'
-        }
-        self.data = None
 
     def create_connection(self, user, password, database, host, port=5432):
         try:
@@ -278,25 +272,33 @@ class PostgresDatabase:
                 port=port
             )
             self.connection.autocommit = True
+            print("Database connection established.")
             return self.get_tables_info()
         except Exception as e:
-            print(e)
-            return "connection failed"
+            print(f"Error connecting to database: {e}")
+            self.connection = None
+            return "Connection failed"
 
-    def get_tables(self):
+    def ensure_connection(self):
+        """
+        Ensure the connection is active. Reconnect if necessary.
+        """
         try:
-            with self.connection.cursor() as cursor:
-                cursor.execute("""SELECT table_name
-                                  FROM information_schema.tables
-                                  WHERE table_schema = 'public'
-                                  AND table_type = 'BASE TABLE';""")
-                table_names = [row[0] for row in cursor.fetchall()]
-            return table_names
+            if self.connection is None or self.connection.closed:
+                print("Reconnecting to the database...")
+                self.create_connection(
+                    user=PGUSER,
+                    password=PGPASSWORD,
+                    database=PGDATABASE,
+                    host=PGHOST
+                )
         except Exception as e:
-            print(e)
+            print(f"Error ensuring connection: {e}")
+            raise
 
     def create_table(self):
         try:
+            self.ensure_connection()
             with self.connection.cursor() as cursor:
                 query = """CREATE TABLE IF NOT EXISTS data(
                             id SERIAL PRIMARY KEY,
@@ -308,11 +310,12 @@ class PostgresDatabase:
                 cursor.execute(query)
                 print("Table 'data' created successfully.")
         except Exception as err:
-            print(err)
+            print(f"Error creating table: {err}")
             return str(err)
 
     def insert(self, email, data, tb_name):
         try:
+            self.ensure_connection()
             tb_name_clean = tb_name.split('.')[0]  # Strip extension
             blob_data = pickle.dumps(data)  # Serialize the data
 
@@ -327,13 +330,13 @@ class PostgresDatabase:
                                   VALUES (%s, %s, %s, %s, %s)""",
                                (email, tb_name_clean, datetime.now(), datetime.now(), psycopg2.Binary(blob_data)))
             return "Record inserted/updated successfully"
-
         except Exception as err:
-            print(err)
+            print(f"Error inserting record: {err}")
             return str(err)
 
     def read(self):
         try:
+            self.ensure_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("SELECT * FROM data")
                 rows = cursor.fetchall()
@@ -342,9 +345,8 @@ class PostgresDatabase:
             columns = ['id', 'email', 'name', 'lastupdate', 'datecreated', 'fileobj']
             df = pd.DataFrame(rows, columns=columns)
             return df
-
         except Exception as err:
-            print(err)
+            print(f"Error reading data: {err}")
             return pd.DataFrame()  # Return an empty DataFrame in case of error
 
     def get_tables_info(self):
@@ -352,7 +354,7 @@ class PostgresDatabase:
             df = self.read()
             return df.iloc[:, :-1].to_json() if not df.empty else {}
         except Exception as err:
-            print(err)
+            print(f"Error getting table info: {err}")
             return {}
 
     def get_user_tables(self, user):
@@ -360,7 +362,7 @@ class PostgresDatabase:
             df = self.read()
             return list(df[df['email'] == user]['name']) if not df.empty else []
         except Exception as err:
-            print(err)
+            print(f"Error getting user tables: {err}")
             return {}
 
     def get_table_data(self, table_name):
@@ -372,57 +374,56 @@ class PostgresDatabase:
             data = pickle.loads(data_row.values[0].tobytes())
             return data
         except Exception as err:
-            print(err)
+            print(f"Error getting table data: {err}")
             return pd.DataFrame()
 
     def delete_table_data(self, table_name):
         try:
+            self.ensure_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("DELETE FROM data WHERE name = %s", (table_name,))
                 if cursor.rowcount == 0:
                     return f"No data found for table: {table_name}"
             return f"Record deleted successfully for table: {table_name}"
         except Exception as err:
-            print(err)
+            print(f"Error deleting table data: {err}")
             return str(err)
 
     def drop_table(self, table_name):
-        """Drop a specific table from the database."""
         try:
+            self.ensure_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute(f"DROP TABLE IF EXISTS {table_name} CASCADE")
             return f"Table '{table_name}' dropped successfully."
         except Exception as err:
-            print(err)
+            print(f"Error dropping table: {err}")
             return str(err)
 
     def truncate_data_table(self):
-        """Truncate the data table to delete all rows but keep the structure intact."""
         try:
+            self.ensure_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("TRUNCATE TABLE data CASCADE")
             return "All data truncated from the 'data' table successfully."
         except Exception as err:
-            print(err)
+            print(f"Error truncating data: {err}")
             return str(err)
 
 
+# Database configuration
+PGHOST = 'ep-yellow-recipe-a5fny139.us-east-2.aws.neon.tech'
+PGDATABASE = 'test'
+PGUSER = 'test_owner'
+PGPASSWORD = 'tcWI7unQ6REA'
+
 if __name__ == '__main__':
-    pdd = PostgresDatabase()  # Uses default credentials
-    PGHOST = 'ep-yellow-recipe-a5fny139.us-east-2.aws.neon.tech'
-    PGDATABASE = 'test'
-    PGUSER = 'test_owner'
-    PGPASSWORD = 'tcWI7unQ6REA'
-    pdd.create_connection('test_owner', 'tcWI7unQ6REA', 'test', 'ep-yellow-recipe-a5fny139.us-east-2.aws.neon.tech')
-    # Example usage:
-    # pdd.create_table()
-
-    df = pd.read_csv(r"G:\F\DIGIOTAI\data\retail_sales_data_asia.csv")
-    print(pdd.insert('test@gmail.com', df, "retail_sales_data_asia"))
-
+    pdd = PostgresDatabase()
+    pdd.create_connection(PGUSER, PGPASSWORD, PGDATABASE, PGHOST)
+    pdd.create_table()
+    # Test table info retrieval
     print(pdd.get_tables_info())
 
-    print(pdd.get_user_tables("test@gmail.com"))
+    # print(pdd.get_user_tables("test@gmail.com"))
     # pdd.drop_table("data")
     # pdd.delete_table_data('data')
     # Truncate all data in the 'data' table
