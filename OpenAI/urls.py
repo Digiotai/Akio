@@ -32,4 +32,5 @@ urlpatterns = [
 
     #Forecast with wyge
     path('api/forecasts', forecast_sales, name='forecasting'),
+    path('api/synthetic_data', handle_synthetic_data_api, name='synthetic_data_generation'),
 ]
