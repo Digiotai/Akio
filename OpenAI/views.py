@@ -449,7 +449,7 @@ from django.core.exceptions import SuspiciousOperation
 @csrf_exempt
 def upload_and_analyze_data(request):
     if request.method == 'POST':
-
+        email=request.POST.get('mail')
         # Handle file upload
         files = request.FILES.get('file')  # Retrieve the uploaded file
         if not files:
@@ -482,16 +482,16 @@ def upload_and_analyze_data(request):
             df.to_csv('data.csv', index=False)
 
             # Insert the data into MongoDB
-            result = db.insert(df, file_name)  # Uses MongoDBDatabase's `insert` method
+            results = db.insert(email,df, file_name)  # Uses MongoDBDatabase's `insert` method
 
             # Perform data analysis on the DataFrame
-            response_data = analyze_data(df)  # Assuming `analyze_data` is a function that analyzes data
+            response_data1 = analyze_data(df)  # Assuming `analyze_data` is a function that analyzes data
 
             # Return the analytics response along with the first 10 rows
-            response_data['preview'] = df.head(10).to_dict(orient='records')
-            response_data['upload_status'] = result  # Include database insert result
+            response_data1['preview'] = df.head(10).to_dict(orient='records')
+            response_data1['upload_status'] = results  # Include database insert result
 
-            return JsonResponse(response_data, safe=False)
+            return JsonResponse(response_data1, safe=False)
 
         except Exception as e:
             # Handle errors during file processing or database interaction
@@ -516,13 +516,19 @@ def analyze_data(df):
     text_questions = generate_code(prompt_eng1)
     prompt_eng_2 = f"Generate 10 simple possible plotting questions for the data: {df}"
     plotting_questions = generate_code(prompt_eng_2)
+
+    #Creating the forecasting questions
+    prompt_eng_3 = (f"Generate 10 simple possible forecasting questions for the data: {df}. "
+                    f"start the question using forecast keyword")
+    forecasting_questions = generate_code(prompt_eng_3)
     # Create a JSON response with titles corresponding to each prompt
     response_data = {
         "all_records": df.to_dict(orient='records'),
         "first_10_rows": first_10_rows,  # Include first 10 rows
         "column_description": column_description,
         "text_questions": text_questions,
-        "plotting_questions": plotting_questions
+        "plotting_questions": plotting_questions,
+        "forecasting_questions":forecasting_questions
     }
     return response_data
 
@@ -535,7 +541,7 @@ def serialize_datetime(obj):
 @csrf_exempt
 def get_tableinfo(request):
     if request.method == 'POST':
-        table_info = db.get_documents_info()
+        table_info = db.get_tables_info()
         return HttpResponse(table_info, content_type="application/json")
 
 @csrf_exempt
@@ -551,7 +557,7 @@ def get_user_data(request):
 def read_db_table_data(request):
     if request.method == 'POST':
         tablename = request.POST['tablename']
-        df = db.get_document_data(tablename)
+        df = db.get_table_data(tablename)
         df.to_csv('data.csv', index=False)
         df.to_csv(os.path.join("uploads", tablename.lower()+'.csv'), index=False)
         response_data = analyze_data(df)
@@ -564,7 +570,7 @@ def read_db_table_data(request):
 def read_data(request):
     if request.method == 'POST':
         tablename = request.POST['tablename']
-        df = db.get_document_data(tablename)
+        df = db.get_table_data(tablename)
         df.to_csv('data.csv', index=False)
         df.to_csv(os.path.join("uploads", tablename.lower() + '.csv'), index=False)
         return HttpResponse(df.to_json(), content_type="application/json")
@@ -611,6 +617,17 @@ def regenerate_chart(request):
         df = pd.read_csv('data.csv')
         prompt_eng = (
             f"Regenerate 10 simple possible plotting questions for the data: {df}. start the question using plot keyword"
+        )
+        code = generate_code(prompt_eng)
+        return HttpResponse(json.dumps({"questions": code}),
+                            content_type="application/json")
+#For Forecast
+@csrf_exempt
+def regenerate_forecast(request):
+    if request.method == "POST":
+        df = pd.read_csv('data.csv')
+        prompt_eng = (
+            f"Regenerate 10 simple possible forecasting questions for the data: {df}. start the question using forecast keyword"
         )
         code = generate_code(prompt_eng)
         return HttpResponse(json.dumps({"questions": code}),
@@ -1241,5 +1258,4 @@ def handle_synthetic_data_api(request):
             return JsonResponse({"error": str(e)}, status=500)
 
     return JsonResponse({"error": "Invalid request method. Use POST."}, status=405)
-
 
