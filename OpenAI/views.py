@@ -449,7 +449,7 @@ from django.core.exceptions import SuspiciousOperation
 @csrf_exempt
 def upload_and_analyze_data(request):
     if request.method == 'POST':
-
+        email=request.POST.get('mail')
         # Handle file upload
         files = request.FILES.get('file')  # Retrieve the uploaded file
         if not files:
@@ -475,23 +475,30 @@ def upload_and_analyze_data(request):
             # Save the uploaded file locally for backup/logging purposes
             upload_dir = "uploads"
             os.makedirs(upload_dir, exist_ok=True)
+
+            #For csv file
             csv_file_path = os.path.join(upload_dir, file_name.replace(file_extension, '.csv').lower())
             df.to_csv(csv_file_path, index=False)
 
+            # Save as Excel file
+            excel_file_path = os.path.join(upload_dir, file_name.replace(file_extension, '.xlsx').lower())
+            df.to_excel(excel_file_path, index=False, engine='openpyxl')  # Use openpyxl as the Excel write
+
             # Save a working copy as 'data.csv'
             df.to_csv('data.csv', index=False)
+            df.to_excel('data1.xlsx', index=False, engine='openpyxl')  # Excel
 
             # Insert the data into MongoDB
-            result = db.insert(df, file_name)  # Uses MongoDBDatabase's `insert` method
+            results = db.insert(email,df, file_name)  # Uses MongoDBDatabase's `insert` method
 
             # Perform data analysis on the DataFrame
-            response_data = analyze_data(df)  # Assuming `analyze_data` is a function that analyzes data
+            response_data1 = analyze_data(df)  # Assuming `analyze_data` is a function that analyzes data
 
             # Return the analytics response along with the first 10 rows
-            response_data['preview'] = df.head(10).to_dict(orient='records')
-            response_data['upload_status'] = result  # Include database insert result
+            response_data1['preview'] = df.head(10).to_dict(orient='records')
+            response_data1['upload_status'] = results  # Include database insert result
 
-            return JsonResponse(response_data, safe=False)
+            return JsonResponse(response_data1, safe=False)
 
         except Exception as e:
             # Handle errors during file processing or database interaction
@@ -516,13 +523,19 @@ def analyze_data(df):
     text_questions = generate_code(prompt_eng1)
     prompt_eng_2 = f"Generate 10 simple possible plotting questions for the data: {df}"
     plotting_questions = generate_code(prompt_eng_2)
+
+    #Creating the forecasting questions
+    prompt_eng_3 = (f"Generate 10 simple possible forecasting questions for the data: {df}. "
+                    f"start the question using forecast keyword")
+    forecasting_questions = generate_code(prompt_eng_3)
     # Create a JSON response with titles corresponding to each prompt
     response_data = {
         "all_records": df.to_dict(orient='records'),
         "first_10_rows": first_10_rows,  # Include first 10 rows
         "column_description": column_description,
         "text_questions": text_questions,
-        "plotting_questions": plotting_questions
+        "plotting_questions": plotting_questions,
+        "forecasting_questions":forecasting_questions
     }
     return response_data
 
@@ -535,7 +548,7 @@ def serialize_datetime(obj):
 @csrf_exempt
 def get_tableinfo(request):
     if request.method == 'POST':
-        table_info = db.get_documents_info()
+        table_info = db.get_tables_info()
         return HttpResponse(table_info, content_type="application/json")
 
 @csrf_exempt
@@ -551,7 +564,7 @@ def get_user_data(request):
 def read_db_table_data(request):
     if request.method == 'POST':
         tablename = request.POST['tablename']
-        df = db.get_document_data(tablename)
+        df = db.get_table_data(tablename)
         df.to_csv('data.csv', index=False)
         df.to_csv(os.path.join("uploads", tablename.lower()+'.csv'), index=False)
         response_data = analyze_data(df)
@@ -564,7 +577,7 @@ def read_db_table_data(request):
 def read_data(request):
     if request.method == 'POST':
         tablename = request.POST['tablename']
-        df = db.get_document_data(tablename)
+        df = db.get_table_data(tablename)
         df.to_csv('data.csv', index=False)
         df.to_csv(os.path.join("uploads", tablename.lower() + '.csv'), index=False)
         return HttpResponse(df.to_json(), content_type="application/json")
@@ -611,6 +624,17 @@ def regenerate_chart(request):
         df = pd.read_csv('data.csv')
         prompt_eng = (
             f"Regenerate 10 simple possible plotting questions for the data: {df}. start the question using plot keyword"
+        )
+        code = generate_code(prompt_eng)
+        return HttpResponse(json.dumps({"questions": code}),
+                            content_type="application/json")
+#For Forecast
+@csrf_exempt
+def regenerate_forecast(request):
+    if request.method == "POST":
+        df = pd.read_csv('data.csv')
+        prompt_eng = (
+            f"Regenerate 10 simple possible forecasting questions for the data: {df}. start the question using forecast keyword"
         )
         code = generate_code(prompt_eng)
         return HttpResponse(json.dumps({"questions": code}),
@@ -1047,7 +1071,7 @@ DATABASE = 'test'
 
 
 
-def handle_forecasting(file, openai_api_key, user_prompt):
+def handle_forecasting(df, openai_api_key, user_prompt,table_name="default_table"):
     """
     Processes an uploaded Excel file for forecasting tasks by storing it in the database,
     converting it to SQL, and generating a forecast based on the user query.
@@ -1061,17 +1085,13 @@ def handle_forecasting(file, openai_api_key, user_prompt):
     - Dictionary with forecast results and optionally an image path.
     """
     # Extract table name from the file name
-    table_name = file.name.split('.')[0]
-
-    # Save the uploaded file temporarily
-    file_path = os.path.join(settings.MEDIA_ROOT, file.name)
-    with default_storage.open(file_path, 'wb+') as f:
-        for chunk in file.chunks():
-            f.write(chunk)
+    # Save the DataFrame to a temporary CSV file
+    csv_file_path = os.path.join(settings.MEDIA_ROOT, f"{table_name}.csv")
+    df.to_csv(csv_file_path, index=False)
 
     # Convert the Excel file to an SQL table
     try:
-        file_to_sql(file_path, table_name, USER, PASSWORD, HOST, DATABASE)
+        file_to_sql(csv_file_path, table_name, USER, PASSWORD, HOST, DATABASE)
     except Exception as e:
         print("Error converting file to SQL:", str(e))
         return JsonResponse({"error": "Failed to convert file to SQL table."}, status=500)
@@ -1122,7 +1142,7 @@ def handle_forecasting(file, openai_api_key, user_prompt):
 
     # Clean up temporary file
     try:
-        os.remove(file_path)
+        os.remove(csv_file_path)
     except OSError as e:
         print(f"Error removing temporary file: {e}")
 
@@ -1149,11 +1169,12 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 @csrf_exempt
 def forecast_sales(request):
-    if request.method == 'POST' and 'file' in request.FILES and 'user_prompt' in request.POST:
-        file = request.FILES['file']
+    if request.method == 'POST':
+        df = pd.read_excel('data1.xlsx')
+        print(df.head(5))
         openai_api_key =os.getenv("OPENAI_API_KEY")
         user_prompt = request.POST.get('user_prompt')
-        result = handle_forecasting(file, openai_api_key, user_prompt)
+        result = handle_forecasting(df, openai_api_key, user_prompt,table_name="forecast_table")
         if isinstance(result, dict):
             if 'image_path' in result:
                 response_data["image_base64"] = image_to_base64(result["image_path"])
@@ -1163,4 +1184,82 @@ def forecast_sales(request):
         return JsonResponse(response_data, status=200)
     else:
         return JsonResponse({"error": "Invalid request."}, status=400)
+
+
+# Synthetic Data Generation through wyge
+import os
+import pandas as pd
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from .generator import  generate_data_from_text
+import json
+
+# Helper function: Extract number of rows from user prompt
+def extract_num_rows_from_prompt(user_prompt):
+    """
+    Parses the user prompt to find the number of rows.
+    Example: "Generate 100 rows of data" -> 100
+    """
+    import re
+    match = re.search(r'(\d+)\s+rows', user_prompt, re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+@csrf_exempt
+def handle_synthetic_data_api(request):
+    """
+    API Endpoint to generate synthetic data from a user's uploaded file and prompt.
+
+    Method: POST
+    Payload:
+      - uploaded_file (File): The empty Excel or CSV file with column names
+      - user_prompt (String): A prompt specifying the number of rows
+      - openai_api_key (String): OpenAI API key
+    """
+    if request.method == "POST":
+        try:
+            # Extract uploaded file, user prompt, and API key from the request
+            uploaded_file = request.FILES.get('file')
+            user_prompt = request.POST.get('user_prompt')
+            openai_api_key = os.getenv('OPENAI_API_KEY')
+
+            if not uploaded_file or not user_prompt or not openai_api_key:
+                return JsonResponse({"error": "Missing required parameters"}, status=400)
+
+            # Determine file type and extract column names
+            file_extension = os.path.splitext(uploaded_file.name)[1].lower()
+            if file_extension == ".xlsx":
+                df = pd.read_excel(uploaded_file)
+            elif file_extension == ".csv":
+                df = pd.read_csv(uploaded_file)
+            else:
+                return JsonResponse({"error": "Unsupported file format. Please upload an Excel or CSV file."}, status=400)
+
+            column_names = df.columns.tolist()
+
+            # Check if column names exist
+            if not column_names:
+                return JsonResponse({"error": "The uploaded file contains no column names."}, status=400)
+
+            # Extract number of rows from the prompt
+            num_rows = extract_num_rows_from_prompt(user_prompt)
+            if num_rows is None:
+                return JsonResponse({"error": "Number of rows not found in the prompt."}, status=400)
+
+            # Generate synthetic data
+            generated_df = generate_data_from_text(openai_api_key, user_prompt, column_names, num_rows=num_rows)
+
+            # Convert to CSV format
+            combined_csv = generated_df.to_csv(index=False)
+
+            return JsonResponse({
+                "data": combined_csv
+            }, status=200)
+
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
+
+    return JsonResponse({"error": "Invalid request method. Use POST."}, status=405)
 
