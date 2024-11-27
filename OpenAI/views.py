@@ -59,9 +59,10 @@ import joblib
 from sklearn.inspection import permutation_importance
 import json
 import os
+from .database import PostgresDatabase
 
 global connection_obj
-db = MongoDBDatabase()
+# db = MongoDBDatabase()
 
 # Configure OpenAI
 load_dotenv()
@@ -76,7 +77,7 @@ agent = Agent(expertise, task, input_type, output_type)
 api_key = OPENAI_API_KEY
 name = "file_name"
 
-# db = PostgreSQLDB(dbname='uibmogli', user='uibmogli', password='8ogImHfL_1G249lXtM3k2EAIWTRDH2mX')
+db = PostgresDatabase()
 
 os.makedirs('uploads', exist_ok=True)
 
@@ -537,6 +538,13 @@ def get_tableinfo(request):
         table_info = db.get_documents_info()
         return HttpResponse(table_info, content_type="application/json")
 
+@csrf_exempt
+def get_user_data(request):
+    if request.method == 'POST':
+        email = request.POST.get('email')
+        table_info = db.get_user_tables(email)
+        return HttpResponse(json.dumps({"result": table_info}), content_type="application/json")
+
 
 # Showing the data to the user based on the table name
 @csrf_exempt
@@ -935,15 +943,7 @@ def deployment_predict(request, data):
 @csrf_exempt
 def deployment_forecast(request, data, col):
     if request.method == 'POST':
-        col = col.replace(" ", "_")
-        msg = ''
-        res = {}
-        try:
-            with open(os.path.join('data', data.lower(), col, col.lower() + '_results.json'), 'r') as fp:
-                res = json.load(fp)
-        except FileNotFoundError as e:
-            print(e)
-            msg = 'Forecast not possible'
+        msg = 'Add Logic here for forecast'
         return HttpResponse(json.dumps({"result": res, "msg": msg}), content_type="application/json")
 
 
@@ -990,7 +990,7 @@ def get_deployment_txt(hex_data):
 
 
 
-# For Forecasting using wyge module:
+# For Forecasting using module:
 import os
 from django.core.files.storage import default_storage
 from django.http import JsonResponse
