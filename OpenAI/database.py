@@ -300,7 +300,7 @@ class PostgresDatabase:
         try:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
-                query = """CREATE TABLE IF NOT EXISTS data(
+                query = """CREATE TABLE IF NOT EXISTS data_data(
                             id SERIAL PRIMARY KEY,
                             email VARCHAR(255), 
                             name VARCHAR(255) UNIQUE,  -- Ensure 'name' is unique
@@ -308,7 +308,7 @@ class PostgresDatabase:
                             datecreated TIMESTAMP,
                             fileobj BYTEA)"""
                 cursor.execute(query)
-                print("Table 'data' created successfully.")
+                print("Table 'data_data' created successfully.")
         except Exception as err:
             print(f"Error creating table: {err}")
             return str(err)
@@ -321,12 +321,12 @@ class PostgresDatabase:
 
             with self.connection.cursor() as cursor:
                 # Check if the entry exists
-                cursor.execute("SELECT COUNT(*) FROM data WHERE name = %s", (tb_name_clean,))
+                cursor.execute("SELECT COUNT(*) FROM data_data WHERE name = %s", (tb_name_clean,))
                 if cursor.fetchone()[0] > 0:
-                    cursor.execute("DELETE FROM data WHERE name = %s", (tb_name_clean,))
+                    cursor.execute("DELETE FROM data_data WHERE name = %s", (tb_name_clean,))
 
                 # Insert the new data
-                cursor.execute("""INSERT INTO data (email, name, lastupdate, datecreated, fileobj)
+                cursor.execute("""INSERT INTO data_data (email, name, lastupdate, datecreated, fileobj)
                                   VALUES (%s, %s, %s, %s, %s)""",
                                (email, tb_name_clean, datetime.now(), datetime.now(), psycopg2.Binary(blob_data)))
             return "Record inserted/updated successfully"
@@ -338,7 +338,7 @@ class PostgresDatabase:
         try:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
-                cursor.execute("SELECT * FROM data")
+                cursor.execute("SELECT * FROM data_data")
                 rows = cursor.fetchall()
 
             # Convert the result to a DataFrame
@@ -381,7 +381,7 @@ class PostgresDatabase:
         try:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
-                cursor.execute("DELETE FROM data WHERE name = %s", (table_name,))
+                cursor.execute("DELETE FROM data_data WHERE name = %s", (table_name,))
                 if cursor.rowcount == 0:
                     return f"No data found for table: {table_name}"
             return f"Record deleted successfully for table: {table_name}"
@@ -403,7 +403,7 @@ class PostgresDatabase:
         try:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
-                cursor.execute("TRUNCATE TABLE data CASCADE")
+                cursor.execute("TRUNCATE TABLE data_data CASCADE")
             return "All data truncated from the 'data' table successfully."
         except Exception as err:
             print(f"Error truncating data: {err}")
@@ -424,7 +424,7 @@ if __name__ == '__main__':
     print(pdd.get_tables_info())
 
     # print(pdd.get_user_tables("test@gmail.com"))
-    # pdd.drop_table("data")
+    #pdd.drop_table("data")
     # pdd.delete_table_data('data')
     # Truncate all data in the 'data' table
     # print(pdd.truncate_data_table())
