@@ -525,8 +525,12 @@ def analyze_data(df):
     plotting_questions = generate_code(prompt_eng_2)
 
     #Creating the forecasting questions
-    prompt_eng_3 = (f"Generate 10 simple possible forecasting questions for the data: {df}. "
-                    f"start the question using forecast keyword")
+    #Creating the forecasting questions
+    prompt_eng_3 = (f"Generate 10 forecasting-related questions based on the dataset: {df}. "
+                    f"The questions should be specific, realistic, and start with the word 'Forecast.' "
+                    f"Ensure the questions are tailored to the type of data in the dataset and include time frames or specific metrics wherever possible. "
+                    f"Examples like: 'Forecast the sales for the next 6 months,' or 'Forecast the revenue growth for the next quarter.'")
+
     forecasting_questions = generate_code(prompt_eng_3)
     # Create a JSON response with titles corresponding to each prompt
     response_data = {
