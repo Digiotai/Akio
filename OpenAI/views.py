@@ -489,7 +489,7 @@ def upload_and_analyze_data(request):
             df.to_excel('data1.xlsx', index=False, engine='openpyxl')  # Excel
 
             # Insert the data into MongoDB
-            results = db.insert(email,df, file_name)  # Uses MongoDBDatabase's `insert` method
+            results = db.insert_or_update(email,df, file_name)  # Uses MongoDBDatabase's `insert` method
 
             # Perform data analysis on the DataFrame
             response_data1 = analyze_data(df)  # Assuming `analyze_data` is a function that analyzes data
@@ -556,6 +556,7 @@ def get_user_data(request):
     if request.method == 'POST':
         email = request.POST.get('email')
         table_info = db.get_user_tables(email)
+        print(table_info)
         return HttpResponse(json.dumps({"result": table_info}), content_type="application/json")
 
 
@@ -1071,6 +1072,7 @@ DATABASE = 'test'
 
 
 
+import time
 def handle_forecasting(df, openai_api_key, user_prompt, table_name="default_table"):
     """
     Processes a DataFrame for forecasting tasks by storing it in the database,
@@ -1085,12 +1087,15 @@ def handle_forecasting(df, openai_api_key, user_prompt, table_name="default_tabl
     - Dictionary with forecast results and optionally an image path.
     """
     print("[DEBUG] Entering handle_forecasting function")
+    start_time = time.time()
 
     # Save the DataFrame to a temporary CSV file
     try:
         csv_file_path = os.path.join(settings.MEDIA_ROOT, f"{table_name}.csv")
         print(f"[DEBUG] Saving DataFrame to CSV file at: {csv_file_path}")
+        csv_save_start = time.time()
         df.to_csv(csv_file_path, index=False)
+        print(f"[DEBUG] CSV saved in {time.time() - csv_save_start:.2f} seconds")
     except Exception as e:
         print(f"[ERROR] Failed to save DataFrame to CSV: {e}")
         return JsonResponse({"error": "Failed to save DataFrame to CSV file."}, status=500)
@@ -1098,12 +1103,14 @@ def handle_forecasting(df, openai_api_key, user_prompt, table_name="default_tabl
     # Convert the CSV file to an SQL table
     try:
         print(f"[DEBUG] Converting CSV file to SQL table: {table_name}")
+        sql_conversion_start = time.time()
         file_to_sql(csv_file_path, table_name, USER, PASSWORD, HOST, DATABASE)
+        print(f"[DEBUG] CSV converted to SQL table in {time.time() - sql_conversion_start:.2f} seconds")
     except Exception as e:
         print(f"[ERROR] Error converting CSV to SQL table: {e}")
         return JsonResponse({"error": "Failed to convert CSV file to SQL table."}, status=500)
 
-    # Initialize forecasting tools and prompt
+    # Initialize forecasting tools and LLM
     print("[DEBUG] Initializing forecasting tools and LLM")
     tools = [execute_query(), execute_code(), install_library()]
     llm = ChatOpenAI(memory=True, tools=tools, api_key=openai_api_key)
@@ -1111,8 +1118,9 @@ def handle_forecasting(df, openai_api_key, user_prompt, table_name="default_tabl
     # Retrieve metadata for the database tables
     try:
         print(f"[DEBUG] Retrieving metadata for table: {table_name}")
+        metadata_start = time.time()
         metadata = get_metadata(HOST, USER, PASSWORD, DATABASE, [table_name])
-        print(f"[DEBUG] Metadata retrieved: {metadata}")
+        print(f"[DEBUG] Metadata retrieved in {time.time() - metadata_start:.2f} seconds")
     except Exception as e:
         print(f"[ERROR] Failed to retrieve metadata: {e}")
         return JsonResponse({"error": "Failed to retrieve metadata for the database."}, status=500)
@@ -1123,7 +1131,9 @@ def handle_forecasting(df, openai_api_key, user_prompt, table_name="default_tabl
 
     # Clean up any previous generated images
     print("[DEBUG] Deleting previous images from the directory")
+    image_cleanup_start = time.time()
     delete_images_in_current_directory()
+    print(f"[DEBUG] Previous images deleted in {time.time() - image_cleanup_start:.2f} seconds")
 
     # Prepare the forecasting command
     command = f"""
@@ -1141,16 +1151,19 @@ def handle_forecasting(df, openai_api_key, user_prompt, table_name="default_tabl
     # Execute the command and fetch the result
     try:
         print("[DEBUG] Executing command with AI agent")
+        ai_execution_start = time.time()
         response = agent(command)
         response = response.split('Answer:')[-1]
-        print(f"[DEBUG] AI response: {response}")
+        print(f"[DEBUG] AI response fetched in {time.time() - ai_execution_start:.2f} seconds")
     except Exception as e:
         print(f"[ERROR] Failed to execute forecasting command: {e}")
         return JsonResponse({"error": "Failed to execute forecasting command."}, status=500)
 
     # Fetch any generated plots
     print("[DEBUG] Fetching generated images")
+    image_fetch_start = time.time()
     images = get_images_in_directory(settings.BASE_DIR)
+    print(f"[DEBUG] Images fetched in {time.time() - image_fetch_start:.2f} seconds")
 
     # Prepare and return the result
     result = {"content": response}
@@ -1161,11 +1174,14 @@ def handle_forecasting(df, openai_api_key, user_prompt, table_name="default_tabl
     # Clean up temporary file
     try:
         print("[DEBUG] Removing temporary CSV file")
+        os_remove_start = time.time()
         os.remove(csv_file_path)
+        print(f"[DEBUG] Temporary file removed in {time.time() - os_remove_start:.2f} seconds")
     except OSError as e:
         print(f"[ERROR] Error removing temporary file: {e}")
 
-    print("[DEBUG] Exiting handle_forecasting function")
+    total_time = time.time() - start_time
+    print(f"[DEBUG] Exiting handle_forecasting function. Total execution time: {total_time:.2f} seconds")
     return result
 
 
@@ -1201,12 +1217,14 @@ def forecast_sales(request):
     - JSON response with the forecast results.
     """
     print("[DEBUG] Entering forecast_sales function")
+    start_time = time.time()
 
     if request.method == 'POST':
         try:
             print("[DEBUG] Loading DataFrame from 'data1.xlsx'")
+            df_load_start = time.time()
             df = pd.read_excel('data1.xlsx')  # Replace with your actual file path
-            print(f"[DEBUG] DataFrame loaded successfully: \n{df.head()}")
+            print(f"[DEBUG] DataFrame loaded successfully in {time.time() - df_load_start:.2f} seconds")
 
             # Retrieve the user prompt and OpenAI API key
             openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -1220,7 +1238,9 @@ def forecast_sales(request):
 
             # Pass the DataFrame to `handle_forecasting`
             print("[DEBUG] Calling handle_forecasting")
+            handle_start = time.time()
             result = handle_forecasting(df, openai_api_key, user_prompt, table_name="forecast_table")
+            print(f"[DEBUG] handle_forecasting completed in {time.time() - handle_start:.2f} seconds")
 
             # Prepare the response
             response_data = {}
@@ -1232,14 +1252,14 @@ def forecast_sales(request):
                     print("[DEBUG] Converting AI content to HTML")
                     response_data["content"] = markdown_to_html(result["content"])
 
-            print("[DEBUG] Returning successful response")
+            print(f"[DEBUG] Returning successful response. Total time: {time.time() - start_time:.2f} seconds")
             return JsonResponse(response_data, status=200)
 
         except Exception as e:
             print(f"[ERROR] Exception occurred in forecast_sales: {e}")
             return JsonResponse({"error": "Failed to process forecasting."}, status=500)
     else:
-        print("[ERROR] Invalid request method")
+        print(f"[ERROR] Invalid request method. Total time: {time.time() - start_time:.2f} seconds")
         return JsonResponse({"error": "Invalid request method."}, status=400)
 
 
@@ -1248,7 +1268,7 @@ import os
 import pandas as pd
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from .generator import  generate_data_from_text
+from .generator import  generate_data_from_text,generate_synthetic_data
 import json
 
 # Helper function: Extract number of rows from user prompt
@@ -1318,4 +1338,107 @@ def handle_synthetic_data_api(request):
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
 
+    return JsonResponse({"error": "Invalid request method. Use POST."}, status=405)
+
+
+#For extended_synthetic_data
+import tempfile
+import tempfile
+from django.views.decorators.csrf import csrf_exempt
+from django.http import JsonResponse
+import os
+
+
+@csrf_exempt
+def handle_synthetic_data_extended(request):
+    """
+    API Endpoint to generate synthetic data from a user's uploaded file and prompt.
+
+    Method: POST
+    Payload:
+      - uploaded_file (File): The empty Excel or CSV file with column names
+      - user_prompt (String): A prompt specifying the number of rows
+      - openai_api_key (String): OpenAI API key
+    """
+    print("[DEBUG] Entering handle_synthetic_data_extended function")
+
+    if request.method == "POST":
+        try:
+            print("[DEBUG] Handling POST request")
+
+            # Extract uploaded file, user prompt, and API key from the request
+            uploaded_file = request.FILES.get('file')
+            user_prompt = request.POST.get('user_prompt')
+            openai_api_key = os.getenv('OPENAI_API_KEY')
+
+            print(f"[DEBUG] Uploaded file: {uploaded_file}")
+            print(f"[DEBUG] User prompt: {user_prompt}")
+            print(f"[DEBUG] OpenAI API key: {'Provided' if openai_api_key else 'Missing'}")
+
+            if not uploaded_file or not user_prompt or not openai_api_key:
+                print("[ERROR] Missing required parameters")
+                return JsonResponse({"error": "Missing required parameters"}, status=400)
+
+            # Determine file type and extract column names
+            file_extension = os.path.splitext(uploaded_file.name)[1].lower()
+            print(f"[DEBUG] File extension: {file_extension}")
+
+            if file_extension == ".xlsx":
+                print("[DEBUG] Reading Excel file")
+                df = pd.read_excel(uploaded_file)
+            elif file_extension == ".csv":
+                print("[DEBUG] Reading CSV file")
+                df = pd.read_csv(uploaded_file)
+            else:
+                print("[ERROR] Unsupported file format")
+                return JsonResponse({"error": "Unsupported file format. Please upload an Excel or CSV file."}, status=400)
+
+            print(f"[DEBUG] Initial DataFrame columns: {list(df.columns)}")
+
+            # Create a temporary file for the data
+            with tempfile.NamedTemporaryFile(suffix=file_extension, delete=False) as temp_file:
+                temp_file_name = temp_file.name
+                print(f"[DEBUG] Temporary file created at: {temp_file_name}")
+
+                # Save the truncated or original data to a temporary location
+                if file_extension == ".xlsx":
+                    print("[DEBUG] Saving DataFrame to temporary Excel file")
+                    df.to_excel(temp_file_name, index=False)
+                elif file_extension == ".csv":
+                    print("[DEBUG] Saving DataFrame to temporary CSV file")
+                    df.to_csv(temp_file_name, index=False)
+
+            # Extract the number of rows from the prompt
+            print("[DEBUG] Extracting number of rows from the user prompt")
+            num_rows = extract_num_rows_from_prompt(user_prompt)
+            print(f"[DEBUG] Number of rows extracted: {num_rows}")
+
+            if num_rows is None:
+                print("[ERROR] Number of rows not found in the prompt")
+                return JsonResponse({"error": "Number of rows not found in the prompt"}, status=400)
+
+            # Generate synthetic data using the temporary file path
+            print(f"[DEBUG] Generating synthetic data with {num_rows} rows")
+            generated_df = generate_synthetic_data(openai_api_key, temp_file_name, num_rows)
+            print(f"[DEBUG] Synthetic data generated successfully: {generated_df.shape[0]} rows")
+
+            # Combine the original and synthetic data
+            print("[DEBUG] Combining original and synthetic data")
+            combined_df = pd.concat([df, generated_df], ignore_index=True)
+            print(f"[DEBUG] Combined DataFrame shape: {combined_df.shape}")
+
+            # Convert to CSV for download
+            print("[DEBUG] Converting combined DataFrame to CSV format")
+            combined_csv = combined_df.to_csv(index=False)
+
+            print("[DEBUG] Returning successful response")
+            return JsonResponse({
+                "data": combined_csv
+            }, status=200)
+
+        except Exception as e:
+            print(f"[ERROR] Exception occurred: {e}")
+            return JsonResponse({"error": str(e)}, status=500)
+
+    print("[ERROR] Invalid request method")
     return JsonResponse({"error": "Invalid request method. Use POST."}, status=405)
