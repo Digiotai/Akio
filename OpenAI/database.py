@@ -382,12 +382,12 @@ class PostgresDatabase:
             print(f"Error getting user tables: {err}")
             return {}
 
-    def get_table_data(self, email, table_name):
+    def get_table_data(self, table_name):
         try:
             df = self.read()
-            data_row = df[(df['email'] == email) & (df['name'] == table_name)]["fileobj"]
+            data_row = df[(df['name'] == table_name)]["fileobj"]
             if data_row.empty:
-                raise ValueError(f"No data found for email: {email} and table: {table_name}")
+                raise ValueError(f"No data found for table: {table_name}")
             data = pickle.loads(data_row.values[0].tobytes())
             return data
         except Exception as err:
