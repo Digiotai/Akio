@@ -297,48 +297,65 @@ class PostgresDatabase:
             raise
 
     def create_table(self):
+        """
+        Create a table with a composite unique constraint on email and name.
+        """
         try:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
-                query = """CREATE TABLE IF NOT EXISTS data_data(
+                query = """CREATE TABLE IF NOT EXISTS akio_data(
                             id SERIAL PRIMARY KEY,
-                            email VARCHAR(255), 
-                            name VARCHAR(255) UNIQUE,  -- Ensure 'name' is unique
+                            email VARCHAR(255),
+                            name VARCHAR(255),
                             lastupdate TIMESTAMP,
                             datecreated TIMESTAMP,
-                            fileobj BYTEA)"""
+                            fileobj BYTEA,
+                            CONSTRAINT email_name_unique UNIQUE(email, name) -- Composite unique constraint
+                            )"""
                 cursor.execute(query)
-                print("Table 'data_data' created successfully.")
+                print("Table 'akio_data' created successfully.")
         except Exception as err:
             print(f"Error creating table: {err}")
             return str(err)
 
-    def insert(self, email, data, tb_name):
+    def insert_or_update(self, email, data, tb_name):
+        """
+        Insert or update records based on a combination of email and name.
+        """
         try:
             self.ensure_connection()
             tb_name_clean = tb_name.split('.')[0]  # Strip extension
             blob_data = pickle.dumps(data)  # Serialize the data
 
             with self.connection.cursor() as cursor:
-                # Check if the entry exists
-                cursor.execute("SELECT COUNT(*) FROM data_data WHERE name = %s", (tb_name_clean,))
-                if cursor.fetchone()[0] > 0:
-                    cursor.execute("DELETE FROM data_data WHERE name = %s", (tb_name_clean,))
+                # Check if a record with the same email and name exists
+                cursor.execute("SELECT id FROM akio_data WHERE email = %s AND name = %s", (email, tb_name_clean))
+                existing_record = cursor.fetchone()
 
-                # Insert the new data
-                cursor.execute("""INSERT INTO data_data (email, name, lastupdate, datecreated, fileobj)
-                                  VALUES (%s, %s, %s, %s, %s)""",
-                               (email, tb_name_clean, datetime.now(), datetime.now(), psycopg2.Binary(blob_data)))
-            return "Record inserted/updated successfully"
+                if existing_record:
+                    # Update the existing record
+                    cursor.execute("""UPDATE akio_data
+                                      SET lastupdate = %s, fileobj = %s
+                                      WHERE email = %s AND name = %s""",
+                                   (datetime.now(), psycopg2.Binary(blob_data), email, tb_name_clean))
+                    print(f"Record with email '{email}' and name '{tb_name_clean}' updated successfully.")
+                    return "Record updated successfully"
+                else:
+                    # Insert a new record
+                    cursor.execute("""INSERT INTO akio_data (email, name, lastupdate, datecreated, fileobj)
+                                      VALUES (%s, %s, %s, %s, %s)""",
+                                   (email, tb_name_clean, datetime.now(), datetime.now(), psycopg2.Binary(blob_data)))
+                    print(f"New record with email '{email}' and name '{tb_name_clean}' inserted successfully.")
+                    return "Record inserted successfully"
         except Exception as err:
-            print(f"Error inserting record: {err}")
+            print(f"Error inserting or updating record: {err}")
             return str(err)
 
     def read(self):
         try:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
-                cursor.execute("SELECT * FROM data_data")
+                cursor.execute("SELECT * FROM akio_data")
                 rows = cursor.fetchall()
 
             # Convert the result to a DataFrame
@@ -365,48 +382,28 @@ class PostgresDatabase:
             print(f"Error getting user tables: {err}")
             return {}
 
-    def get_table_data(self, table_name):
+    def get_table_data(self, email, table_name):
         try:
             df = self.read()
-            data_row = df[df['name'] == table_name]["fileobj"]
+            data_row = df[(df['email'] == email) & (df['name'] == table_name)]["fileobj"]
             if data_row.empty:
-                raise ValueError(f"No data found for table: {table_name}")
+                raise ValueError(f"No data found for email: {email} and table: {table_name}")
             data = pickle.loads(data_row.values[0].tobytes())
             return data
         except Exception as err:
             print(f"Error getting table data: {err}")
             return pd.DataFrame()
 
-    def delete_table_data(self, table_name):
+    def delete_table_data(self, email, table_name):
         try:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
-                cursor.execute("DELETE FROM data_data WHERE name = %s", (table_name,))
+                cursor.execute("DELETE FROM akio_data WHERE email = %s AND name = %s", (email, table_name))
                 if cursor.rowcount == 0:
-                    return f"No data found for table: {table_name}"
-            return f"Record deleted successfully for table: {table_name}"
+                    return f"No data found for email: {email} and table: {table_name}"
+            return f"Record deleted successfully for email: {email} and table: {table_name}"
         except Exception as err:
             print(f"Error deleting table data: {err}")
-            return str(err)
-
-    def drop_table(self, table_name):
-        try:
-            self.ensure_connection()
-            with self.connection.cursor() as cursor:
-                cursor.execute(f"DROP TABLE IF EXISTS {table_name} CASCADE")
-            return f"Table '{table_name}' dropped successfully."
-        except Exception as err:
-            print(f"Error dropping table: {err}")
-            return str(err)
-
-    def truncate_data_table(self):
-        try:
-            self.ensure_connection()
-            with self.connection.cursor() as cursor:
-                cursor.execute("TRUNCATE TABLE data_data CASCADE")
-            return "All data truncated from the 'data' table successfully."
-        except Exception as err:
-            print(f"Error truncating data: {err}")
             return str(err)
 
 
@@ -420,14 +417,21 @@ if __name__ == '__main__':
     pdd = PostgresDatabase()
     pdd.create_connection(PGUSER, PGPASSWORD, PGDATABASE, PGHOST)
     pdd.create_table()
-    # Test table info retrieval
+
+    # # Test case: Users uploading files
+    # df1 = pd.DataFrame({"Col1": [1, 2], "Col2": ["A", "B"]})
+    # df2 = pd.DataFrame({"Col1": [3, 4], "Col2": ["C", "D"]})
+    #
+    # # User 1 uploads two files
+    # print(pdd.insert_or_update('user1@gmail.com', df1, "SharedData"))
+    # print(pdd.insert_or_update('user1@gmail.com', df2, "UniqueData"))
+    #
+    # # User 2 uploads the same file as User 1
+    # print(pdd.insert_or_update('user2@gmail.com', df1, "SharedData"))
+
+    # Fetch table info to verify the result
     print(pdd.get_tables_info())
 
-    # print(pdd.get_user_tables("test@gmail.com"))
-    #pdd.drop_table("data")
-    # pdd.delete_table_data('data')
-    # Truncate all data in the 'data' table
-    # print(pdd.truncate_data_table())
 
 #
 # from pymongo import MongoClient
