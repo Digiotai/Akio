@@ -518,15 +518,15 @@ def analyze_data(df):
     )
     column_description = generate_code(prompt_eng)
     prompt_eng1 = (
-        f"Based on the data with sample records as {df.head()}, generate 10 analytical questions."
+        f"Based on the data with sample records as {df.head()}, generate 5 questions based on data."
     )
     text_questions = generate_code(prompt_eng1)
-    prompt_eng_2 = f"Generate 10 simple possible plotting questions for the data: {df}"
+    prompt_eng_2 = f"Generate 5 simple possible plotting questions for the data: {df}"
     plotting_questions = generate_code(prompt_eng_2)
 
     #Creating the forecasting questions
     #Creating the forecasting questions
-    prompt_eng_3 = (f"Generate 10 forecasting-related questions based on the dataset: {df}. "
+    prompt_eng_3 = (f"Generate 5 forecasting-related questions based on the dataset: {df}. "
                     f"The questions should be specific, realistic, and start with the word 'Forecast.' "
                     f"Ensure the questions are tailored to the type of data in the dataset and include time frames or specific metrics wherever possible. "
                     f"Examples like: 'Forecast the sales for the next 6 months,' or 'Forecast the revenue growth for the next quarter.'")
@@ -616,7 +616,7 @@ def regenerate_txt(request):
     if request.method == "POST":
         df = pd.read_csv('data.csv')
         prompt_eng = (
-            f"Based on the data with sample records as {df.head()}, generate 10 analytical questions."
+            f"Based on the data with sample records as {df.head()}, generate 5 questions based on data."
         )
         code = generate_code(prompt_eng)
         return HttpResponse(json.dumps({"questions": code}),
@@ -628,7 +628,7 @@ def regenerate_chart(request):
     if request.method == "POST":
         df = pd.read_csv('data.csv')
         prompt_eng = (
-            f"Regenerate 10 simple possible plotting questions for the data: {df}. start the question using plot keyword"
+            f"Regenerate 5 simple possible plotting questions for the data: {df}. start the question using plot keyword"
         )
         code = generate_code(prompt_eng)
         return HttpResponse(json.dumps({"questions": code}),
@@ -639,7 +639,7 @@ def regenerate_forecast(request):
     if request.method == "POST":
         df = pd.read_csv('data.csv')
         prompt_eng = (
-            f"Regenerate 10 simple possible forecasting questions for the data: {df}. start the question using forecast keyword"
+            f"Regenerate 5 simple possible forecasting questions for the data: {df}. start the question using forecast keyword"
         )
         code = generate_code(prompt_eng)
         return HttpResponse(json.dumps({"questions": code}),
