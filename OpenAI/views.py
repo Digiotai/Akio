@@ -521,7 +521,7 @@ def analyze_data(df):
         f"Based on the data with sample records as {df.head()}, generate 5 questions based on data."
     )
     text_questions = generate_code(prompt_eng1)
-    prompt_eng_2 = f"Generate 5 simple possible plotting questions for the data: {df}"
+    prompt_eng_2 = f"Generate 5 plotting questions for the data: {df}"
     plotting_questions = generate_code(prompt_eng_2)
 
     #Creating the forecasting questions
@@ -628,7 +628,7 @@ def regenerate_chart(request):
     if request.method == "POST":
         df = pd.read_csv('data.csv')
         prompt_eng = (
-            f"Regenerate 5 simple possible plotting questions for the data: {df}. start the question using plot keyword"
+            f"Regenerate 5 plotting questions for the data: {df}. start the question using plot keyword"
         )
         code = generate_code(prompt_eng)
         return HttpResponse(json.dumps({"questions": code}),
@@ -639,7 +639,7 @@ def regenerate_forecast(request):
     if request.method == "POST":
         df = pd.read_csv('data.csv')
         prompt_eng = (
-            f"Regenerate 5 simple possible forecasting questions for the data: {df}. start the question using forecast keyword"
+            f"Regenerate 5 forecasting questions for the data: {df}. start the question using forecast keyword"
         )
         code = generate_code(prompt_eng)
         return HttpResponse(json.dumps({"questions": code}),
@@ -973,7 +973,7 @@ def deployment_predict(request, data):
 def deployment_forecast(request, data, col):
     if request.method == 'POST':
         msg = 'Add Logic here for forecast'
-        return HttpResponse(json.dumps({"result": res, "msg": msg}), content_type="application/json")
+        return HttpResponse(json.dumps({"result": msg, "msg": msg}), content_type="application/json")
 
 
 def load_models(path, prediction_col, df):
