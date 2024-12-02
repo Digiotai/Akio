@@ -639,7 +639,11 @@ def regenerate_forecast(request):
     if request.method == "POST":
         df = pd.read_csv('data.csv')
         prompt_eng = (
-            f"Regenerate 5 forecasting questions for the data: {df}. start the question using forecast keyword"
+            f"Regenerate 5 forecasting-related questions based on the dataset: {df}. "
+            f"The questions should be specific, realistic, and start with the word 'Forecast.' "
+            f"Ensure the questions are tailored to the type of data in the dataset and include time frames or specific metrics wherever possible. "
+            f"Examples like: 'Forecast the sales for the next 6 months,' or 'Forecast the revenue growth for the next quarter.'"
+
         )
         code = generate_code(prompt_eng)
         return HttpResponse(json.dumps({"questions": code}),
