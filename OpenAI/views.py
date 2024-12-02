@@ -149,7 +149,6 @@ def get_csv_metadata(df):
 
 
 def data_cleanup(df):
-
     if 'Date' in df.columns and 'Time' in df.columns:
         df['DateTime'] = pd.to_datetime(df['Date'] + ' ' + df['Time'])
         df.drop(['Date', 'Time'], axis=1, inplace=True)  # Drop original columns if needed
@@ -287,7 +286,8 @@ def train_data(request, train_type, file_name):
                                                  f'{column.replace(" ", "_")}_encoder.pkl'))
 
                     # Save the trained model
-                    print("saved_path", os.path.join("data", file_name.lower(), col_predict.replace(" ", "_"), "model.h5"))
+                    print("saved_path",
+                          os.path.join("data", file_name.lower(), col_predict.replace(" ", "_"), "model.h5"))
                     model.save(os.path.join("data", file_name.lower(), col_predict.replace(" ", "_"), "model.h5"))
                     if model_type == 'classification':
                         accuracy = accuracy * 100
@@ -336,7 +336,6 @@ def train_data(request, train_type, file_name):
                 print(time_differences)
                 inconsistent_intervals = time_differences[time_differences != time_differences.mode()[0]]
                 print(inconsistent_intervals)
-
 
                 # Infer frequency of datetime index
                 freq = pd.infer_freq(data.index)
@@ -407,7 +406,8 @@ def train_data(request, train_type, file_name):
                         with open(os.path.join('data', file_name.lower(), col,
                                                col.lower() + '_results.json'), 'w') as fp:
                             json.dump(results, fp)
-                        print(f"Results saved to {os.path.join('data', file_name.lower(), col, col.lower() + '_results.json')}")
+                        print(
+                            f"Results saved to {os.path.join('data', file_name.lower(), col, col.lower() + '_results.json')}")
                     except Exception as e:
                         print(e)
                         return HttpResponse("Error " + str(e))
@@ -449,7 +449,7 @@ from django.core.exceptions import SuspiciousOperation
 @csrf_exempt
 def upload_and_analyze_data(request):
     if request.method == 'POST':
-        email=request.POST.get('mail')
+        email = request.POST.get('mail')
         # Handle file upload
         files = request.FILES.get('file')  # Retrieve the uploaded file
         if not files:
@@ -476,7 +476,7 @@ def upload_and_analyze_data(request):
             upload_dir = "uploads"
             os.makedirs(upload_dir, exist_ok=True)
 
-            #For csv file
+            # For csv file
             csv_file_path = os.path.join(upload_dir, file_name.replace(file_extension, '.csv').lower())
             df.to_csv(csv_file_path, index=False)
 
@@ -489,7 +489,7 @@ def upload_and_analyze_data(request):
             df.to_excel('data1.xlsx', index=False, engine='openpyxl')  # Excel
 
             # Insert the data into MongoDB
-            results = db.insert_or_update(email,df, file_name)  # Uses MongoDBDatabase's `insert` method
+            results = db.insert_or_update(email, df, file_name)  # Uses MongoDBDatabase's `insert` method
 
             # Perform data analysis on the DataFrame
             response_data1 = analyze_data(df)  # Assuming `analyze_data` is a function that analyzes data
@@ -508,6 +508,7 @@ def upload_and_analyze_data(request):
     # If the request method is not POST
     return HttpResponse("Invalid Request Method", status=405)
 
+
 def analyze_data(df):
     # Extract the first 10 rows of the data
     first_10_rows = df.head(10).to_dict(orient='records')
@@ -524,12 +525,12 @@ def analyze_data(df):
     prompt_eng_2 = f"Generate 5 plotting questions for the data: {df}"
     plotting_questions = generate_code(prompt_eng_2)
 
-    #Creating the forecasting questions
-    #Creating the forecasting questions
-    prompt_eng_3 =(f"Generate 5 forecasting-related questions based on the dataset: {df}. "
+    # Creating the forecasting questions
+    # Creating the forecasting questions
+    prompt_eng_3 = (f"Generate 5 forecasting-related questions based on the dataset: {df}. "
                     f"The questions should be specific, realistic, and start with the word 'Forecast.' "
                     f"Ensure the questions are tailored to the type of data in the dataset and include time frames or specific metrics wherever possible. "
-                   f"The questions should be very simple,Don't generate the complex questions."
+                    f"The questions should be very simple,Don't generate the complex questions."
                     f"Examples like: 'Forecast the sales for the next 6 months,' or 'Forecast the revenue growth for the next quarter.'")
 
     forecasting_questions = generate_code(prompt_eng_3)
@@ -540,14 +541,16 @@ def analyze_data(df):
         "column_description": column_description,
         "text_questions": text_questions,
         "plotting_questions": plotting_questions,
-        "forecasting_questions":forecasting_questions
+        "forecasting_questions": forecasting_questions
     }
     return response_data
+
 
 def serialize_datetime(obj):
     if isinstance(obj, (datetime, pd.Timestamp)):
         return obj.isoformat()
     raise TypeError("Type not serializable")
+
 
 # Showing the number of tables in the database
 @csrf_exempt
@@ -555,6 +558,7 @@ def get_tableinfo(request):
     if request.method == 'POST':
         table_info = db.get_tables_info()
         return HttpResponse(table_info, content_type="application/json")
+
 
 @csrf_exempt
 def get_user_data(request):
@@ -572,12 +576,13 @@ def read_db_table_data(request):
         tablename = request.POST['tablename']
         df = db.get_table_data(tablename)
         df.to_csv('data.csv', index=False)
-        df.to_csv(os.path.join("uploads", tablename.lower()+'.csv'), index=False)
+        df.to_csv(os.path.join("uploads", tablename.lower() + '.csv'), index=False)
         response_data = analyze_data(df)
         return JsonResponse(response_data, safe=False)
         # print(response_data)
         # return HttpResponse(json.dumps({"result": response_data}, default=serialize_datetime),
         #                     content_type="application/json")
+
 
 @csrf_exempt
 def read_data(request):
@@ -587,6 +592,7 @@ def read_data(request):
         df.to_csv('data.csv', index=False)
         df.to_csv(os.path.join("uploads", tablename.lower() + '.csv'), index=False)
         return HttpResponse(df.to_json(), content_type="application/json")
+
 
 # Function to generate code from OpenAI API
 def generate_code(prompt_eng):
@@ -634,22 +640,23 @@ def regenerate_chart(request):
         code = generate_code(prompt_eng)
         return HttpResponse(json.dumps({"questions": code}),
                             content_type="application/json")
-#For Forecast
+
+
+# For Forecast
 @csrf_exempt
 def regenerate_forecast(request):
     if request.method == "POST":
-        df = pd.read_csv('data.csv')
-        prompt_eng = 
-            (f"Regenerate 5 forecasting-related questions based on the dataset: {df}. "
-                    f"The questions should be specific, realistic, and start with the word 'Forecast.' "
-                    f"Ensure the questions are tailored to the type of data in the dataset and include time frames or specific metrics wherever possible. "
-                   f"The questions should be very simple,Don't generate the complex questions."
-                    f"Examples like: 'Forecast the sales for the next 6 months,' or 'Forecast the revenue growth for the next quarter.'")
-
-        
-        code = generate_code(prompt_eng)
-        return HttpResponse(json.dumps({"questions": code}),
-                            content_type="application/json")
+         df = pd.read_csv('data.csv')
+         prompt_eng = (
+         f"Regenerate 5 forecasting-related questions based on the dataset: {df}. "
+         f"The questions should be specific, realistic, and start with the word 'Forecast.' "
+         f"Ensure the questions are tailored to the type of data in the dataset and include time frames or specific metrics wherever possible. "
+         f"The questions should be very simple,Don't generate the complex questions."
+         f"Examples like: 'Forecast the sales for the next 6 months,' or 'Forecast the revenue growth for the next quarter.'"
+             )
+         code = generate_code(prompt_eng)
+         return HttpResponse(json.dumps({"questions": code}),
+                         content_type="application/json")
 
 
 @csrf_exempt
@@ -939,6 +946,7 @@ def get_columns(request, train_type, data):
     else:
         return HttpResponse(json.dumps({"columns": []}), content_type="application/json")
 
+
 # Generating the URL for the prediction
 @csrf_exempt
 def generate_deployment(request, data, field):
@@ -1024,7 +1032,6 @@ def get_deployment_txt(hex_data):
     return deployment_data[hex_data]
 
 
-
 # For Forecasting using module:
 import os
 from django.core.files.storage import default_storage
@@ -1036,6 +1043,7 @@ from wyge.tools.raw_functions import file_to_sql, get_metadata
 from .system_prompt3 import forecasting_prompt
 from datetime import datetime
 from django.conf import settings
+
 
 def delete_images_in_current_directory() -> None:
     image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp']
@@ -1074,15 +1082,16 @@ def get_images_in_directory(directory):
 
     return image_files
 
+
 # Shared database credentials
 USER = 'test_owner'
 PASSWORD = 'tcWI7unQ6REA'
 HOST = 'ep-yellow-recipe-a5fny139.us-east-2.aws.neon.tech:5432'
 DATABASE = 'test'
 
-
-
 import time
+
+
 def handle_forecasting(df, openai_api_key, user_prompt, table_name="default_table"):
     """
     Processes a DataFrame for forecasting tasks by storing it in the database,
@@ -1196,9 +1205,12 @@ def handle_forecasting(df, openai_api_key, user_prompt, table_name="default_tabl
 
 
 import markdown
+
+
 def markdown_to_html(md_text):
     html_text = markdown.markdown(md_text)
     return html_text
+
 
 def image_to_base64(image_path):
     try:
@@ -1278,8 +1290,9 @@ import os
 import pandas as pd
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from .generator import  generate_data_from_text,generate_synthetic_data
+from .generator import generate_data_from_text, generate_synthetic_data
 import json
+
 
 # Helper function: Extract number of rows from user prompt
 def extract_num_rows_from_prompt(user_prompt):
@@ -1322,7 +1335,8 @@ def handle_synthetic_data_api(request):
             elif file_extension == ".csv":
                 df = pd.read_csv(uploaded_file)
             else:
-                return JsonResponse({"error": "Unsupported file format. Please upload an Excel or CSV file."}, status=400)
+                return JsonResponse({"error": "Unsupported file format. Please upload an Excel or CSV file."},
+                                    status=400)
 
             column_names = df.columns.tolist()
 
@@ -1351,7 +1365,7 @@ def handle_synthetic_data_api(request):
     return JsonResponse({"error": "Invalid request method. Use POST."}, status=405)
 
 
-#For extended_synthetic_data
+# For extended_synthetic_data
 import tempfile
 import tempfile
 from django.views.decorators.csrf import csrf_exempt
@@ -1401,7 +1415,8 @@ def handle_synthetic_data_extended(request):
                 df = pd.read_csv(uploaded_file)
             else:
                 print("[ERROR] Unsupported file format")
-                return JsonResponse({"error": "Unsupported file format. Please upload an Excel or CSV file."}, status=400)
+                return JsonResponse({"error": "Unsupported file format. Please upload an Excel or CSV file."},
+                                    status=400)
 
             print(f"[DEBUG] Initial DataFrame columns: {list(df.columns)}")
 
