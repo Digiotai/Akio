@@ -527,25 +527,26 @@ def analyze_data(df):
 
     # Creating the forecasting questions
     prompt_eng_3 =  (
-        f"Generate 5 forecasting questions for the data: {df}"
+        #f"Generate 5 forecasting questions for the data: {df}"
 
-    # f"Using the dataset {df.head()}, generate 5 forecasting-related questions based on the dataset. "
-    # f"The questions should: "
-    # f"1. Be **specific** and **realistic**. "
-    # f"2. Start with the word **'Forecast'**. "
-    # f"3. Be tailored to the type of data in the dataset, focusing on measurable metrics or trends. "
+    f"Using the dataset {df}, generate 5 forecasting-related questions based on the dataset. "
+    f"The questions should: "
+    f"1. Start with the word **'Forecast'**. "
+    f"2. The questions should be very simple and straight forward."
+    f"3. Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis."
+    f"4. Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.'"
 
-    # f"Given the dataset {df.head()}, generate 5 forecasting-related questions that meet the following criteria: "
+    # f"Given the dataset {df}, generate 5 forecasting-related questions that meet the following criteria: "
     # f"1. The questions should be **specific**, **realistic**, and **focused on measurable metrics or trends**. "
     # f"2. Each question should **start with 'Forecast'** and address **clear forecasting goals**. "
     # f"3. Tailor the questions to the type of data in the dataset, ensuring they align with the trends, patterns, or key variables observed in the data."
 
-    # f"Using the dataset {df}, generate 5 specific and realistic forecasting questions. "
-    # f"Each question must start with 'Forecast' and focus on predicting measurable trends, changes, or relationships within the dataset. "
-    # f"Include clear time frames and specific metrics in each question to ensure they are actionable and relevant to the dataset. "
-    # f"Design the questions to guide visually interpretable outputs, such as charts or graphs, for forecasting analysis. "
+    # f"Using the dataset {df}, generate 5  forecasting related questions. "
+    # f"Each question must start with 'Forecast' and focus on predicting measurable trends within the dataset. "
+    # f"Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis. "
     # f"Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.' "
-    # f"Keep the questions straightforward and closely aligned with the structure and metrics in the dataset."
+
+
 
     )
 
@@ -664,7 +665,13 @@ def regenerate_forecast(request):
     if request.method == "POST":
         df = pd.read_csv('data.csv')
         prompt_eng = (
-            f"Regenerate 5 forecasting questions for the data: {df}. start the question using forecast keyword"
+            f"Using the dataset {df}, Regenerate 5 forecasting-related questions based on the dataset. "
+            f"The questions should: "
+            f"1. Start with the word **'Forecast'**. "
+            f"2. The questions should be very simple and straight forward."
+            f"3. Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis."
+            f"4. Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.'"
+
         )
 
         code = generate_code(prompt_eng)
