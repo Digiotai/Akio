@@ -6,14 +6,13 @@ urlpatterns = [
    # path(r'api/register', register, name='register'),
    # path(r'api/login', loginpage, name='login'),
     path('api/connect', connection, name='connection'),
-    path("api/upload", upload_data, name='upload_data'),
+    path("api/upload", upload_and_analyze_data, name='upload_data'),
     path('api/tableinfo', get_tableinfo, name='get_table_info'),
     path("api/tabledata", read_data, name='read_table_data'),
     path("api/read_db_table_data", read_db_table_data, name='read_table_data'),
     path("api/get_user_data", get_user_data, name='gwt_user_data'),
 
     # Analytical
-    path("api/analyze", analyze_uploaded_data, name='analysing_uploaded_data'),
     path("api/gen_txt_response", gen_txt_response, name="regenerate_chart"),
     path("api/gen_graph_response", gen_graph_response, name="GenAIPrompt"),
     path("api/regenerate_txt_questions", regenerate_txt, name="regenerate"),
