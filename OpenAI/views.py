@@ -447,7 +447,7 @@ from django.core.exceptions import SuspiciousOperation
 
 
 @csrf_exempt
-def upload_data(request):
+def upload_and_analyze_data(request):
     if request.method == 'POST':
         email = request.POST.get('mail')
         # Handle file upload
@@ -491,14 +491,14 @@ def upload_data(request):
             # Insert the data into MongoDB
             results = db.insert_or_update(email, df, file_name)  # Uses MongoDBDatabase's `insert` method
 
-            # # Perform data analysis on the DataFrame
-            # response_data1 = analyze_data(df)  # Assuming `analyze_data` is a function that analyzes data
+            # Perform data analysis on the DataFrame
+            response_data1 = analyze_data(df)  # Assuming `analyze_data` is a function that analyzes data
 
-            # # Return the analytics response along with the first 10 rows
-            # response_data1['preview'] = df.head(10).to_dict(orient='records')
-            # response_data1['upload_status'] = results  # Include database insert result
+            # Return the analytics response along with the first 10 rows
+            response_data1['preview'] = df.head(10).to_dict(orient='records')
+            response_data1['upload_status'] = results  # Include database insert result
 
-            return JsonResponse({'message': 'File uploaded successfully', 'upload_status': results}, status=200)
+            return JsonResponse(response_data1, safe=False)
 
         except Exception as e:
             # Handle errors during file processing or database interaction
@@ -507,29 +507,6 @@ def upload_data(request):
 
     # If the request method is not POST
     return HttpResponse("Invalid Request Method", status=405)
-
-
-#For analysing the data(for genai)
-@csrf_exempt
-def analyze_uploaded_data(request):
-    """
-    API to perform analysis on the uploaded data.
-    """
-    if request.method == 'POST':
-        try:
-            # Load the most recent file for analysis (for simplicity)
-            data_file = pd.read_csv("data.csv")# Assuming 'data.csv' exists as the working copy
-            print(data_file.head(5))
-            # Perform analysis
-            analysis_result = analyze_data(data_file)
-
-            return JsonResponse(analysis_result, safe=False)
-
-        except Exception as e:
-            return HttpResponse(f"Error during analysis: {str(e)}", status=500)
-
-    return HttpResponse("Invalid Request Method", status=405)
-
 
 
 def analyze_data(df):
