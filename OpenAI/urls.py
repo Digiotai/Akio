@@ -36,4 +36,9 @@ urlpatterns = [
     path('api/synthetic_data', handle_synthetic_data_api, name='synthetic_data_generation'),
     path('api/synthetic_data_extended', handle_synthetic_data_extended, name='extended_synthetic_data_generation'),
 
+    #Sql_agentic_system
+    path('api/process_files', processing_files, name='processing_files'),
+    path('api/query_making', query_system, name='querying'),
+
+
 ]
