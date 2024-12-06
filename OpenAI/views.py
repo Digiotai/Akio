@@ -1487,3 +1487,547 @@ def handle_synthetic_data_extended(request):
 
     print("[ERROR] Invalid request method")
     return JsonResponse({"error": "Invalid request method. Use POST."}, status=405)
+
+# Database+Rag sql agent system
+
+import os
+import logging
+from typing import List, Dict
+from pathlib import Path
+
+from sqlalchemy import create_engine, text, inspect
+import streamlit as st
+
+from langchain import hub
+from langchain.agents import AgentExecutor, create_react_agent
+from langchain.memory import ConversationBufferWindowMemory
+from langchain_openai import ChatOpenAI
+from langchain.tools.base import Tool
+
+from datetime import datetime
+from qdrant_client import QdrantClient
+from qdrant_client.http import models
+from openai import OpenAI
+import uuid
+import io
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+class DatabaseManager:
+    def __init__(self, database_url: str):
+        """Initialize database connection"""
+        self.database_url = database_url
+        self.engine = create_engine(database_url)
+        self.table_name = "excel_data"
+        logger.debug(f"DatabaseManager initialized with URL: {self.database_url}")
+
+    def store_dataframe(
+            self,
+            file_path: str,
+            if_exists: str = 'append'
+    ) -> None:
+        """Store DataFrame in excel_data table"""
+        logger.debug(f"Attempting to store DataFrame from file: {file_path} with if_exists={if_exists}")
+        try:
+            df = pd.read_excel(file_path)
+            logger.debug(f"DataFrame loaded successfully from {file_path}. Columns: {df.columns.tolist()}")
+            df.to_sql(self.table_name, self.engine, if_exists=if_exists, index=False)
+            logger.info(f"Data stored successfully in {self.table_name}")
+        except Exception as e:
+            logger.error(f"Error storing DataFrame: {str(e)}")
+            raise
+
+    def execute_query(self, query: str) -> List[str]:
+        """Execute SQL query"""
+        logger.debug(f"Executing query: {query}")
+        try:
+            with self.engine.connect() as connection:
+                result_set = connection.execute(text(query))
+                logger.debug(f"Query executed successfully. Rows fetched: {result_set.rowcount}")
+                return [str(row) for row in result_set]
+        except Exception as e:
+            logger.error(f"Error executing query: {str(e)}")
+            return str(e)
+
+    def get_metadata(self) -> Dict:
+        """Get database metadata for excel_data table"""
+        logger.debug("Fetching metadata for excel_data table")
+        try:
+            query_columns = f"""
+                SELECT column_name, data_type
+                FROM information_schema.columns
+                WHERE table_name = 'excel_data';
+            """
+            columns = self.execute_query(query_columns)
+            logger.debug(f"Metadata fetched successfully. Columns: {columns}")
+            return {"excel_data": {'columns': columns}}
+        except Exception as e:
+            logger.error(f"Error getting metadata: {str(e)}")
+            raise
+
+    def download_data(self) -> bytes:
+        """Download all data from excel_data table as Excel file"""
+        logger.debug("Attempting to download data from excel_data table")
+        try:
+            query = "SELECT * FROM excel_data"
+            df = pd.read_sql(query, self.engine)
+            logger.debug(f"Data fetched successfully. Rows: {len(df)}")
+
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False)
+            output.seek(0)
+            logger.info("Data downloaded successfully")
+            return output.getvalue()
+        except Exception as e:
+            logger.error(f"Error downloading data: {str(e)}")
+            raise
+
+    def reset_database(self) -> None:
+        """Delete all records from excel_data table"""
+        logger.debug("Attempting to reset excel_data table")
+        try:
+            with self.engine.connect() as connection:
+                result = connection.execute(text("SELECT COUNT(*) FROM excel_data"))
+                count_before = result.scalar()
+                logger.info(f"Records before reset: {count_before}")
+
+                connection.execute(text("TRUNCATE TABLE excel_data"))
+                connection.commit()
+
+                result = connection.execute(text("SELECT COUNT(*) FROM excel_data"))
+                count_after = result.scalar()
+                logger.info(f"Records after reset: {count_after}")
+
+                if count_after == 0:
+                    logger.info("Table excel_data reset successfully")
+                else:
+                    logger.error("Table was not properly reset")
+        except Exception as e:
+            logger.error(f"Error resetting database: {str(e)}")
+            raise
+
+    def get_record_count(self) -> int:
+        """Get the current number of records in the table"""
+        logger.debug("Getting record count for excel_data table")
+        try:
+            with self.engine.connect() as connection:
+                result = connection.execute(text("SELECT COUNT(*) FROM excel_data"))
+                count = result.scalar()
+                logger.debug(f"Record count: {count}")
+                return count
+        except Exception as e:
+            logger.error(f"Error getting record count: {str(e)}")
+            return -1
+
+    def table_exists(self) -> bool:
+        """Check if excel_data table exists"""
+        logger.debug("Checking if excel_data table exists")
+        try:
+            inspector = inspect(self.engine)
+            exists = "excel_data" in inspector.get_table_names()
+            logger.debug(f"Table exists: {exists}")
+            return exists
+        except Exception as e:
+            logger.error(f"Error checking table existence: {str(e)}")
+            return False
+
+
+class RAGSystem:
+    def __init__(self, api_key: str, qdrant_url: str, qdrant_api_key: str, collection_name: str = "excel-embeddings"):
+        """Initialize RAG system with OpenAI and Qdrant clients"""
+        self.openai_client = OpenAI(api_key=api_key)
+        self.qdrant_client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
+        self.collection_name = collection_name
+        logger.debug("RAGSystem initialized successfully")
+
+    def extract_columns_from_excel(
+            self,
+            file_path: str,
+            question_col: str,
+            answer_col: str
+    ) -> tuple[pd.DataFrame, List[str]]:
+        """Extract and combine question-answer pairs from Excel"""
+        logger.debug(f"Extracting columns from file: {file_path} with columns {question_col}, {answer_col}")
+        try:
+            df = pd.read_excel(file_path)
+            logger.debug(f"File loaded successfully. Columns: {df.columns.tolist()}")
+            if question_col not in df.columns or answer_col not in df.columns:
+                raise ValueError(f"Required columns {question_col} and/or {answer_col} not found")
+
+            df[question_col] = df[question_col].astype(str).str.strip()
+            df[answer_col] = df[answer_col].astype(str).str.strip()
+            df.drop_duplicates([question_col], inplace=True)
+
+            selected_columns_text = df.apply(
+                lambda row: f"Question: {row[question_col]}\nAnswer: {row[answer_col]}",
+                axis=1
+            )
+
+            logger.debug("Columns extracted successfully")
+            return df, list(selected_columns_text)
+        except Exception as e:
+            logger.error(f"Error processing Excel file: {str(e)}")
+            raise
+
+    def get_embeddings(
+            self,
+            texts: List[str],
+            model: str = "text-embedding-3-small",
+            batch_size: int = 100
+    ) -> List[List[float]]:
+        """Generate embeddings with batching"""
+        logger.debug(f"Generating embeddings for {len(texts)} texts")
+        all_embeddings = []
+        try:
+            for i in range(0, len(texts), batch_size):
+                batch = texts[i:i + batch_size]
+                logger.debug(f"Processing batch from {i} to {i + len(batch)}")
+                retries = 3
+                while retries > 0:
+                    try:
+                        response = self.openai_client.embeddings.create(
+                            input=batch,
+                            model=model,
+                            dimensions=384
+                        )
+                        batch_embeddings = [item.embedding for item in response.data]
+                        all_embeddings.extend(batch_embeddings)
+                        logger.debug(f"Batch embeddings generated successfully")
+                        break
+                    except Exception as e:
+                        retries -= 1
+                        logger.warning(f"Retrying embedding generation. Error: {str(e)}")
+                        if retries == 0:
+                            raise e
+            logger.info("All embeddings generated successfully")
+            return all_embeddings
+        except Exception as e:
+            logger.error(f"Error generating embeddings: {str(e)}")
+            raise
+
+    def store_data(
+            self,
+            df: pd.DataFrame,
+            texts: List[str],
+            embeddings: List[List[float]]
+    ) -> pd.DataFrame:
+        """Store data in Qdrant"""
+        logger.debug("Storing data in Qdrant")
+        try:
+            ids = [str(uuid.uuid4()) for _ in range(len(texts))]
+            logger.debug(f"Generated {len(ids)} unique IDs for Qdrant storage")
+            points = [
+                models.PointStruct(
+                    id=id_,
+                    vector=embedding,
+                    payload={
+                        "source": "excel",
+                        "timestamp": datetime.now().isoformat(),
+                        "document_id": id_,
+                        "text": text
+                    }
+                ) for id_, text, embedding in zip(ids, texts, embeddings)
+            ]
+
+            self.qdrant_client.upsert(
+                collection_name=self.collection_name,
+                points=points
+            )
+            logger.info("Data stored in Qdrant successfully")
+            return df
+        except Exception as e:
+            logger.error(f"Error storing data in Qdrant: {str(e)}")
+            raise
+
+    def query_similar(
+            self,
+            query_text: str,
+            top_k: int = 5
+    ) -> List[Dict]:
+        """Query similar documents from Qdrant"""
+        logger.debug(f"Querying similar documents for: {query_text}")
+        try:
+            query_embedding = self.get_embeddings([query_text])[0]
+            results = self.qdrant_client.search(
+                collection_name=self.collection_name,
+                query_vector=query_embedding,
+                limit=top_k,
+                with_payload=True
+            )
+
+            formatted_results = []
+            for result in results:
+                formatted_results.append({
+                    'document': result.payload.get("text", ""),
+                    'metadata': result.payload,
+                    'similarity': result.score
+                })
+            logger.debug(f"Query results: {formatted_results}")
+            return formatted_results
+        except Exception as e:
+            logger.error(f"Error querying similar documents: {str(e)}")
+            raise
+
+
+def process_file(
+        file_path: str,
+        rag_system: RAGSystem,
+        db_manager: DatabaseManager,
+        question_col: str,
+        answer_col: str
+) -> None:
+    """Process a single Excel file"""
+    logger.debug(f"Processing file: {file_path} with columns {question_col}, {answer_col}")
+    try:
+        df, texts = rag_system.extract_columns_from_excel(
+            str(file_path),
+            question_col,
+            answer_col
+        )
+
+        logger.debug(f"Texts extracted for embedding generation: {len(texts)} entries")
+        embeddings = rag_system.get_embeddings(texts)
+        logger.debug(f"Embeddings generated: {len(embeddings)} entries")
+
+        df = rag_system.store_data(df, texts, embeddings)
+
+        if db_manager.table_exists():
+            logger.debug("Table exists. Appending data")
+            db_manager.store_dataframe(file_path, if_exists='append')
+        else:
+            logger.debug("Table does not exist. Creating new table")
+            db_manager.store_dataframe(file_path, if_exists='replace')
+
+        metadata = db_manager.get_metadata()
+        logger.debug(f"Metadata after file processing: {metadata}")
+    except Exception as e:
+        logger.error(f"Error during file processing: {str(e)}")
+        raise
+
+
+# For processing files
+@csrf_exempt
+def processing_files(request):
+    logger.debug("Received a request to process files")
+    if request.method == 'POST':
+        try:
+            uploaded_files = request.FILES.getlist('files')
+            logger.debug(f"Number of files uploaded: {len(uploaded_files)}")
+
+            # Fetch environment variables
+            api_key = os.getenv("OPENAI_API_KEY")
+            database_url = os.getenv("DATABASE_URL")
+            qdrant_url = os.getenv("QDRANT_URL")
+            qdrant_api = os.getenv("QDRANT_API")
+            logger.debug("Environment variables loaded successfully")
+
+            # Initialize RAGSystem and DatabaseManager
+            rag_system = RAGSystem(api_key, qdrant_url, qdrant_api)
+            logger.debug("RAGSystem initialized")
+            db_manager = DatabaseManager(database_url)
+            logger.debug("DatabaseManager initialized")
+
+            question_column = 'Request - Text Request'
+            answer_column = 'Request - Text Answer'
+            logger.debug(f"Using columns: Question={question_column}, Answer={answer_column}")
+
+            # Directory for saving uploads
+            upload_dir = "upload1"
+            os.makedirs(upload_dir, exist_ok=True)
+            logger.debug(f"Upload directory ensured at: {upload_dir}")
+
+            # Process each uploaded file
+            for uploaded_file in uploaded_files:
+                file_name = uploaded_file.name
+                file_extension = os.path.splitext(file_name)[1].lower()
+                logger.debug(f"Processing file: {file_name} with extension: {file_extension}")
+
+                # Ensure the file is Excel
+                if file_extension not in ['.xls', '.xlsx']:
+                    raise ValueError(f"Unsupported file type: {file_extension}")
+
+                # Save file to the uploads directory
+                excel_file_path = os.path.join(upload_dir, file_name.lower())
+                with open(excel_file_path, "wb") as f:
+                    for chunk in uploaded_file.chunks():
+                        f.write(chunk)
+                logger.debug(f"File saved locally as Excel at: {excel_file_path}")
+
+                try:
+                    # Read the Excel file into a DataFrame
+                    df = pd.read_excel(excel_file_path, engine='openpyxl')
+                    logger.debug(f"Excel file {file_name} successfully read into DataFrame")
+
+                    # Process the file
+                    process_file(
+                        excel_file_path,
+                        rag_system,
+                        db_manager,
+                        question_column,
+                        answer_column
+                    )
+                    logger.info(f"File {file_name} processed successfully")
+                except Exception as e:
+                    logger.error(f"Error processing file {file_name}: {str(e)}")
+
+            return JsonResponse({"message": "Files processed successfully!"})
+        except Exception as e:
+            logger.error(f"Error in processing_files API: {str(e)}")
+            return JsonResponse({"error": str(e)}, status=500)
+    else:
+        logger.warning("Invalid HTTP method. Only POST is supported.")
+        return JsonResponse({"error": "Invalid method. Only POST is allowed."}, status=405)
+
+
+@csrf_exempt
+def query_system(request):
+    if request.method == 'POST':
+
+        query = request.POST["sql_query"]
+        api_key = os.getenv("OPENAI_API_KEY")
+        database_url = os.getenv("DATABASE_URL")
+        qdrant_url = os.getenv("QDRANT_URL")
+        qdrant_api = os.getenv("QDRANT_API")
+
+        if not query:
+            return JsonResponse({"error": "Query is required."}, status=400)
+
+        # Initialize RAGSystem, DatabaseManager, and other components without sessions
+        rag_system = RAGSystem(api_key, qdrant_url, qdrant_api)
+        db_manager = DatabaseManager(database_url)
+
+        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2, api_key=api_key)
+
+        tools = [
+            Tool(
+                name="execute_sql_query",
+                func=db_manager.execute_query,
+                description=(
+                    "Tool for executing SQL queries on a structured database. "
+                )
+            ),
+            Tool(
+                name="query_RAG",
+                func=rag_system.query_similar,
+                description="Tool to retrieve similar text when a text closely matches previous entries in RAG system."
+            )
+        ]
+
+        prompt = hub.pull("hwchase17/react-chat")
+        prompt.template = """
+        Assistant is a large language model trained by OpenAI.
+
+        Assistant is designed to be able to assist with a wide range of tasks, from answering simple questions to providing in-depth explanations and discussions on a wide range of topics. As a language model, Assistant is able to generate human-like text based on the input it receives, allowing it to engage in natural-sounding conversations and provide responses that are coherent and relevant to the topic at hand.
+
+        Assistant is designed to answer user queries by leveraging a SQL database and RAG system (a vector database for question similarity search).
+
+        Assistant can retrieve information based on **headers** or **a combination of headers and column values**. For example:
+        - If the user provides only the header, Assistant will retrieve all data for that header.
+        - If the user provides both a header and a column value, Assistant will filter the data based on the specified condition.
+
+        Assistant is constantly learning and improving, and its capabilities are constantly evolving. It is able to process and understand large amounts of text, and can use this knowledge to provide accurate and informative responses to a wide range of questions. Additionally, Assistant is able to generate its own text based on the input it receives, allowing it to engage in discussions and provide explanations and descriptions on a wide range of topics.
+
+        Overall, Assistant is a powerful tool that can help with a wide range of tasks and provide valuable insights and information on a wide range of topics. Whether you need help with a specific question or just want to have a conversation about a particular topic, Assistant is here to assist.
+
+        TOOLS:
+        ------
+
+        Assistant has access to the following tools:
+
+        {tools}
+
+        To use a tool, please use the following format:
+
+        ```
+        Thought: Do I need to use a tool? Yes
+        Action: the action to take, should be one of [{tool_names}]
+        Action Input: the input to the action (no additional text)
+        Observation: the result of the action
+        ```
+        When you have a response to say to the Human, or if you do not need to use a tool, you MUST use the format:
+
+        ```
+        Thought: Do I need to use a tool? No
+        Final Answer: [your response here]
+
+        ```
+        ### Example Session:
+
+        ## Example Actions:
+        - **execute_sql_query**: e.g., `execute_sql_query('SELECT column_name FROM table_name WHERE question_id IN (...)')`. Retrieves answers from the SQL database for matched question IDs.
+        - **query_RAG**: e.g., `query_RAG('user query text')`. Finds similar questions in the RAG system based on the user query.
+
+        ## Assistant Flow:
+        Question: Hi
+
+        Thought: The user has greeted me, so I will respond warmly.
+
+        Final Answer: Hi! I'm here to assist you. If you have any questions feel free to ask!
+
+        Question: Show all data for "Customer Name" where "Country" is "USA".
+
+        Thought: The user has requested data filtered by a header ("Customer Name") and a column value ("Country" = "USA"). I will construct a SQL query to retrieve the requested data.
+
+        Action: execute_query
+
+        Action Input: 
+        SELECT `Customer Name` 
+        FROM table_name 
+        WHERE `Country` = 'USA'
+
+        Observation: The SQL query returned the data successfully.
+
+        Final Answer: Here is the requested data for "Customer Name" where "Country" is "USA":
+        1. John Doe
+        2. Jane Smith
+
+        Question: I need guidance on renaming segments in the FMS system.
+
+        Thought: The user has a problem, I should first search RAG system for similar questions to the user query to see if a similar problem exists.
+
+        Action: query_RAG
+
+        Action Input: guidance on renaming segments in the FMS system
+
+        Observation: RAG sytem returned similar questions. The corresponding answers are also provided.
+
+        Final Answer: Based on the information in the database, here are the steps to rename segments in the FMS system:
+
+        1. Log into the FMS administration portal.
+        2. Navigate to the Segments section.
+        3. Locate the segment you want to rename.
+        4. Click the "Rename" button.
+        5. Enter the new segment name and save the changes.
+
+        Let me know if you need any clarification or have additional questions!
+
+        ```
+        Remember to maintain this exact format for all interactions, and prioritize writing clean, error-free SQL queries. Always provide the Final Answer to the user's query.
+
+        Begin!
+
+        Previous conversation history:
+        {chat_history}
+
+        Question : {input}
+        {agent_scratchpad}
+
+        """
+
+        chat_history = ""  # Initialize as empty if no conversation history exists
+
+        # Create the agent and execute the query
+        agent = create_react_agent(llm, tools, prompt)
+        agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
+
+        response = agent_executor.invoke({"input": query, "chat_history": chat_history})
+
+        return JsonResponse({"response": response['output']})
