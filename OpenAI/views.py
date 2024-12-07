@@ -485,7 +485,8 @@ def analyze_data(df):
         f"in dictionary format"
     )
     text_questions = generate_code(prompt_eng1)
-    prompt_eng_2 = f"Generate 5 plotting questions for the data: {df}. Give each question in dictionary format"
+    prompt_eng_2 = f"Based on the data with sample records as {df.head()}, " \
+                   f"Generate 5 plotting questions based on data. Give each question should be in dictionary format and  question shoud start with plot keyword"
     plotting_questions = generate_code(prompt_eng_2)
 
     # Creating the forecasting questions
@@ -613,7 +614,7 @@ def regenerate_chart(request):
     if request.method == "POST":
         df = pd.read_csv('data.csv')
         prompt_eng = (
-            f"Regenerate 5 plotting questions for the data: {df}. start the question using plot keyword"
+             f"Based on the data with sample records as {df.head()}. Generate 5 plotting questions based on data. Give each question should be in dictionary format and  question shoud start with plot keyword"
         )
         code = generate_code(prompt_eng)
         return HttpResponse(json.dumps({"questions": code}),
@@ -1543,15 +1544,16 @@ def reading_data(request):
 
 @csrf_exempt
 def download_flespi_data(request):
-    current_datetime = datetime.now(tz=ZoneInfo('Asia/Kolkata'))
-    start_of_day = current_datetime.replace(month=current_datetime.month - 1, day=current_datetime.day, hour=current_datetime.hour, minute=current_datetime.minute, second=0,
-                                            microsecond=0)
-    response = requests.get(
-        f'https://flespi.io/gw/devices/5439260/messages?data=%7B%22from%22%3A{start_of_day.timestamp()}%2C%22to%22%3A{datetime.now().timestamp()}%7D',
-        headers=headers)
-    multi_data = json.loads(response.text)['result']
-    multi_data = pre_process_multi_data(multi_data)
-    return HttpResponse(json.dumps({"data": multi_data}), content_type="application/json")
+    if request.method =='POST':
+        current_datetime = datetime.now(tz=ZoneInfo('Asia/Kolkata'))
+        start_of_day = current_datetime.replace(month=current_datetime.month - 1, day=current_datetime.day, hour=current_datetime.hour, minute=current_datetime.minute, second=0,
+                                                microsecond=0)
+        response = requests.get(
+            f'https://flespi.io/gw/devices/5439260/messages?data=%7B%22from%22%3A{start_of_day.timestamp()}%2C%22to%22%3A{datetime.now().timestamp()}%7D',
+            headers=headers)
+        multi_data = json.loads(response.text)['result']
+        multi_data = pre_process_multi_data(multi_data)
+        return HttpResponse(json.dumps({"data": multi_data}), content_type="application/json")
 
 
 def pre_process_multi_data(multi_data):
