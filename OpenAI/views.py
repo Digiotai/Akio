@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 import base64
 import hashlib
 import os
+import ast
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 import requests
@@ -481,14 +482,13 @@ def analyze_data(df):
     )
     column_description = generate_code(prompt_eng)
     prompt_eng1 = (
-        f"Based on the data with sample records as {df.head()}, generate 5 questions based on data. Give each question "
-        f"in dictionary format"
-    )
+        f"Based on the data with sample records as {df.head()}, generate 5 questions based on data." + "output should be in the format like  {'question1':...., 'question2':...., so on..} "  )
     text_questions = generate_code(prompt_eng1)
-    prompt_eng_2 = f"Based on the data with sample records as {df.head()}, " \
-                   f"Generate 5 plotting questions based on data. Give each question should be in dictionary format and  question shoud start with plot keyword"
-    plotting_questions = generate_code(prompt_eng_2)
+    text_questions = ast.literal_eval(text_questions)
 
+    prompt_eng_2 = f"Based on the data with sample records as {df.head()}, " +  "Generate 5 plotting questions based on data, Each question should start with plot keyword. output should be in the format like  {'question1':...., 'question2':...., so on..}"
+    plotting_questions = generate_code(prompt_eng_2)
+    plotting_questions = ast.literal_eval(plotting_questions)
     # Creating the forecasting questions
     prompt_eng_3 = (
         #f"Generate 5 forecasting questions for the data: {df}"
@@ -499,7 +499,7 @@ def analyze_data(df):
     f"2. The questions should be very simple and straight forward."
     f"3. Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis."
     f"4. Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.'"
-    f"5. Give each question in dictionary format"
+    "5. output should be in the format like  {'question1':...., 'question2':...., so on..} "
 
     # f"Given the dataset {df}, generate 5 forecasting-related questions that meet the following criteria: "
     # f"1. The questions should be **specific**, **realistic**, and **focused on measurable metrics or trends**. "
@@ -513,6 +513,9 @@ def analyze_data(df):
     )
 
     forecasting_questions = generate_code(prompt_eng_3)
+
+    forecasting_questions = ast.literal_eval(forecasting_questions)
+
     # Create a JSON response with titles corresponding to each prompt
     response_data = {
         "all_records": df.to_dict(orient='records'),
@@ -604,8 +607,9 @@ def regenerate_txt(request):
         prompt_eng = (
             f"Based on the data with sample records as {df.head()}, generate 5 questions based on data."
         )
-        code = generate_code(prompt_eng)
-        return HttpResponse(json.dumps({"questions": code}),
+        text_questions = generate_code(prompt_eng)
+        text_questions = ast.literal_eval(text_questions)
+        return HttpResponse(json.dumps({"questions": text_questions}),
                             content_type="application/json")
 
 
@@ -617,6 +621,7 @@ def regenerate_chart(request):
              f"Based on the data with sample records as {df.head()}. Generate 5 plotting questions based on data. Give each question should be in dictionary format and  question shoud start with plot keyword"
         )
         code = generate_code(prompt_eng)
+        code = ast.literal_eval(code)
         return HttpResponse(json.dumps({"questions": code}),
                             content_type="application/json")
 
@@ -635,6 +640,7 @@ def regenerate_forecast(request):
             f"4. Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.'"
         )
         code = generate_code(prompt_eng)
+        code = ast.literal_eval(code)
         return HttpResponse(json.dumps({"questions": code}),
                         content_type="application/json")
 
