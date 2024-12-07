@@ -605,7 +605,7 @@ def regenerate_txt(request):
     if request.method == "POST":
         df = pd.read_csv('data.csv')
         prompt_eng = (
-            f"Based on the data with sample records as {df.head()}, generate 5 questions based on data."
+            f"Based on the data with sample records as {df.head()}, generate 5 questions based on data."+" output should be in the format like  {'question1':...., 'question2':...., so on..}"
         )
         text_questions = generate_code(prompt_eng)
         text_questions = ast.literal_eval(text_questions)
@@ -618,7 +618,7 @@ def regenerate_chart(request):
     if request.method == "POST":
         df = pd.read_csv('data.csv')
         prompt_eng = (
-             f"Based on the data with sample records as {df.head()}. Generate 5 plotting questions based on data. Give each question should be in dictionary format and  question shoud start with plot keyword"
+             f"Based on the data with sample records as {df.head()}. Generate 5 plotting questions based on data. question shoud start with plot keyword" +" output should be in the format like  {'question1':...., 'question2':...., so on..}"
         )
         code = generate_code(prompt_eng)
         code = ast.literal_eval(code)
@@ -638,6 +638,7 @@ def regenerate_forecast(request):
             f"2. The questions should be very simple and straight forward."
             f"3. Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis."
             f"4. Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.'"
+            + "5. output should be in the format like  {'question1':...., 'question2':...., so on..}"
         )
         code = generate_code(prompt_eng)
         code = ast.literal_eval(code)
