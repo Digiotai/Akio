@@ -612,23 +612,38 @@ class HanaDBManager:
             print(f"Error fetching table overview: {err}")
             return {}
 
-    def fetch_data_from_table(self, table_name):
+    def get_tables_data(self, table_name):
         """
-        Fetch all records from a specified table.
+        Retrieve and deserialize the stored binary data for the specified table name.
         """
         try:
+            # Ensure HANA connection is active
             self.ensure_hana_connection()
-            with self.connection.cursor() as cursor:
-                query = f"SELECT * FROM {table_name}"
-                cursor.execute(query)
-                rows = cursor.fetchall()
 
-            # Get column names dynamically from the cursor description
-            columns = [desc[0] for desc in cursor.description]
-            df = pd.DataFrame(rows, columns=columns)
-            return df
+            # SQL query to select the STORED_DATA for the given table name
+            query = """
+                SELECT STORED_DATA 
+                FROM USER_DATA_TABLE 
+                WHERE DATA_NAME = ? 
+                LIMIT 1
+            """
+
+            with self.connection.cursor() as cursor:
+                cursor.execute(query, (table_name,))
+                result = cursor.fetchone()
+
+                if result is None:
+                    raise ValueError(f"No data found for table: {table_name}")
+
+                # Deserialize the binary data into a DataFrame
+                stored_data_blob = result[0]
+                data = pickle.loads(stored_data_blob)
+
+                print(f"Data for table '{table_name}' retrieved successfully.")
+                return pd.DataFrame(data) if isinstance(data, (list, dict)) else data
+
         except Exception as err:
-            print(f"Error fetching data from table '{table_name}': {err}")
+            print(f"Error getting table data for '{table_name}': {err}")
             return pd.DataFrame()
 
     def drop_user_data_table(self):
