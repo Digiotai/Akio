@@ -477,45 +477,65 @@ def analyze_data(df):
     first_10_rows = df.head(10).to_dict(orient='records')
     # Generate descriptions and questions for the data based on table name and columns
     columns_list = ", ".join(df.columns)
+    text_questions = {}
+    plotting_questions = {}
+    forecasting_questions = {}
     prompt_eng = (
         f"You are analytics_bot. Analyse the data: {df.head()} and give description of the columns"
     )
     column_description = generate_code(prompt_eng)
-    prompt_eng1 = (
-        f"Based on the data with sample records as {df.head()}, generate 5 questions based on data." + "output should be in the format like  {'question1':...., 'question2':...., so on..} "  )
-    text_questions = generate_code(prompt_eng1)
-    text_questions = ast.literal_eval(text_questions)
+    trials=3
+    while trials>0:
+        try:
+            prompt_eng1 = (
+                f"Based on the data with sample records as {df.head()}, generate 5 questions based on data." + "output should be in the format like  {'question1':...., 'question2':...., so on..} "  )
+            text_questions = generate_code(prompt_eng1)
+            text_questions = ast.literal_eval(text_questions)
+            break
+        except Exception as e:
+            print(e)
+        trials -= 1
+    trials = 3
+    while trials > 0:
+        try:
+            prompt_eng_2 = f"Based on the data with sample records as {df.head()}, " +  "Generate 5 plotting questions based on data, Each question should start with plot keyword. output should be in the format like  {'question1':...., 'question2':...., so on..}"
+            plotting_questions = generate_code(prompt_eng_2)
+            plotting_questions = ast.literal_eval(plotting_questions)
+        except Exception as e:
+            print(e)
+        trials -= 1
+    trials = 3
+    while trials > 0:
+        try:
+            # Creating the forecasting questions
+            prompt_eng_3 = (
+                #f"Generate 5 forecasting questions for the data: {df}"
 
-    prompt_eng_2 = f"Based on the data with sample records as {df.head()}, " +  "Generate 5 plotting questions based on data, Each question should start with plot keyword. output should be in the format like  {'question1':...., 'question2':...., so on..}"
-    plotting_questions = generate_code(prompt_eng_2)
-    plotting_questions = ast.literal_eval(plotting_questions)
-    # Creating the forecasting questions
-    prompt_eng_3 = (
-        #f"Generate 5 forecasting questions for the data: {df}"
+            f"Using the dataset {df}, generate 5 forecasting-related questions based on the dataset. "
+            f"The questions should: "
+            f"1. Start with the word **'Forecast'**. "
+            f"2. The questions should be very simple and straight forward."
+            f"3. Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis."
+            f"4. Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.'"
+            "5. output should be in the format like  {'question1':...., 'question2':...., so on..} "
 
-    f"Using the dataset {df}, generate 5 forecasting-related questions based on the dataset. "
-    f"The questions should: "
-    f"1. Start with the word **'Forecast'**. "
-    f"2. The questions should be very simple and straight forward."
-    f"3. Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis."
-    f"4. Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.'"
-    "5. output should be in the format like  {'question1':...., 'question2':...., so on..} "
+            # f"Given the dataset {df}, generate 5 forecasting-related questions that meet the following criteria: "
+            # f"1. The questions should be **specific**, **realistic**, and **focused on measurable metrics or trends**. "
+            # f"2. Each question should **start with 'Forecast'** and address **clear forecasting goals**. "
+            # f"3. Tailor the questions to the type of data in the dataset, ensuring they align with the trends, patterns, or key variables observed in the data."
 
-    # f"Given the dataset {df}, generate 5 forecasting-related questions that meet the following criteria: "
-    # f"1. The questions should be **specific**, **realistic**, and **focused on measurable metrics or trends**. "
-    # f"2. Each question should **start with 'Forecast'** and address **clear forecasting goals**. "
-    # f"3. Tailor the questions to the type of data in the dataset, ensuring they align with the trends, patterns, or key variables observed in the data."
+            # f"Using the dataset {df}, generate 5  forecasting related questions. "
+            # f"Each question must start with 'Forecast' and focus on predicting measurable trends within the dataset. "
+            # f"Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis. "
+            # f"Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.' "
+            )
 
-    # f"Using the dataset {df}, generate 5  forecasting related questions. "
-    # f"Each question must start with 'Forecast' and focus on predicting measurable trends within the dataset. "
-    # f"Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis. "
-    # f"Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.' "
-    )
+            forecasting_questions = generate_code(prompt_eng_3)
 
-    forecasting_questions = generate_code(prompt_eng_3)
-
-    forecasting_questions = ast.literal_eval(forecasting_questions)
-
+            forecasting_questions = ast.literal_eval(forecasting_questions)
+        except Exception as e:
+            print(e)
+        trials -= 1
     # Create a JSON response with titles corresponding to each prompt
     response_data = {
         "all_records": df.to_dict(orient='records'),
@@ -607,8 +627,16 @@ def regenerate_txt(request):
         prompt_eng = (
             f"Based on the data with sample records as {df.head()}, generate 5 questions based on data."+" output should be in the format like  {'question1':...., 'question2':...., so on..}"
         )
-        text_questions = generate_code(prompt_eng)
-        text_questions = ast.literal_eval(text_questions)
+        text_questions = {}
+        trials = 3
+        while trials > 0:
+            try:
+                text_questions = generate_code(prompt_eng)
+                text_questions = ast.literal_eval(text_questions)
+                break
+            except Exception as e:
+                print(e)
+            trials -= 1
         return HttpResponse(json.dumps({"questions": text_questions}),
                             content_type="application/json")
 
@@ -620,8 +648,16 @@ def regenerate_chart(request):
         prompt_eng = (
              f"Based on the data with sample records as {df.head()}. Generate 5 plotting questions based on data. question shoud start with plot keyword" +" output should be in the format like  {'question1':...., 'question2':...., so on..}"
         )
-        code = generate_code(prompt_eng)
-        code = ast.literal_eval(code)
+        code = {}
+        trials = 3
+        while trials > 0:
+            try:
+                code = generate_code(prompt_eng)
+                code = ast.literal_eval(code)
+                break
+            except Exception as e:
+                print(e)
+            trials -= 1
         return HttpResponse(json.dumps({"questions": code}),
                             content_type="application/json")
 
@@ -640,8 +676,16 @@ def regenerate_forecast(request):
             f"4. Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.'"
             + "5. output should be in the format like  {'question1':...., 'question2':...., so on..}"
         )
-        code = generate_code(prompt_eng)
-        code = ast.literal_eval(code)
+        trials = 3
+        code = {}
+        while trials > 0:
+            try:
+                code = generate_code(prompt_eng)
+                code = ast.literal_eval(code)
+                break
+            except Exception as e:
+                print(e)
+            trials -= 1
         return HttpResponse(json.dumps({"questions": code}),
                         content_type="application/json")
 
