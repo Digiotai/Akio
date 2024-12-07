@@ -3,7 +3,10 @@ from dotenv import load_dotenv
 import base64
 import hashlib
 import os
-
+from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
+import requests
+import calendar
 import joblib
 # Import necessary libraries
 import numpy as np
@@ -35,6 +38,11 @@ output_type = OutputType("Image")
 agent = Agent(expertise, task, input_type, output_type)
 api_key = OPENAI_API_KEY
 name = "file_name"
+headers = {
+            'Authorization':
+                'FlespiToken axLBthbazeJkKKkpr2sVK9rAeXfFJGmH1V9k18iqaSyKqHYHzetadIyitBL15WyU'
+        }
+
 
 db = PostgresDatabase()
 
@@ -473,14 +481,15 @@ def analyze_data(df):
     )
     column_description = generate_code(prompt_eng)
     prompt_eng1 = (
-        f"Based on the data with sample records as {df.head()}, generate 5 questions based on data."
+        f"Based on the data with sample records as {df.head()}, generate 5 questions based on data. Give each question "
+        f"in dictionary format"
     )
     text_questions = generate_code(prompt_eng1)
-    prompt_eng_2 = f"Generate 5 plotting questions for the data: {df}"
+    prompt_eng_2 = f"Generate 5 plotting questions for the data: {df}. Give each question in dictionary format"
     plotting_questions = generate_code(prompt_eng_2)
 
     # Creating the forecasting questions
-    prompt_eng_3 =  (
+    prompt_eng_3 = (
         #f"Generate 5 forecasting questions for the data: {df}"
 
     f"Using the dataset {df}, generate 5 forecasting-related questions based on the dataset. "
@@ -489,6 +498,7 @@ def analyze_data(df):
     f"2. The questions should be very simple and straight forward."
     f"3. Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis."
     f"4. Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.'"
+    f"5. Give each question in dictionary format"
 
     # f"Given the dataset {df}, generate 5 forecasting-related questions that meet the following criteria: "
     # f"1. The questions should be **specific**, **realistic**, and **focused on measurable metrics or trends**. "
@@ -499,9 +509,6 @@ def analyze_data(df):
     # f"Each question must start with 'Forecast' and focus on predicting measurable trends within the dataset. "
     # f"Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis. "
     # f"Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.' "
-
-
-
     )
 
     forecasting_questions = generate_code(prompt_eng_3)
@@ -625,9 +632,7 @@ def regenerate_forecast(request):
             f"2. The questions should be very simple and straight forward."
             f"3. Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis."
             f"4. Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.'"
-
         )
-
         code = generate_code(prompt_eng)
         return HttpResponse(json.dumps({"questions": code}),
                         content_type="application/json")
@@ -654,7 +659,6 @@ def gen_txt_response(request):
 
             3. If the query relates to a theoretical concept, provide a brief explanation of the concept as a print statement.
             """
-
         )
         code = generate_code(prompt_eng)
         # Execute the generated code
@@ -1537,8 +1541,29 @@ def reading_data(request):
         except Exception as e:
             return HttpResponse(f"Error: {str(e)}", status=500)
 
+@csrf_exempt
+def download_flespi_data(request):
+    current_datetime = datetime.now(tz=ZoneInfo('Asia/Kolkata'))
+    start_of_day = current_datetime.replace(month=current_datetime.month - 1, day=current_datetime.day, hour=current_datetime.hour, minute=current_datetime.minute, second=0,
+                                            microsecond=0)
+    response = requests.get(
+        f'https://flespi.io/gw/devices/5439260/messages?data=%7B%22from%22%3A{start_of_day.timestamp()}%2C%22to%22%3A{datetime.now().timestamp()}%7D',
+        headers=headers)
+    multi_data = json.loads(response.text)['result']
+    multi_data = pre_process_multi_data(multi_data)
+    return HttpResponse(json.dumps({"data": multi_data}), content_type="application/json")
 
 
+def pre_process_multi_data(multi_data):
+    for idx, record in enumerate(multi_data):
+        multi_data[idx].update({
+            "timestamp": datetime.fromtimestamp(multi_data[idx]["timestamp"],
+                                                tz=ZoneInfo('Asia/Kolkata')).strftime("%Y-%m-%d %H-%M-%S"),
+            "server.timestamp": datetime.fromtimestamp(multi_data[idx]["server.timestamp"],
+                                                       tz=ZoneInfo('Asia/Kolkata')).strftime(
+                "%Y-%m-%d %H-%M-%S")
+        })
+    return multi_data
 
 
 

@@ -46,6 +46,7 @@ urlpatterns = [
    path('api/upload_data', upload_data, name='uploading'),
    path('api/hana_dataread', reading_data, name='hana_reading_data'),
 
-
+    # Flespi
+    path('api/download_flespi_data', download_flespi_data, name='download_flespi_data')
 
 ]
