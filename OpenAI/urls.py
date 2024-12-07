@@ -36,9 +36,16 @@ urlpatterns = [
     path('api/synthetic_data', handle_synthetic_data_api, name='synthetic_data_generation'),
     path('api/synthetic_data_extended', handle_synthetic_data_extended, name='extended_synthetic_data_generation'),
 
-    #Sql_agentic_system
-    path('api/process_files', processing_files, name='processing_files'),
-    path('api/query_making', query_system, name='querying'),
+    # #Sql_agentic_system
+    # path('api/process_files', processing_files, name='processing_files'),
+    # path('api/query_making', query_system, name='querying'),
+
+    #SAP
+
+   path('api/hana_connect', hana_connection, name='connecting'),
+   path('api/upload_data', upload_data, name='uploading'),
+   path('api/hana_dataread', reading_data, name='hana_reading_data'),
+
 
 
 ]
