@@ -1515,9 +1515,11 @@ def reading_data(request):
         try:
             # Get the table name from the request
             tablename = request.POST['tablename']
+            print(tablename)
 
             # Fetch data from the specified table
-            df = db1.fetch_data_from_table(tablename)
+            df = db1.get_tables_data(tablename)
+
 
             if df.empty:
                 return HttpResponse("No data found or table does not exist.", status=404)
