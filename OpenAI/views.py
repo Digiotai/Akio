@@ -1596,8 +1596,7 @@ def reading_data(request):
 @csrf_exempt
 def flespicred(request):
     if request.method == 'POST':
-        request.session['flespi_URL']=request.POST.get('flespi_URL')
-        request.session['flespi_token']=request.POST.get('flespi_token')
+
         return HttpResponse("Success")
 
 
@@ -1606,23 +1605,23 @@ def download_flespi_data(request):
     # https://flespi.io/gw/devices/5439260/messages
     # axLBthbazeJkKKkpr2sVK9rAeXfFJGmH1V9k18iqaSyKqHYHzetadIyitBL15WyU
     if request.method =='POST':
-        print(request.session["flespi_URL"], request.session["flespi_token"])
-        if 'flespi_URL' in request.session:
+        flespi_URL = request.POST.get('flespi_URL')
+        flespi_token = request.POST.get('flespi_token')
+        try:
             current_datetime = datetime.now(tz=ZoneInfo('Asia/Kolkata'))
             start_of_day = current_datetime.replace(month=current_datetime.month - 1, day=current_datetime.day, hour=current_datetime.hour, minute=current_datetime.minute, second=0,
                                                     microsecond=0)
-
             response = requests.get(
-                f'{request.session["flespi_URL"]}?data=%7B%22from%22%3A{start_of_day.timestamp()}%2C%22to%22%3A{datetime.now().timestamp()}%7D',
+                f'{flespi_URL}?data=%7B%22from%22%3A{start_of_day.timestamp()}%2C%22to%22%3A{datetime.now().timestamp()}%7D',
                 headers={
             'Authorization':
-                f'FlespiToken {request.session["flespi_token"]}'
+                f'FlespiToken {flespi_token}'
         })
             multi_data = json.loads(response.text)['result']
             multi_data = pre_process_multi_data(multi_data)
             return HttpResponse(json.dumps({"data": multi_data}), content_type="application/json")
-        else:
-            return HttpResponse('Please provide connection details')
+        except Exception as e:
+            return HttpResponse(str(e))
 
 
 def pre_process_multi_data(multi_data):
