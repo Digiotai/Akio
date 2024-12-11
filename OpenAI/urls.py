@@ -47,6 +47,7 @@ urlpatterns = [
    path('api/hana_dataread', reading_data, name='hana_reading_data'),
 
     # Flespi
+    path('api/flespicred',flespicred, name='flespicred' ),
     path('api/download_flespi_data', download_flespi_data, name='download_flespi_data')
 
 ]
