@@ -1306,62 +1306,87 @@ import pandas as pd
 from django.views.decorators.csrf import csrf_exempt
 from .generator import generate_data_from_text, generate_synthetic_data
 import json
+import re
 
 
-# Helper function: Extract number of rows from user prompt
 def extract_num_rows_from_prompt(user_prompt):
     """
-    Parses the user prompt to find the number of rows.
-    Example: "Generate 100 rows of data" -> 100
+    Extracts the number of rows or records from the user's prompt.
+    Supports prompts like:
+      - "Generate 100 rows of data"
+      - "Generate the 50 records of data"
     """
-    import re
-    match = re.search(r'(\d+)\s+rows', user_prompt, re.IGNORECASE)
+    match = re.search(r'(\d+)\s+(rows|records)', user_prompt, re.IGNORECASE)
     if match:
         return int(match.group(1))
     return None
 
 
+def extract_columns_from_prompt(user_prompt):
+    """
+    Extracts the field names (column names) from the user's prompt.
+    Supports prompts like:
+      - "field names: S.no, Name, address, First_name"
+      - "fields: S.no, Name, address, First_name"
+      - "columns: S.no, Name, address, First_name"
+      - "field_names: S.no, Name, address, First_name"
+      - "column_names: S.no, Name, address, First_name"
+
+    Converts column names to snake_case, removes spaces and special characters.
+    Example:
+      - "S.no, Name, address, First_name"
+      -> ['s_no', 'name', 'address', 'first_name']
+    """
+    # Look for all possible field identifier formats followed by the column names
+    match = re.search(r'(field names|column names|fields|columns|field_names|column_names):\s*([a-zA-Z0-9_,\s\.]+)',
+                      user_prompt, re.IGNORECASE)
+
+    if match:
+        # Extract the part containing column names
+        raw_columns = match.group(2).split(',')
+    else:
+        return []
+
+    # Format each column name (remove spaces, convert to snake_case, lowercase)
+    formatted_columns = [
+        re.sub(r'[^a-zA-Z0-9]', '_', col.strip()).lower()
+        for col in raw_columns
+    ]
+
+    # Remove empty column names and ensure no duplicates
+    formatted_columns = list(filter(bool, formatted_columns))
+    return list(dict.fromkeys(formatted_columns))  # Remove duplicates
+
 @csrf_exempt
 def handle_synthetic_data_api(request):
     """
-    API Endpoint to generate synthetic data from a user's uploaded file and prompt.
+    API Endpoint to generate synthetic data from a user's prompt.
 
     Method: POST
     Payload:
-      - uploaded_file (File): The empty Excel or CSV file with column names
-      - user_prompt (String): A prompt specifying the number of rows
+      - user_prompt (String): A prompt specifying the number of rows and column names.
       - openai_api_key (String): OpenAI API key
     """
     if request.method == "POST":
         try:
-            # Extract uploaded file, user prompt, and API key from the request
-            uploaded_file = request.FILES.get('file')
+            # Extract user prompt and OpenAI API key from the request
             user_prompt = request.POST.get('user_prompt')
             openai_api_key = os.getenv('OPENAI_API_KEY')
 
-            if not uploaded_file or not user_prompt or not openai_api_key:
-                return JsonResponse({"error": "Missing required parameters"}, status=400)
-
-            # Determine file type and extract column names
-            file_extension = os.path.splitext(uploaded_file.name)[1].lower()
-            if file_extension == ".xlsx":
-                df = pd.read_excel(uploaded_file)
-            elif file_extension == ".csv":
-                df = pd.read_csv(uploaded_file)
-            else:
-                return JsonResponse({"error": "Unsupported file format. Please upload an Excel or CSV file."},
-                                    status=400)
-
-            column_names = df.columns.tolist()
-
-            # Check if column names exist
-            if not column_names:
-                return JsonResponse({"error": "The uploaded file contains no column names."}, status=400)
+            # Validate user prompt
+            if not user_prompt or not openai_api_key:
+                return JsonResponse({"error": "Missing required parameters: user_prompt or OpenAI API key"}, status=400)
 
             # Extract number of rows from the prompt
             num_rows = extract_num_rows_from_prompt(user_prompt)
             if num_rows is None:
-                return JsonResponse({"error": "Number of rows not found in the prompt."}, status=400)
+                return JsonResponse({"error": "Number of rows or records not found in the prompt."}, status=400)
+
+            # Extract column names from the prompt
+            column_names = extract_columns_from_prompt(user_prompt)
+            print(column_names)
+            if not column_names:
+                return JsonResponse({"error": "No field names found in the prompt."}, status=400)
 
             # Generate synthetic data
             generated_df = generate_data_from_text(openai_api_key, user_prompt, column_names, num_rows=num_rows)
@@ -1370,6 +1395,7 @@ def handle_synthetic_data_api(request):
             combined_csv = generated_df.to_csv(index=False)
 
             return JsonResponse({
+
                 "data": combined_csv
             }, status=200)
 
