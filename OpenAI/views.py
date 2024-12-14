@@ -501,6 +501,7 @@ def analyze_data(df):
             prompt_eng_2 = f"Based on the data with sample records as {df.head()}, " +  "Generate 5 plotting questions based on data, Each question should start with plot keyword. output should be in the format like  {'question1':...., 'question2':...., so on..}"
             plotting_questions = generate_code(prompt_eng_2)
             plotting_questions = ast.literal_eval(plotting_questions)
+            break
         except Exception as e:
             print(e)
         trials -= 1
@@ -533,6 +534,7 @@ def analyze_data(df):
             forecasting_questions = generate_code(prompt_eng_3)
 
             forecasting_questions = ast.literal_eval(forecasting_questions)
+            break
         except Exception as e:
             print(e)
         trials -= 1
