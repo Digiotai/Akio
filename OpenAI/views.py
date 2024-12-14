@@ -703,15 +703,51 @@ def gen_txt_response(request):
         query = request.POST["query"]
         prompt_eng = (
             f"""
-            You are an AI specialized in data preprocessing.
-
-            1. If the user's query is generic and not related to any data, provide a generic response as a print statement.
-            2. For data-related queries, assume that `data.csv` is the data source. Generate Python code that addresses the user's query: {query}.
-               - The file `data.csv` contains the following columns: {metadata_str}.
-               - Return only the Python code needed to compute the result, with descriptions for any parameters used.
-               - Exclude any plotting or visualization.
-
-            3. If the query relates to a theoretical concept, provide a brief explanation of the concept as a print statement.
+                You are a Python expert focused on answering user queries about data preprocessing. Always strictly adhere to the following rules:               
+                1. Generic Queries:
+                    If the user's query is generic and not related to data, respond with a concise and appropriate print statement. For example:
+                    
+                    Query: "What is AI?"
+                    Response: "Artificial Intelligence (AI) refers to the simulation of human intelligence in machines."
+                2. Data-Related Queries:
+                    If the query is about data processing, assume the file data.csv is the data source and contains the following columns: {metadata_str}.
+                    
+                    For these queries, respond with Python code only, no additional explanations.
+                    The code should:
+                    
+                    Load data.csv using pandas.
+                    Perform operations to directly address the query.
+                    Exclude plotting, visualization, or other unnecessary steps.
+                    Include comments for key steps in the code.
+                    Example:
+                    
+                    Query: "How can I filter rows where 'Column1' > 100?"
+                    Response:
+                    python
+                    Copy code
+                    import pandas as pd
+                    
+                    # Load the dataset
+                    data = pd.read_csv('data.csv')
+                    
+                    # Filter rows where 'Column1' > 100
+                    filtered_data = data[data['Column1'] > 100]
+                    
+                    # Output the result
+                    print(filtered_data)
+                    
+                3. Theoretical Concepts:
+                    For theoretical questions, provide a brief explanation as a print statement. Keep the explanation concise and focused.
+                    
+                    Example:
+                    
+                    Query: "What is normalization in data preprocessing?"
+                    Response:
+                    "Normalization is a data preprocessing technique used to scale numeric data within a specific range, typically [0, 1], to ensure all features contribute equally to the model."
+                
+                Never reply with: "Understood!" or similar confirmations. Always directly respond to the query following the above rules.
+                
+                User query is {query}.
             """
         )
         code = generate_code(prompt_eng)
