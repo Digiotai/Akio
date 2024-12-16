@@ -22,7 +22,7 @@ from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 
-from .database import PostgresDatabase,HanaDBManager
+from .database import PostgresDatabase, HanaDBManager
 
 global connection_obj
 # db = MongoDBDatabase()
@@ -40,10 +40,9 @@ agent = Agent(expertise, task, input_type, output_type)
 api_key = OPENAI_API_KEY
 name = "file_name"
 headers = {
-            'Authorization':
-                'FlespiToken flespi_token'
-        }
-
+    'Authorization':
+        'FlespiToken flespi_token'
+}
 
 db = PostgresDatabase()
 
@@ -405,71 +404,111 @@ def connection(request):
 
 # Upload data to the database
 # Upload data to the database (CSV and Excel)
+import os
+import io
+import shutil
+import json
+import pandas as pd
+from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+import xmltodict
+from django.core.cache import cache
 from django.core.exceptions import SuspiciousOperation
 
 
 @csrf_exempt
 def upload_and_analyze_data(request):
-    if request.method == 'POST':
-        email = request.POST.get('mail')
-        # Handle file upload
-        files = request.FILES.get('file')  # Retrieve the uploaded file
-        if not files:
-            return HttpResponse('No files uploaded', status=400)
+    try:
+        if request.method == 'POST':
+            email = request.POST.get('mail')
+            files = request.FILES.get('file')  # Retrieve the uploaded file
+            kpi_file = request.FILES.get("kpi_file")
 
-        file_name = files.name
-        file_extension = os.path.splitext(file_name)[1].lower()  # Extract file extension
+            if not files:
+                return JsonResponse({"error": "No files uploaded"}, status=400)
 
-        try:
-            # Process the uploaded file based on its extension
-            if file_extension == '.csv':
-                # Read CSV file
-                content = files.read().decode('utf-8')
-                csv_data = io.StringIO(content)
-                df = pd.read_csv(csv_data)
-            elif file_extension in ['.xls', '.xlsx']:
-                # Read Excel file
-                df = pd.read_excel(files)
-            else:
-                # Unsupported file type
-                raise SuspiciousOperation("Unsupported file format")
+            file_name = files.name
+            file_extension = os.path.splitext(file_name)[1].lower()  # Extract file extension
 
-            # Save the uploaded file locally for backup/logging purposes
-            upload_dir = "uploads"
-            os.makedirs(upload_dir, exist_ok=True)
+            try:
+                # Process the uploaded file based on its extension
+                if file_extension == '.csv':
+                    content = files.read().decode('utf-8')
+                    csv_data = io.StringIO(content)
+                    df = pd.read_csv(csv_data)
+                elif file_extension in ['.xls', '.xlsx']:
+                    df = pd.read_excel(files)
+                else:
+                    raise SuspiciousOperation("Unsupported file format")
 
-            # For csv file
-            csv_file_path = os.path.join(upload_dir, file_name.replace(file_extension, '.csv').lower())
-            df.to_csv(csv_file_path, index=False)
+                # Save the uploaded file locally for backup/logging purposes
+                upload_dir = "uploads"
+                os.makedirs(upload_dir, exist_ok=True)
 
-            # Save as Excel file
-            excel_file_path = os.path.join(upload_dir, file_name.replace(file_extension, '.xlsx').lower())
-            df.to_excel(excel_file_path, index=False, engine='openpyxl')  # Use openpyxl as the Excel write
+                csv_file_path = os.path.join(upload_dir, file_name.replace(file_extension, '.csv').lower())
+                df.to_csv(csv_file_path, index=False)
 
-            # Save a working copy as 'data.csv'
-            df.to_csv('data.csv', index=False)
-            df.to_excel('data1.xlsx', index=False, engine='openpyxl')  # Excel
+                excel_file_path = os.path.join(upload_dir, file_name.replace(file_extension, '.xlsx').lower())
+                df.to_excel(excel_file_path, index=False, engine='openpyxl')
 
-            # Insert the data into MongoDB
-            results = db.insert_or_update(email, df, file_name)  # Uses MongoDBDatabase's `insert` method
+                df.to_csv('data.csv', index=False)
+                df.to_excel('data1.xlsx', index=False, engine='openpyxl')
 
-            # Perform data analysis on the DataFrame
-            response_data1 = analyze_data(df)  # Assuming `analyze_data` is a function that analyzes data
+                results = db.insert_or_update(email, df, file_name)  # Insert into MongoDB
 
-            # Return the analytics response along with the first 10 rows
-            response_data1['preview'] = df.head(10).to_dict(orient='records')
-            response_data1['upload_status'] = results  # Include database insert result
+                data_file_name, kpi_config_file_name = file_name, ''
 
-            return JsonResponse(response_data1, safe=False)
+                new_df, html_df = process_missing_data(df.copy())
+                cache.set('dataframe', html_df)
+                request.session['dataframe'] = html_df
 
-        except Exception as e:
-            # Handle errors during file processing or database interaction
-            print(e)
-            return HttpResponse(f"Failed to upload and analyze file: {str(e)}", status=500)
+                new_df.to_csv(os.path.join('uploads', 'processed_data.csv'), index=False)
 
-    # If the request method is not POST
-    return HttpResponse("Invalid Request Method", status=405)
+                if os.path.exists('kpis.json'):
+                    os.remove('kpis.json')
+                request.session['uploadedFileName'] = files.name
+
+                if kpi_file:
+                    kpis_dict = xmltodict.parse(kpi_file.read())
+                    with open('uploads/kpi_config.json', 'w') as json_file:
+                        json.dump(kpis_dict, json_file, indent=4)
+                        kpi_config_file_name = kpi_file.name
+
+                with open('uploads/configs.json', 'w') as json_file:
+                    json.dump({
+                        "data_file_name": data_file_name,
+                        "kpi_config_file_name": kpi_config_file_name
+                    }, json_file, indent=4)
+
+                response_data1 = analyze_data(df)  # Assuming analyze_data is a function that analyzes data
+                response_data1['preview'] = df.head(10).to_dict(orient='records')
+                response_data1['upload_status'] = results
+
+                return JsonResponse(response_data1, safe=False)
+
+            except Exception as e:
+                return JsonResponse({"error": f"Failed to upload and analyze file: {str(e)}"}, status=500)
+
+        elif request.method == 'GET':
+            if os.path.exists('uploads') and os.path.exists(os.path.join('uploads', 'data.csv')):
+                data_frame = pd.read_csv(os.path.join('uploads', 'data.csv'))
+                data_frame = updatedtypes(data_frame)
+
+                with open('uploads/configs.json', 'r') as json_file:
+                    data = json.load(json_file)
+                    return JsonResponse({
+                        "uploadedInfo": True,
+                        "df_preview": data_frame.head().to_dict(orient='records'),
+                        "data_file_name": data['data_file_name'],
+                        "kpi_config_file_name": data["kpi_config_file_name"]
+                    })
+
+            return JsonResponse({"uploadedInfo": False})
+
+        return JsonResponse({"error": "Invalid Request Method"}, status=405)
+
+    except Exception as e:
+        return JsonResponse({"error": f"An error occurred: {str(e)}"}, status=500)
 
 
 def analyze_data(df):
@@ -484,11 +523,11 @@ def analyze_data(df):
         f"You are analytics_bot. Analyse the data: {df.head()} and give description of the columns"
     )
     column_description = generate_code(prompt_eng)
-    trials=3
-    while trials>0:
+    trials = 3
+    while trials > 0:
         try:
             prompt_eng1 = (
-                f"Based on the data with sample records as {df.head()}, generate 5 questions based on data." + "output should be in the format like  {'question1':...., 'question2':...., so on..} "  )
+                    f"Based on the data with sample records as {df.head()}, generate 5 questions based on data." + "output should be in the format like  {'question1':...., 'question2':...., so on..} ")
             text_questions = generate_code(prompt_eng1)
             text_questions = ast.literal_eval(text_questions)
             break
@@ -498,7 +537,7 @@ def analyze_data(df):
     trials = 3
     while trials > 0:
         try:
-            prompt_eng_2 = f"Based on the data with sample records as {df.head()}, " +  "Generate 5 plotting questions based on data, Each question should start with plot keyword. output should be in the format like  {'question1':...., 'question2':...., so on..}"
+            prompt_eng_2 = f"Based on the data with sample records as {df.head()}, " + "Generate 5 plotting questions based on data, Each question should start with plot keyword. output should be in the format like  {'question1':...., 'question2':...., so on..}"
             plotting_questions = generate_code(prompt_eng_2)
             plotting_questions = ast.literal_eval(plotting_questions)
             break
@@ -510,25 +549,25 @@ def analyze_data(df):
         try:
             # Creating the forecasting questions
             prompt_eng_3 = (
-                #f"Generate 5 forecasting questions for the data: {df}"
+                # f"Generate 5 forecasting questions for the data: {df}"
 
-            f"Using the dataset {df}, generate 5 forecasting-related questions based on the dataset. "
-            f"The questions should: "
-            f"1. Start with the word **'Forecast'**. "
-            f"2. The questions should be very simple and straight forward."
-            f"3. Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis."
-            f"4. Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.'"
-            "5. output should be in the format like  {'question1':...., 'question2':...., so on..} "
+                f"Using the dataset {df}, generate 5 forecasting-related questions based on the dataset. "
+                f"The questions should: "
+                f"1. Start with the word **'Forecast'**. "
+                f"2. The questions should be very simple and straight forward."
+                f"3. Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis."
+                f"4. Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.'"
+                "5. output should be in the format like  {'question1':...., 'question2':...., so on..} "
 
-            # f"Given the dataset {df}, generate 5 forecasting-related questions that meet the following criteria: "
-            # f"1. The questions should be **specific**, **realistic**, and **focused on measurable metrics or trends**. "
-            # f"2. Each question should **start with 'Forecast'** and address **clear forecasting goals**. "
-            # f"3. Tailor the questions to the type of data in the dataset, ensuring they align with the trends, patterns, or key variables observed in the data."
+                # f"Given the dataset {df}, generate 5 forecasting-related questions that meet the following criteria: "
+                # f"1. The questions should be **specific**, **realistic**, and **focused on measurable metrics or trends**. "
+                # f"2. Each question should **start with 'Forecast'** and address **clear forecasting goals**. "
+                # f"3. Tailor the questions to the type of data in the dataset, ensuring they align with the trends, patterns, or key variables observed in the data."
 
-            # f"Using the dataset {df}, generate 5  forecasting related questions. "
-            # f"Each question must start with 'Forecast' and focus on predicting measurable trends within the dataset. "
-            # f"Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis. "
-            # f"Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.' "
+                # f"Using the dataset {df}, generate 5  forecasting related questions. "
+                # f"Each question must start with 'Forecast' and focus on predicting measurable trends within the dataset. "
+                # f"Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis. "
+                # f"Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.' "
             )
 
             forecasting_questions = generate_code(prompt_eng_3)
@@ -548,6 +587,111 @@ def analyze_data(df):
         "forecasting_questions": forecasting_questions
     }
     return response_data
+
+
+def process_missing_data(df):
+    df = convert_to_datetime(df)
+    df, html_df = handle_missing_data(df)
+    return df, html_df
+
+
+def convert_to_datetime(df):
+    # Define the possible date formats to try
+    date_formats = ['%m-%d-%Y', '%m/%d/%Y', '%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d', '%Y/%m/%d']
+
+    # Loop through each column
+    for col in df.columns:
+        # Only process object columns, assuming they may contain dates in string format
+        if df[col].dtype == 'object':
+            # Check if the column contains potential date strings
+            if df[col].str.contains(r'\d{1,4}[-/]\d{1,2}[-/]\d{1,4}', na=False).any():
+                # Try to parse automatically first
+                try:
+                    df[col] = pd.to_datetime(df[col], errors='raise')
+                except (ValueError, TypeError):
+                    # If automatic parsing fails, try each format individually
+                    def parse_date(value):
+                        for fmt in date_formats:
+                            try:
+                                return pd.to_datetime(value, format=fmt)
+                            except (ValueError, TypeError):
+                                continue
+                        return pd.NaT  # Return NaT if none of the formats match
+
+                    # Apply the custom parse function to handle multiple formats
+                    df[col] = df[col].apply(parse_date)
+    return df
+
+
+from sklearn.impute import KNNImputer
+
+
+def handle_missing_data(df):
+    try:
+        # Identify numeric and datetime columns
+        numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
+        date_time_cols = df.select_dtypes(include=['datetime64']).columns
+
+        # Impute numeric columns and track which cells were imputed
+        imputer = KNNImputer(n_neighbors=5)
+        imputed_numeric = imputer.fit_transform(df[numeric_cols])
+        imputed_numeric_df = pd.DataFrame(imputed_numeric, columns=numeric_cols)
+
+        # Mark imputed cells (True if the original cell was NaN)
+        imputed_flags = df[numeric_cols].isnull()
+        imputed_flags = imputed_flags.applymap(lambda x: x if x else False)
+
+        # Update DataFrame with imputed values
+        df[numeric_cols] = imputed_numeric_df
+
+        # Handle datetime columns by forward filling missing values
+        for col in date_time_cols:
+            df[col] = pd.to_datetime(df[col])
+            time_diffs = df[col].diff().dropna()
+            avg_diff_sec = time_diffs.mean().total_seconds()
+            minute_sec = 60
+            hour_sec = 3600
+            day_sec = 86400
+            month_sec = day_sec * 30.44
+            year_sec = day_sec * 365.25
+
+            if avg_diff_sec < hour_sec:
+                time_unit = "minutes"
+                avg_diff = pd.Timedelta(minutes=avg_diff_sec / minute_sec)
+            elif avg_diff_sec < day_sec:
+                time_unit = "hours"
+                avg_diff = pd.Timedelta(hours=avg_diff_sec / hour_sec)
+            elif avg_diff_sec < month_sec:
+                time_unit = "days"
+                avg_diff = pd.Timedelta(days=avg_diff_sec / day_sec)
+            elif avg_diff_sec < year_sec:
+                time_unit = "months"
+                avg_diff = pd.DateOffset(months=round(avg_diff_sec / month_sec))
+            else:
+                time_unit = "years"
+                avg_diff = pd.DateOffset(years=round(avg_diff_sec / year_sec))
+
+            for i in range(1, len(df)):
+                if pd.isnull(df[col].iloc[i]):
+                    df.loc[i, col] = df[col].iloc[i - 1] + avg_diff
+                    imputed_flags.loc[i, col] = True
+
+            imputed_flags.fillna(False, inplace=True)
+
+        # Convert the DataFrame into a JSON-serializable format with flags
+        data = []
+        for _, row in df.iterrows():
+            row_data = {}
+            for col in df.columns:
+                row_data[col] = {
+                    "value": row[col].strftime('%Y-%m-%d %H:%M:%S') if isinstance(row[col], pd.Timestamp) else row[col],
+                    "is_imputed": str(imputed_flags[col].get(_, False)) if col in imputed_flags else str(False)
+                    # Check if cell was imputed
+                }
+            data.append(row_data)
+        return df, data
+    except Exception as e:
+        print(e)
 
 
 def serialize_datetime(obj):
@@ -627,7 +771,7 @@ def regenerate_txt(request):
     if request.method == "POST":
         df = pd.read_csv('data.csv')
         prompt_eng = (
-            f"Based on the data with sample records as {df.head()}, generate 5 questions based on data."+" output should be in the format like  {'question1':...., 'question2':...., so on..}"
+                f"Based on the data with sample records as {df.head()}, generate 5 questions based on data." + " output should be in the format like  {'question1':...., 'question2':...., so on..}"
         )
         text_questions = {}
         trials = 3
@@ -648,7 +792,7 @@ def regenerate_chart(request):
     if request.method == "POST":
         df = pd.read_csv('data.csv')
         prompt_eng = (
-             f"Based on the data with sample records as {df.head()}. Generate 5 plotting questions based on data. question shoud start with plot keyword" +" output should be in the format like  {'question1':...., 'question2':...., so on..}"
+                f"Based on the data with sample records as {df.head()}. Generate 5 plotting questions based on data. question shoud start with plot keyword" + " output should be in the format like  {'question1':...., 'question2':...., so on..}"
         )
         code = {}
         trials = 3
@@ -670,13 +814,13 @@ def regenerate_forecast(request):
     if request.method == "POST":
         df = pd.read_csv('data.csv')
         prompt_eng = (
-            f"Using the dataset {df}, Regenerate 5 forecasting-related questions based on the dataset. "
-            f"The questions should: "
-            f"1. Start with the word **'Forecast'**. "
-            f"2. The questions should be very simple and straight forward."
-            f"3. Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis."
-            f"4. Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.'"
-            + "5. output should be in the format like  {'question1':...., 'question2':...., so on..}"
+                f"Using the dataset {df}, Regenerate 5 forecasting-related questions based on the dataset. "
+                f"The questions should: "
+                f"1. Start with the word **'Forecast'**. "
+                f"2. The questions should be very simple and straight forward."
+                f"3. Design the questions to give visually interpretable outputs, such as charts or graphs, for forecasting analysis."
+                f"4. Examples: 'Forecast the sales trend for the next 6 months' or 'Forecast the quarterly revenue growth for the next year.'"
+                + "5. output should be in the format like  {'question1':...., 'question2':...., so on..}"
         )
         trials = 3
         code = {}
@@ -689,7 +833,7 @@ def regenerate_forecast(request):
                 print(e)
             trials -= 1
         return HttpResponse(json.dumps({"questions": code}),
-                        content_type="application/json")
+                            content_type="application/json")
 
 
 @csrf_exempt
@@ -706,47 +850,47 @@ def gen_txt_response(request):
                 You are a Python expert focused on answering user queries about data preprocessing. Always strictly adhere to the following rules:               
                 1. Generic Queries:
                     If the user's query is generic and not related to data, respond with a concise and appropriate print statement. For example:
-                    
+
                     Query: "What is AI?"
                     Response: "Artificial Intelligence (AI) refers to the simulation of human intelligence in machines."
                 2. Data-Related Queries:
                     If the query is about data processing, assume the file data.csv is the data source and contains the following columns: {metadata_str}.
-                    
+
                     For these queries, respond with Python code only, no additional explanations.
                     The code should:
-                    
+
                     Load data.csv using pandas.
                     Perform operations to directly address the query.
                     Exclude plotting, visualization, or other unnecessary steps.
                     Include comments for key steps in the code.
                     Example:
-                    
+
                     Query: "How can I filter rows where 'Column1' > 100?"
                     Response:
                     python
                     Copy code
                     import pandas as pd
-                    
+
                     # Load the dataset
                     data = pd.read_csv('data.csv')
-                    
+
                     # Filter rows where 'Column1' > 100
                     filtered_data = data[data['Column1'] > 100]
-                    
+
                     # Output the result
                     print(filtered_data)
-                    
+
                 3. Theoretical Concepts:
                     For theoretical questions, provide a brief explanation as a print statement. Keep the explanation concise and focused.
-                    
+
                     Example:
-                    
+
                     Query: "What is normalization in data preprocessing?"
                     Response:
                     "Normalization is a data preprocessing technique used to scale numeric data within a specific range, typically [0, 1], to ensure all features contribute equally to the model."
-                
+
                 Never reply with: "Understood!" or similar confirmations. Always directly respond to the query following the above rules.
-                
+
                 User query is {query}.
             """
         )
@@ -1395,6 +1539,7 @@ def extract_columns_from_prompt(user_prompt):
     formatted_columns = list(filter(bool, formatted_columns))
     return list(dict.fromkeys(formatted_columns))  # Remove duplicates
 
+
 @csrf_exempt
 def handle_synthetic_data_api(request):
     """
@@ -1549,7 +1694,8 @@ def handle_synthetic_data_extended(request):
 # SAP SYSTEM
 from .database import HanaDBManager
 
-db1=HanaDBManager()
+db1 = HanaDBManager()
+
 
 @csrf_exempt
 def hana_connection(request):
@@ -1618,7 +1764,7 @@ def upload_data(request):
             # response_data1['preview'] = df.head(10).to_dict(orient='records')
             # response_data1['upload_status'] = results  # Include database insert result
 
-            return JsonResponse("Records inserted successfully",safe=False)
+            return JsonResponse("Records inserted successfully", safe=False)
 
         except Exception as e:
             # Handle errors during file processing or database interaction
@@ -1640,7 +1786,6 @@ def reading_data(request):
             # Fetch data from the specified table
             df = db1.get_tables_data(tablename)
 
-
             if df.empty:
                 return HttpResponse("No data found or table does not exist.", status=404)
 
@@ -1657,10 +1802,10 @@ def reading_data(request):
         except Exception as e:
             return HttpResponse(f"Error: {str(e)}", status=500)
 
+
 @csrf_exempt
 def flespicred(request):
     if request.method == 'POST':
-
         return HttpResponse("Success")
 
 
@@ -1668,19 +1813,21 @@ def flespicred(request):
 def download_flespi_data(request):
     # https://flespi.io/gw/devices/5439260/messages
     # axLBthbazeJkKKkpr2sVK9rAeXfFJGmH1V9k18iqaSyKqHYHzetadIyitBL15WyU
-    if request.method =='POST':
+    if request.method == 'POST':
         flespi_URL = request.POST.get('flespi_URL')
         flespi_token = request.POST.get('flespi_token')
         try:
             current_datetime = datetime.now(tz=ZoneInfo('Asia/Kolkata'))
-            start_of_day = current_datetime.replace(month=current_datetime.month - 1, day=current_datetime.day, hour=current_datetime.hour, minute=current_datetime.minute, second=0,
+            start_of_day = current_datetime.replace(month=current_datetime.month - 1, day=current_datetime.day,
+                                                    hour=current_datetime.hour, minute=current_datetime.minute,
+                                                    second=0,
                                                     microsecond=0)
             response = requests.get(
                 f'{flespi_URL}?data=%7B%22from%22%3A{start_of_day.timestamp()}%2C%22to%22%3A{datetime.now().timestamp()}%7D',
                 headers={
-            'Authorization':
-                f'FlespiToken {flespi_token}'
-        })
+                    'Authorization':
+                        f'FlespiToken {flespi_token}'
+                })
             multi_data = json.loads(response.text)['result']
             multi_data = pre_process_multi_data(multi_data)
             return HttpResponse(json.dumps({"data": multi_data}), content_type="application/json")
@@ -1700,548 +1847,698 @@ def pre_process_multi_data(multi_data):
     return multi_data
 
 
+# KPI APIS
+from collections import defaultdict
+
+KPI_LOGICS = defaultdict()
+checks = []
 
 
-# # Database+Rag sql agent system
-#
-# import os
-# import logging
-# from typing import List, Dict
-# from pathlib import Path
-#
-# from sqlalchemy import create_engine, text, inspect
-# import streamlit as st
-#
-# from langchain import hub
-# from langchain.agents import AgentExecutor, create_react_agent
-# from langchain.memory import ConversationBufferWindowMemory
-# from langchain_openai import ChatOpenAI
-# from langchain.tools.base import Tool
-#
-# from datetime import datetime
-# from qdrant_client import QdrantClient
-# from qdrant_client.http import models
-# from openai import OpenAI
-# import uuid
-# import io
-#
-# from dotenv import load_dotenv
-#
-# load_dotenv()
-#
-# # Configure logging
-# logging.basicConfig(level=logging.INFO)
-# logger = logging.getLogger(__name__)
-#
-#
-# class DatabaseManager:
-#     def __init__(self, database_url: str):
-#         """Initialize database connection"""
-#         self.database_url = database_url
-#         self.engine = create_engine(database_url)
-#         self.table_name = "excel_data"
-#         logger.debug(f"DatabaseManager initialized with URL: {self.database_url}")
-#
-#     def store_dataframe(
-#             self,
-#             file_path: str,
-#             if_exists: str = 'append'
-#     ) -> None:
-#         """Store DataFrame in excel_data table"""
-#         logger.debug(f"Attempting to store DataFrame from file: {file_path} with if_exists={if_exists}")
-#         try:
-#             df = pd.read_excel(file_path)
-#             logger.debug(f"DataFrame loaded successfully from {file_path}. Columns: {df.columns.tolist()}")
-#             df.to_sql(self.table_name, self.engine, if_exists=if_exists, index=False)
-#             logger.info(f"Data stored successfully in {self.table_name}")
-#         except Exception as e:
-#             logger.error(f"Error storing DataFrame: {str(e)}")
-#             raise
-#
-#     def execute_query(self, query: str) -> List[str]:
-#         """Execute SQL query"""
-#         logger.debug(f"Executing query: {query}")
-#         try:
-#             with self.engine.connect() as connection:
-#                 result_set = connection.execute(text(query))
-#                 logger.debug(f"Query executed successfully. Rows fetched: {result_set.rowcount}")
-#                 return [str(row) for row in result_set]
-#         except Exception as e:
-#             logger.error(f"Error executing query: {str(e)}")
-#             return str(e)
-#
-#     def get_metadata(self) -> Dict:
-#         """Get database metadata for excel_data table"""
-#         logger.debug("Fetching metadata for excel_data table")
-#         try:
-#             query_columns = f"""
-#                 SELECT column_name, data_type
-#                 FROM information_schema.columns
-#                 WHERE table_name = 'excel_data';
-#             """
-#             columns = self.execute_query(query_columns)
-#             logger.debug(f"Metadata fetched successfully. Columns: {columns}")
-#             return {"excel_data": {'columns': columns}}
-#         except Exception as e:
-#             logger.error(f"Error getting metadata: {str(e)}")
-#             raise
-#
-#     def download_data(self) -> bytes:
-#         """Download all data from excel_data table as Excel file"""
-#         logger.debug("Attempting to download data from excel_data table")
-#         try:
-#             query = "SELECT * FROM excel_data"
-#             df = pd.read_sql(query, self.engine)
-#             logger.debug(f"Data fetched successfully. Rows: {len(df)}")
-#
-#             output = io.BytesIO()
-#             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-#                 df.to_excel(writer, index=False)
-#             output.seek(0)
-#             logger.info("Data downloaded successfully")
-#             return output.getvalue()
-#         except Exception as e:
-#             logger.error(f"Error downloading data: {str(e)}")
-#             raise
-#
-#     def reset_database(self) -> None:
-#         """Delete all records from excel_data table"""
-#         logger.debug("Attempting to reset excel_data table")
-#         try:
-#             with self.engine.connect() as connection:
-#                 result = connection.execute(text("SELECT COUNT(*) FROM excel_data"))
-#                 count_before = result.scalar()
-#                 logger.info(f"Records before reset: {count_before}")
-#
-#                 connection.execute(text("TRUNCATE TABLE excel_data"))
-#                 connection.commit()
-#
-#                 result = connection.execute(text("SELECT COUNT(*) FROM excel_data"))
-#                 count_after = result.scalar()
-#                 logger.info(f"Records after reset: {count_after}")
-#
-#                 if count_after == 0:
-#                     logger.info("Table excel_data reset successfully")
-#                 else:
-#                     logger.error("Table was not properly reset")
-#         except Exception as e:
-#             logger.error(f"Error resetting database: {str(e)}")
-#             raise
-#
-#     def get_record_count(self) -> int:
-#         """Get the current number of records in the table"""
-#         logger.debug("Getting record count for excel_data table")
-#         try:
-#             with self.engine.connect() as connection:
-#                 result = connection.execute(text("SELECT COUNT(*) FROM excel_data"))
-#                 count = result.scalar()
-#                 logger.debug(f"Record count: {count}")
-#                 return count
-#         except Exception as e:
-#             logger.error(f"Error getting record count: {str(e)}")
-#             return -1
-#
-#     def table_exists(self) -> bool:
-#         """Check if excel_data table exists"""
-#         logger.debug("Checking if excel_data table exists")
-#         try:
-#             inspector = inspect(self.engine)
-#             exists = "excel_data" in inspector.get_table_names()
-#             logger.debug(f"Table exists: {exists}")
-#             return exists
-#         except Exception as e:
-#             logger.error(f"Error checking table existence: {str(e)}")
-#             return False
-#
-#
-# class RAGSystem:
-#     def __init__(self, api_key: str, qdrant_url: str, qdrant_api_key: str, collection_name: str = "excel-embeddings"):
-#         """Initialize RAG system with OpenAI and Qdrant clients"""
-#         self.openai_client = OpenAI(api_key=api_key)
-#         self.qdrant_client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
-#         self.collection_name = collection_name
-#         logger.debug("RAGSystem initialized successfully")
-#
-#     def extract_columns_from_excel(
-#             self,
-#             file_path: str,
-#             question_col: str,
-#             answer_col: str
-#     ) -> tuple[pd.DataFrame, List[str]]:
-#         """Extract and combine question-answer pairs from Excel"""
-#         logger.debug(f"Extracting columns from file: {file_path} with columns {question_col}, {answer_col}")
-#         try:
-#             df = pd.read_excel(file_path)
-#             logger.debug(f"File loaded successfully. Columns: {df.columns.tolist()}")
-#             if question_col not in df.columns or answer_col not in df.columns:
-#                 raise ValueError(f"Required columns {question_col} and/or {answer_col} not found")
-#
-#             df[question_col] = df[question_col].astype(str).str.strip()
-#             df[answer_col] = df[answer_col].astype(str).str.strip()
-#             df.drop_duplicates([question_col], inplace=True)
-#
-#             selected_columns_text = df.apply(
-#                 lambda row: f"Question: {row[question_col]}\nAnswer: {row[answer_col]}",
-#                 axis=1
-#             )
-#
-#             logger.debug("Columns extracted successfully")
-#             return df, list(selected_columns_text)
-#         except Exception as e:
-#             logger.error(f"Error processing Excel file: {str(e)}")
-#             raise
-#
-#     def get_embeddings(
-#             self,
-#             texts: List[str],
-#             model: str = "text-embedding-3-small",
-#             batch_size: int = 100
-#     ) -> List[List[float]]:
-#         """Generate embeddings with batching"""
-#         logger.debug(f"Generating embeddings for {len(texts)} texts")
-#         all_embeddings = []
-#         try:
-#             for i in range(0, len(texts), batch_size):
-#                 batch = texts[i:i + batch_size]
-#                 logger.debug(f"Processing batch from {i} to {i + len(batch)}")
-#                 retries = 3
-#                 while retries > 0:
-#                     try:
-#                         response = self.openai_client.embeddings.create(
-#                             input=batch,
-#                             model=model,
-#                             dimensions=384
-#                         )
-#                         batch_embeddings = [item.embedding for item in response.data]
-#                         all_embeddings.extend(batch_embeddings)
-#                         logger.debug(f"Batch embeddings generated successfully")
-#                         break
-#                     except Exception as e:
-#                         retries -= 1
-#                         logger.warning(f"Retrying embedding generation. Error: {str(e)}")
-#                         if retries == 0:
-#                             raise e
-#             logger.info("All embeddings generated successfully")
-#             return all_embeddings
-#         except Exception as e:
-#             logger.error(f"Error generating embeddings: {str(e)}")
-#             raise
-#
-#     def store_data(
-#             self,
-#             df: pd.DataFrame,
-#             texts: List[str],
-#             embeddings: List[List[float]]
-#     ) -> pd.DataFrame:
-#         """Store data in Qdrant"""
-#         logger.debug("Storing data in Qdrant")
-#         try:
-#             ids = [str(uuid.uuid4()) for _ in range(len(texts))]
-#             logger.debug(f"Generated {len(ids)} unique IDs for Qdrant storage")
-#             points = [
-#                 models.PointStruct(
-#                     id=id_,
-#                     vector=embedding,
-#                     payload={
-#                         "source": "excel",
-#                         "timestamp": datetime.now().isoformat(),
-#                         "document_id": id_,
-#                         "text": text
-#                     }
-#                 ) for id_, text, embedding in zip(ids, texts, embeddings)
-#             ]
-#
-#             self.qdrant_client.upsert(
-#                 collection_name=self.collection_name,
-#                 points=points
-#             )
-#             logger.info("Data stored in Qdrant successfully")
-#             return df
-#         except Exception as e:
-#             logger.error(f"Error storing data in Qdrant: {str(e)}")
-#             raise
-#
-#     def query_similar(
-#             self,
-#             query_text: str,
-#             top_k: int = 5
-#     ) -> List[Dict]:
-#         """Query similar documents from Qdrant"""
-#         logger.debug(f"Querying similar documents for: {query_text}")
-#         try:
-#             query_embedding = self.get_embeddings([query_text])[0]
-#             results = self.qdrant_client.search(
-#                 collection_name=self.collection_name,
-#                 query_vector=query_embedding,
-#                 limit=top_k,
-#                 with_payload=True
-#             )
-#
-#             formatted_results = []
-#             for result in results:
-#                 formatted_results.append({
-#                     'document': result.payload.get("text", ""),
-#                     'metadata': result.payload,
-#                     'similarity': result.score
-#                 })
-#             logger.debug(f"Query results: {formatted_results}")
-#             return formatted_results
-#         except Exception as e:
-#             logger.error(f"Error querying similar documents: {str(e)}")
-#             raise
-#
-#
-# def process_file(
-#         file_path: str,
-#         rag_system: RAGSystem,
-#         db_manager: DatabaseManager,
-#         question_col: str,
-#         answer_col: str
-# ) -> None:
-#     """Process a single Excel file"""
-#     logger.debug(f"Processing file: {file_path} with columns {question_col}, {answer_col}")
-#     try:
-#         df, texts = rag_system.extract_columns_from_excel(
-#             str(file_path),
-#             question_col,
-#             answer_col
-#         )
-#
-#         logger.debug(f"Texts extracted for embedding generation: {len(texts)} entries")
-#         embeddings = rag_system.get_embeddings(texts)
-#         logger.debug(f"Embeddings generated: {len(embeddings)} entries")
-#
-#         df = rag_system.store_data(df, texts, embeddings)
-#
-#         if db_manager.table_exists():
-#             logger.debug("Table exists. Appending data")
-#             db_manager.store_dataframe(file_path, if_exists='append')
-#         else:
-#             logger.debug("Table does not exist. Creating new table")
-#             db_manager.store_dataframe(file_path, if_exists='replace')
-#
-#         metadata = db_manager.get_metadata()
-#         logger.debug(f"Metadata after file processing: {metadata}")
-#     except Exception as e:
-#         logger.error(f"Error during file processing: {str(e)}")
-#         raise
-#
-#
-# # For processing files
-# @csrf_exempt
-# def processing_files(request):
-#     logger.debug("Received a request to process files")
-#     if request.method == 'POST':
-#         try:
-#             uploaded_files = request.FILES.getlist('files')
-#             logger.debug(f"Number of files uploaded: {len(uploaded_files)}")
-#
-#             # Fetch environment variables
-#             api_key = os.getenv("OPENAI_API_KEY")
-#             database_url = os.getenv("DATABASE_URL")
-#             qdrant_url = os.getenv("QDRANT_URL")
-#             qdrant_api = os.getenv("QDRANT_API")
-#             logger.debug("Environment variables loaded successfully")
-#
-#             # Initialize RAGSystem and DatabaseManager
-#             rag_system = RAGSystem(api_key, qdrant_url, qdrant_api)
-#             logger.debug("RAGSystem initialized")
-#             db_manager = DatabaseManager(database_url)
-#             logger.debug("DatabaseManager initialized")
-#
-#             question_column = 'Request - Text Request'
-#             answer_column = 'Request - Text Answer'
-#             logger.debug(f"Using columns: Question={question_column}, Answer={answer_column}")
-#
-#             # Directory for saving uploads
-#             upload_dir = "upload1"
-#             os.makedirs(upload_dir, exist_ok=True)
-#             logger.debug(f"Upload directory ensured at: {upload_dir}")
-#
-#             # Process each uploaded file
-#             for uploaded_file in uploaded_files:
-#                 file_name = uploaded_file.name
-#                 file_extension = os.path.splitext(file_name)[1].lower()
-#                 logger.debug(f"Processing file: {file_name} with extension: {file_extension}")
-#
-#                 # Ensure the file is Excel
-#                 if file_extension not in ['.xls', '.xlsx']:
-#                     raise ValueError(f"Unsupported file type: {file_extension}")
-#
-#                 # Save file to the uploads directory
-#                 excel_file_path = os.path.join(upload_dir, file_name.lower())
-#                 with open(excel_file_path, "wb") as f:
-#                     for chunk in uploaded_file.chunks():
-#                         f.write(chunk)
-#                 logger.debug(f"File saved locally as Excel at: {excel_file_path}")
-#
-#                 try:
-#                     # Read the Excel file into a DataFrame
-#                     df = pd.read_excel(excel_file_path, engine='openpyxl')
-#                     logger.debug(f"Excel file {file_name} successfully read into DataFrame")
-#
-#                     # Process the file
-#                     process_file(
-#                         excel_file_path,
-#                         rag_system,
-#                         db_manager,
-#                         question_column,
-#                         answer_column
-#                     )
-#                     logger.info(f"File {file_name} processed successfully")
-#                 except Exception as e:
-#                     logger.error(f"Error processing file {file_name}: {str(e)}")
-#
-#             return JsonResponse({"message": "Files processed successfully!"})
-#         except Exception as e:
-#             logger.error(f"Error in processing_files API: {str(e)}")
-#             return JsonResponse({"error": str(e)}, status=500)
-#     else:
-#         logger.warning("Invalid HTTP method. Only POST is supported.")
-#         return JsonResponse({"error": "Invalid method. Only POST is allowed."}, status=405)
-#
-#
-# @csrf_exempt
-# def query_system(request):
-#     if request.method == 'POST':
-#
-#         query = request.POST["sql_query"]
-#         api_key = os.getenv("OPENAI_API_KEY")
-#         database_url = os.getenv("DATABASE_URL")
-#         qdrant_url = os.getenv("QDRANT_URL")
-#         qdrant_api = os.getenv("QDRANT_API")
-#
-#         if not query:
-#             return JsonResponse({"error": "Query is required."}, status=400)
-#
-#         # Initialize RAGSystem, DatabaseManager, and other components without sessions
-#         rag_system = RAGSystem(api_key, qdrant_url, qdrant_api)
-#         db_manager = DatabaseManager(database_url)
-#
-#         llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2, api_key=api_key)
-#
-#         tools = [
-#             Tool(
-#                 name="execute_sql_query",
-#                 func=db_manager.execute_query,
-#                 description=(
-#                     "Tool for executing SQL queries on a structured database. "
-#                 )
-#             ),
-#             Tool(
-#                 name="query_RAG",
-#                 func=rag_system.query_similar,
-#                 description="Tool to retrieve similar text when a text closely matches previous entries in RAG system."
-#             )
-#         ]
-#
-#         prompt = hub.pull("hwchase17/react-chat")
-#         prompt.template = """
-#         Assistant is a large language model trained by OpenAI.
-#
-#         Assistant is designed to be able to assist with a wide range of tasks, from answering simple questions to providing in-depth explanations and discussions on a wide range of topics. As a language model, Assistant is able to generate human-like text based on the input it receives, allowing it to engage in natural-sounding conversations and provide responses that are coherent and relevant to the topic at hand.
-#
-#         Assistant is designed to answer user queries by leveraging a SQL database and RAG system (a vector database for question similarity search).
-#
-#         Assistant can retrieve information based on **headers** or **a combination of headers and column values**. For example:
-#         - If the user provides only the header, Assistant will retrieve all data for that header.
-#         - If the user provides both a header and a column value, Assistant will filter the data based on the specified condition.
-#
-#         Assistant is constantly learning and improving, and its capabilities are constantly evolving. It is able to process and understand large amounts of text, and can use this knowledge to provide accurate and informative responses to a wide range of questions. Additionally, Assistant is able to generate its own text based on the input it receives, allowing it to engage in discussions and provide explanations and descriptions on a wide range of topics.
-#
-#         Overall, Assistant is a powerful tool that can help with a wide range of tasks and provide valuable insights and information on a wide range of topics. Whether you need help with a specific question or just want to have a conversation about a particular topic, Assistant is here to assist.
-#
-#         TOOLS:
-#         ------
-#
-#         Assistant has access to the following tools:
-#
-#         {tools}
-#
-#         To use a tool, please use the following format:
-#
-#         ```
-#         Thought: Do I need to use a tool? Yes
-#         Action: the action to take, should be one of [{tool_names}]
-#         Action Input: the input to the action (no additional text)
-#         Observation: the result of the action
-#         ```
-#         When you have a response to say to the Human, or if you do not need to use a tool, you MUST use the format:
-#
-#         ```
-#         Thought: Do I need to use a tool? No
-#         Final Answer: [your response here]
-#
-#         ```
-#         ### Example Session:
-#
-#         ## Example Actions:
-#         - **execute_sql_query**: e.g., `execute_sql_query('SELECT column_name FROM table_name WHERE question_id IN (...)')`. Retrieves answers from the SQL database for matched question IDs.
-#         - **query_RAG**: e.g., `query_RAG('user query text')`. Finds similar questions in the RAG system based on the user query.
-#
-#         ## Assistant Flow:
-#         Question: Hi
-#
-#         Thought: The user has greeted me, so I will respond warmly.
-#
-#         Final Answer: Hi! I'm here to assist you. If you have any questions feel free to ask!
-#
-#         Question: Show all data for "Customer Name" where "Country" is "USA".
-#
-#         Thought: The user has requested data filtered by a header ("Customer Name") and a column value ("Country" = "USA"). I will construct a SQL query to retrieve the requested data.
-#
-#         Action: execute_query
-#
-#         Action Input:
-#         SELECT `Customer Name`
-#         FROM table_name
-#         WHERE `Country` = 'USA'
-#
-#         Observation: The SQL query returned the data successfully.
-#
-#         Final Answer: Here is the requested data for "Customer Name" where "Country" is "USA":
-#         1. John Doe
-#         2. Jane Smith
-#
-#         Question: I need guidance on renaming segments in the FMS system.
-#
-#         Thought: The user has a problem, I should first search RAG system for similar questions to the user query to see if a similar problem exists.
-#
-#         Action: query_RAG
-#
-#         Action Input: guidance on renaming segments in the FMS system
-#
-#         Observation: RAG sytem returned similar questions. The corresponding answers are also provided.
-#
-#         Final Answer: Based on the information in the database, here are the steps to rename segments in the FMS system:
-#
-#         1. Log into the FMS administration portal.
-#         2. Navigate to the Segments section.
-#         3. Locate the segment you want to rename.
-#         4. Click the "Rename" button.
-#         5. Enter the new segment name and save the changes.
-#
-#         Let me know if you need any clarification or have additional questions!
-#
-#         ```
-#         Remember to maintain this exact format for all interactions, and prioritize writing clean, error-free SQL queries. Always provide the Final Answer to the user's query.
-#
-#         Begin!
-#
-#         Previous conversation history:
-#         {chat_history}
-#
-#         Question : {input}
-#         {agent_scratchpad}
-#
-#         """
-#
-#         chat_history = ""  # Initialize as empty if no conversation history exists
-#
-#         # Create the agent and execute the query
-#         agent = create_react_agent(llm, tools, prompt)
-#         agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
-#
-#         response = agent_executor.invoke({"input": query, "chat_history": chat_history})
-#
-#         return JsonResponse({"response": response['output']})
+##KPI process code
+@csrf_exempt
+def get_prompt(request):
+    """
+    Handles POST requests to process a user prompt, analyze a CSV file, generate KPIs,
+    and store them in a JSON file.
+    """
+    try:
+        if request.method != "POST":
+            return HttpResponse("Invalid request method. Only POST requests are allowed.", status=405)
+
+        # Initialize variables
+        global KPI_LOGICS, checks
+        KPI_LOGICS = defaultdict()
+        checks = []
+
+        # Extract the prompt from POST request
+        prompt = request.POST.get('prompt')
+        if not prompt:
+            return HttpResponse("Prompt is required.", status=400)
+
+        # Check if required file exists
+        processed_data_path = os.path.join('uploads', 'processed_data.csv')
+        if not os.path.exists(processed_data_path):
+            return HttpResponse("No processed data file found.", status=404)
+
+        # Read and save data.csv
+        df = pd.read_csv(processed_data_path)
+        df.to_csv('data.csv', index=False)
+
+        # Prepare the prompt description for the analytics bot
+        prompt_desc = (
+            f"You are analytics_bot. Analyse the data: {df.head()} and for the user query '{prompt}', "
+            f"generate KPIs with response as KPI Name, Column, and Logic. Response should be in Python dictionary format "
+            f"with KPI names as keys. In response, don't add any other information, just provide the response dictionary."
+        )
+
+        n = 2  # Retry logic for generating KPIs
+        kpis = {}
+        while n > 0:
+            res, kpis = generate_code_kpi(prompt_desc)  # Assuming generate_code is a valid function
+            if res is not None:
+                # Load existing KPIs from kpis.json if it exists, otherwise create an empty dictionary
+                kpis_store_path = 'kpis.json'
+                kpis_store = {}
+                if os.path.exists(kpis_store_path):
+                    with open(kpis_store_path, 'r') as fp:
+                        kpis_store = json.load(fp)
+
+                # Update kpis.json with new KPIs
+                with open(kpis_store_path, 'w') as fp:
+                    kpis_store.update(kpis)
+                    json.dump(kpis_store, fp)
+                break  # Exit loop if generation was successful
+            n -= 1  # Decrement retry count
+
+        # Check if KPI configuration exists and load additional KPIs from it
+        kpi_config_path = os.path.join('uploads', 'kpi_config.json')
+        if os.path.exists(kpi_config_path):
+            with open(kpi_config_path, 'r') as json_file:
+                kpis_dict = json.load(json_file)
+            for kpi in kpis_dict.get('Kpis', {}).get('kpi', []):
+                kpi_name = kpi.get('KPI_Name')
+                if kpi_name:
+                    kpis[kpi_name] = kpi
+                    checks.append(kpi_name)
+
+        # Return a JSON response with KPI data and checks
+        return JsonResponse({
+            'status': 'success',
+            'kpis': kpis,
+            'checks': checks
+        })
+
+    except Exception as e:
+        error_message = f"An error occurred: {str(e)}"
+        print(error_message)  # Log the error
+        return HttpResponse(error_message, status=500)
+
+
+@csrf_exempt
+def generate_code_kpi(prompt_eng):
+    try:
+        global KPI_LOGICS
+        response = client.chat.completions.create(
+            model="gpt-4-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": prompt_eng}
+            ]
+        )
+        all_text = ""
+        # Display generated content dynamically
+        for choice in response.choices:
+            message = choice.message
+            chunk_message = message.content if message else ''
+            all_text += chunk_message
+        all_text = all_text.lower().replace('```python', '').replace('```', '')
+        print(all_text)
+        data_dict = json.loads(all_text)
+        print("datadict", data_dict)
+        for key, value in data_dict.items():
+            if 'kpi name' in value:
+                kpi_name = value['kpi name']
+            elif 'name' in value:
+                kpi_name = value["name"]
+            else:
+                kpi_name = key
+            KPI_LOGICS[key] = {
+                "KPI Name": kpi_name,
+                "Column": value["column"],
+                "Logic": value["logic"]
+            }
+        return all_text, KPI_LOGICS
+    except Exception as e:
+        print(e)
+        return None, None
+
+
+
+# For getting the KPI codes
+def generate_kpi_code(kpi_list):
+    """
+    Generates Python code for a list of KPIs, saves plots, and returns file paths,
+    Base64-encoded images, and the generated code.
+    """
+    try:
+        # Load and process data
+        df = pd.read_csv("data.csv")
+        df = updatedtypes(df)
+
+        codes = ''
+        paths = {}
+        base64_images = {}
+
+        charts_dir = os.path.join(os.getcwd(), 'static', 'charts')
+
+        if not os.path.exists(charts_dir):
+            os.makedirs(charts_dir)
+
+        # Clear existing charts
+        for f in os.listdir(charts_dir):
+            file_path = os.path.join(charts_dir, f)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+
+        for kpi in kpi_list:
+            prompt_desc = (
+                f"You are analytics_bot. Read the data from data.csv file with example data as {df.head()} and generate python code with kpi details as {KPI_LOGICS.get(kpi, {})}. "
+                f"Save result in variable named result, plot a suitable plot for the result obtained, save it as name based on kpi and use static/charts to save the file. "
+                f"If length of result variable is 1 then keep bar width thin and x-axis limit as -0.5 and 0.5."
+            )
+
+            code = ''
+            try:
+                code += generate_code2(prompt_desc)  # Assuming generate_code2 is a valid function
+            except Exception as e:
+                print(f"Code generation failed for {kpi}: {str(e)}")
+                code += f'Code generation failed for {kpi}'
+
+            codes += f"<b>{kpi.capitalize()}</b>\n{code}\n"
+
+        if os.path.exists(charts_dir):
+            for path in os.listdir(charts_dir):
+                if path.endswith(('.png', '.jpg', '.jpeg')):  # Only include image files
+                    image_path = os.path.join(charts_dir, path)
+                    paths[path[:-4]] = path  # Store the image filename
+
+                    # Read the image and convert to Base64
+                    with open(image_path, 'rb') as image_file:
+                        base64_encoded_image = base64.b64encode(image_file.read()).decode('utf-8')
+                        base64_images[path[:-4]] = base64_encoded_image  # Key is the image name without extension
+
+        return paths, base64_images, codes
+    except Exception as e:
+        error_message = f"An error occurred: {str(e)}"
+        print(error_message)  # Log the error
+        return {}, {}, error_message
+
+
+@csrf_exempt
+def kpi_code(request):
+    try:
+        if request.method != "POST":
+            return JsonResponse({"error": "Invalid request method. Only POST requests are allowed."}, status=405)
+
+        # Extract KPI names from POST request
+        kpi_list = request.POST.getlist("kpi_names")
+        if not kpi_list:
+            return JsonResponse({"error": "KPI names are required."}, status=400)
+
+        # Generate paths, base64 images, and code for the provided KPIs
+        paths, base64_images, codes = generate_kpi_code(kpi_list)  # Assuming generate_kpi_code is a valid function
+
+        # Return paths, base64 images, and code as JSON response
+        return JsonResponse({
+            'status': 'success',
+            'paths': paths,
+            'base64_images': base64_images,
+            'code': codes,
+            'kpis': KPI_LOGICS,  # Assuming KPI_LOGICS is a global or properly imported variable
+            'checks': checks  # Assuming checks is a global or properly imported variable
+        })
+    except Exception as e:
+        error_message = f"An error occurred: {str(e)}"
+        print(error_message)  # Log the error
+        return JsonResponse({"error": error_message}, status=500)
+
+
+@csrf_exempt
+def generate_code2(prompt_eng):
+    trials = 2
+    try:
+        while trials > 0:
+            response = client.chat.completions.create(
+                model="gpt-4-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": prompt_eng}
+                ]
+            )
+            all_text = ""
+
+            # Display generated content dynamically
+            for choice in response.choices:
+                print(f"Debug - choice structure: {choice}")  # Debugging line
+                message = choice.message
+                print(f"Debug - message structure: {message}")  # Debugging line
+                chunk_message = message.content if message else ''
+                all_text += chunk_message
+
+            print(all_text)
+            python_chunks = all_text.count("```python")
+            idx = 0
+            code = ''
+            for i in range(python_chunks):
+                code_start = all_text[idx:].find("```python") + 9
+                code_end = all_text[idx:].find("```", code_start)
+                code += all_text[idx:][code_start:code_end]
+                idx = code_end
+            print(code)
+            try:
+                local_vars = {}
+                exec(code, {}, local_vars)
+                code += f"\n <b>Output: {local_vars['result']}</b> \n <hr>"
+                return code
+            except Exception as e:
+                print(e)
+                trials -= 1
+    except Exception as e:
+        print(e)
+
+
+#For Model checking....
+from sklearn.preprocessing import LabelEncoder
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import train_test_split
+from sklearn.cluster import KMeans
+from kneed import KneeLocator
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+import tensorflow as tf
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+import pmdarima as pm
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+import joblib
+from statsmodels.tsa.stattools import adfuller
+from statsmodels.tsa.arima.model import ARIMA
+from datetime import timedelta, datetime
+from dateutil.relativedelta import relativedelta
+import xml.etree.ElementTree as ET
+from keras.models import load_model
+import matplotlib.pyplot as plt
+@csrf_exempt
+def models(request):
+    try:
+        # Check if the processed data file exists
+        processed_data_path = os.path.join("uploads", 'processed_data.csv')
+        if not os.path.exists(processed_data_path):
+            return JsonResponse({"msg": "Please upload file to continue."}, status=404)
+
+        # Read CSV file
+        df = pd.read_csv(processed_data_path)
+        rf_result = request.session.get('rf_result', '')
+        if rf_result:
+            request.session['rf_result'] = ''
+            return JsonResponse({
+                'form1': True,
+                'columns': list(df.columns),
+                'rf_result': rf_result
+            })
+
+        if request.method == 'POST':
+            model_type = request.POST.get('model')
+            col = request.POST.get('col')
+            request.session['col_predict'] = col
+
+            if model_type == 'RandomForest':
+                stat, cols = random_forest(df, col)  # Assuming random_forest is a valid function
+                return JsonResponse({
+                    'form1': True,
+                    'columns': list(df.columns),
+                    'rf': True,
+                    'status': stat,
+                    'rf_cols': cols
+                })
+
+            elif model_type == 'K-Means':
+                stat, clustered_data = kmeans_train(df)  # Assuming kmeans_train is a valid function
+                return JsonResponse({
+                    'form1': True,
+                    'columns': list(df.columns),
+                    'cluster': True,
+                    'status': stat,
+                    'clustered_data': clustered_data
+                })
+
+            elif model_type == 'Arima':
+                stat = arima_train(df, col)  # Assuming arima_train is a valid function
+                path = f"./models/arima/{col}/actual_vs_forecast.png"
+                return JsonResponse({
+                    'form1': True,
+                    'columns': list(df.columns),
+                    'status': stat,
+                    'arima': True,
+                    'path': path
+                })
+
+            elif model_type == 'OutlierDetection':
+                res = detect_outliers_zscore(df, col)  # Assuming detect_outliers_zscore is a valid function
+                return JsonResponse({
+                    'form1': True,
+                    'columns': list(df.columns),
+                    'status': True,
+                    'processed_data': res,
+                    'OutlierDetection': True
+                })
+
+        # Default GET response
+        return JsonResponse({
+            'form1': True,
+            'columns': list(df.columns)
+        })
+
+    except Exception as e:
+        error_message = f"An error occurred: {str(e)}"
+        print(error_message)  # Log the error
+        return JsonResponse({
+            'form1': False,
+            'msg': error_message
+        }, status=500)
+
+
+
+def outliercheck(df, column):
+    response = client.chat.completions.create(
+        model="gpt-4-turbo",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": f'detect outliers for  the following data {df[column]}'}
+        ]
+    )
+    all_text = ""
+    # Display generated content dynamically
+    for choice in response.choices:
+        message = choice.message
+        chunk_message = message.content if message else ''
+        all_text += chunk_message
+    print(all_text)
+    return all_text
+
+
+def detect_outliers_zscore(df, column, threshold=3):
+    try:
+
+        res = outliercheck(df, column)
+
+        # # Select numeric columns only
+        # numeric_cols = df.select_dtypes(include=np.number)
+        #
+        # # Calculate Z-Scores for each numeric column
+        # z_scores = (numeric_cols - numeric_cols.mean()) / numeric_cols.std()
+        #
+        # # Calculate an aggregate Z-Score for each row (e.g., max absolute Z-Score)
+        # df['Row_Z-Score'] = z_scores.abs().max(axis=1)
+        #
+        # # Flag rows where the aggregate Z-Score exceeds the threshold
+        # df['Outlier'] = df['Row_Z-Score'].apply(lambda x: 'Yes' if x > threshold else 'No')
+        # df.drop('Row_Z-Score', axis=1,inplace=True)
+        return res
+    except Exception as e:
+        print(e)
+
+
+def find_elbow_point(inertia_values):
+    # Calculate the rate of change between successive inertia values
+    changes = np.diff(inertia_values)
+    # Identify the elbow as the point where change starts to decrease
+    elbow_point = np.argmin(np.abs(np.diff(changes))) + 1
+    return elbow_point
+
+
+def arima_train(data, target_col):
+    try:
+        # Identify date column by checking for datetime type
+        date_column = None
+        if not os.path.exists(os.path.join("models", 'arima', target_col)):
+            os.makedirs(os.path.join("models", 'arima', target_col), exist_ok=True)
+            for col in data.columns:
+                if data.dtypes[col] == 'object':
+                    try:
+                        # Attempt to convert column to datetime
+                        pd.to_datetime(data[col])
+                        date_column = col
+                        break
+                    except (ValueError, TypeError):
+                        continue
+            if not date_column:
+                raise ValueError("No datetime column found in the dataset.")
+            print(date_column)
+            # Set the date column as index
+            data[date_column] = pd.to_datetime(data[date_column])
+            data.set_index(date_column, inplace=True)
+            print(data.head(15))
+            # Identify forecast columns (numeric columns)
+            forecast_columns = data.select_dtypes(include=[np.number]).columns.tolist()
+            if not forecast_columns:
+                raise ValueError("No numeric columns found for forecasting in the dataset.")
+
+            # Infer frequency of datetime index
+            freq = pd.infer_freq(data.index)
+            print(date_column, freq)
+            # Determine m based on inferred frequency
+            # Determine m based on inferred frequency
+            if freq == '15T':  # Quarter-hourly data (every 15 minutes)
+                m = 96  # Daily seasonality (96 intervals in a day)
+            elif freq == '30T':  # Half-hourly data (every 30 minutes)
+                m = 48  # Daily seasonality (48 intervals in a day)
+            elif freq == 'H':  # Hourly data
+                m = 24  # Daily seasonality (24 intervals in a day)
+            elif freq == 'D':  # Daily data
+                m = 7  # Weekly seasonality (7 days in a week)
+            elif freq == 'W':  # Weekly data
+                m = 52  # Yearly seasonality (52 weeks in a year)
+            elif freq == 'M':  # Monthly data
+                m = 12  # Yearly seasonality (12 months in a year)
+            elif freq == 'Q':  # Quarterly data
+                m = 4  # Yearly seasonality (4 quarters in a year)
+            elif freq == 'A' or (freq and freq.startswith('A-')):  # Annual data (any month-end)
+                m = 1  # No further seasonality within a year
+            else:
+                raise ValueError(f"Unsupported frequency '{freq}'. Ensure data is in a common time interval.")
+            results = {}
+            try:
+                data_actual = data[target_col].dropna()  # Remove NaNs if any
+
+                # Split data into train and test sets
+                train = data_actual.iloc[:-m]
+                test = data_actual.iloc[-m:]
+
+                # Auto ARIMA model selection
+                model = pm.auto_arima(train,
+                                      m=m,  # frequency of seasonality
+                                      seasonal=True,  # Enable seasonal ARIMA
+                                      d=None,  # determine differencing
+                                      test='adf',  # adf test for differencing
+                                      start_p=0, start_q=0,
+                                      max_p=12, max_q=12,
+                                      D=None,  # let model determine seasonal differencing
+                                      trace=True,
+                                      error_action='ignore',
+                                      suppress_warnings=True,
+                                      stepwise=True)
+                # Forecast and calculate errors
+                fc, confint = model.predict(n_periods=m, return_conf_int=True)
+                # Save results to dictionary
+                results = {
+                    "actual": {
+                        "date": list(test.index.astype(str)),
+                        "values": [float(val) if isinstance(val, np.float_) else int(val) for val in
+                                   test.values]
+                    },
+                    "forecast": {
+                        "date": list(test.index.astype(str)),
+                        "values": [float(val) if isinstance(val, np.float_) else int(val) for val in fc]
+                    }
+                }
+                if not os.path.exists(os.path.join("models", 'arima', target_col)):
+                    os.makedirs(os.path.join("models", 'arima', target_col), exist_ok=True)
+                with open(os.path.join("models", 'arima', target_col, target_col + '_results.json'), 'w') as fp:
+                    json.dump(results, fp)
+                    plot_graph(results, os.path.join('models', 'arima', target_col))
+                print(f"Results saved to {os.path.join('models', 'arima', target_col, target_col + '_results.json')}")
+            except Exception as e:
+                print(e)
+                return False
+            return True
+    except Exception as e:
+        print(e)
+        return False
+
+
+def plot_graph(data, file_path):
+    try:
+        col = file_path.split('\\')[-1]
+        actual_dates = [datetime.strptime(date, "%Y-%m-%d") for date in data["actual"]["date"]]
+        forecast_dates = [datetime.strptime(date, "%Y-%m-%d") for date in data["forecast"]["date"]]
+
+        # Extract values
+        actual_values = data["actual"]["values"]
+        forecast_values = data["forecast"]["values"]
+
+        # Plotting
+        plt.figure(figsize=(10, 6))
+        plt.plot(actual_dates, actual_values, label='Actual', color='blue', marker='o')
+        plt.plot(forecast_dates, forecast_values, label='Forecast', color='orange', linestyle='--', marker='x')
+
+        # Formatting
+        plt.title(f'{col} Actual vs Forecast Values Over Time')
+        plt.xlabel('Date')
+        plt.ylabel('Values')
+        plt.xticks(rotation=45)
+        plt.legend()
+        plt.tight_layout()
+
+        # Save the plot as a PNG image
+        plt.savefig(os.path.join(file_path, "actual_vs_forecast.png"), format="png", dpi=300)
+    except Exception as e:
+        print(e)
+
+
+def kmeans_train(data):
+    try:
+        # Identify categorical and numerical columns
+        categorical_columns = data.select_dtypes(include=['object', 'category']).columns.tolist()
+        numerical_columns = data.select_dtypes(include=[np.number]).columns.tolist()
+
+        # Handle missing values (if any)
+        imputer = SimpleImputer(strategy='mean')
+        data[numerical_columns] = imputer.fit_transform(data[numerical_columns])
+        joblib.dump(imputer, 'imputer.pkl')
+
+        # Build a transformer for preprocessing: scaling numerical columns and encoding categorical columns
+        preprocessor = ColumnTransformer(
+            transformers=[
+                ('num', StandardScaler(), numerical_columns),  # Standard scaling for numerical columns
+                ('cat', OneHotEncoder(handle_unknown='ignore'), categorical_columns)
+                # One-Hot encoding for categorical columns
+            ])
+
+        # Apply preprocessing and fit KMeans
+        X = preprocessor.fit_transform(data)
+
+        # Find the optimal k using the elbow method with KMeans
+        inertia = []
+        K_range = range(1, 11)
+        for k in K_range:
+            kmeans = KMeans(n_clusters=k, random_state=0)
+            kmeans.fit(X)
+            inertia.append(kmeans.inertia_)
+
+        # Determine the optimal k
+        optimal_k = find_elbow_point(inertia)
+        print('Optimal number of clusters (k) based on the Elbow Method:', optimal_k)
+
+        # Initialize KMeans with the optimal number of clusters
+        kmeans = KMeans(n_clusters=optimal_k, random_state=0)
+
+        # Fit KMeans to the preprocessed data
+        kmeans.fit(X)
+
+        # Save the trained model and preprocessor
+        joblib.dump(kmeans, 'kmeans_model.pkl')  # Save KMeans model
+        joblib.dump(preprocessor, 'preprocessor.pkl')  # Save Preprocessing pipeline
+
+        # Add cluster labels to the original data
+        data['Cluster'] = kmeans.labels_
+        return True, data
+    except Exception as e:
+        print(e)
+        return False, data
+
+
+def load_pipeline(save_path="model_pipeline.pkl"):
+    # Load the saved pipeline
+    pipeline = joblib.load(save_path)
+    print(f"Pipeline loaded from: {save_path}")
+    return pipeline
+
+def random_forest(data, target_column):
+    try:
+        if not os.path.exists(os.path.join("models", "rf", target_column, 'deployment.json')):
+            os.makedirs(os.path.join("models", "rf", target_column),exist_ok=True)
+            # Separate features and target
+            X = data.drop(columns=[target_column])
+            y = data[target_column]
+
+            # Detect categorical and numerical features
+            categorical_cols = X.select_dtypes(include=['object', 'category']).columns
+            numerical_cols = X.select_dtypes(include=['int64', 'float64']).columns
+
+            # Preprocessing pipelines for numerical and categorical data
+            numerical_transformer = Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='mean')),
+                ('scaler', StandardScaler())])
+
+            categorical_transformer = Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='most_frequent')),
+                ('onehot', OneHotEncoder(handle_unknown='ignore'))])
+
+            # Combine preprocessing steps
+            preprocessor = ColumnTransformer(
+                transformers=[
+                    ('num', numerical_transformer, numerical_cols),
+                    ('cat', categorical_transformer, categorical_cols)
+                ])
+
+            # Choose Random Forest type based on target type
+            if y.nunique() <= 5:  # Classification for few unique target values
+                model_type='Classification'
+                model = RandomForestClassifier(random_state=42)
+            else:  # Regression for continuous target values
+                model_type='Regression'
+                model = RandomForestRegressor(random_state=42)
+
+            # Create pipeline
+            pipeline = Pipeline(steps=[
+                ('preprocessor', preprocessor),
+                ('model', model)
+            ])
+
+            # Split data
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+            # Train the pipeline
+            pipeline.fit(X_train, y_train)
+
+            cv = min(5, len(X_test))
+
+            # Evaluate the model using cross-validation
+            scores = cross_val_score(pipeline, X_test, y_test, cv=cv)
+            print(f"Model Performance (CV): {scores.mean():.4f} ± {scores.std():.4f}")
+
+            # Save the pipeline
+            joblib.dump(pipeline, os.path.join("models", "rf", target_column, "pipeline.pkl"))
+            print(f'Pipeline saved to: {os.path.join("models", "rf", target_column, "pipeline.pkl")}')
+
+            with open(os.path.join("models", "rf", target_column, "deployment.json"), "w") as fp:
+                json.dump({"columns": list(X_train.columns), "model_type": model_type, "Target_column": target_column}, fp, indent=4)
+            return True, list(X_train.columns)
+        else:
+            with open(os.path.join(os.getcwd(), "models", "rf", target_column, 'deployment.json'),"r") as fp:
+                data = json.load(fp)
+            return True, data['columns']
+    except Exception as e:
+        print(e)
+        return False, []
+
+
+#Model prediction for random forest
+from django.shortcuts import redirect
+@csrf_exempt
+def model_predict(request):
+    try:
+        if request.POST.get('form_name') == 'rf':
+            res = {}
+            for col in request.POST:
+                res.update({col: request.POST[col]})
+            del res['form_name']
+            df = pd.DataFrame([res])
+            loaded_pipeline = load_pipeline(os.path.join("models", "rf", request.session['col_predict'], "pipeline.pkl"))
+            predictions = loaded_pipeline.predict(df)
+            print(predictions)
+            request.session['rf_result'] = predictions[0]
+            return redirect('models')
+    except Exception as e:
+        print(e)
