@@ -1,6 +1,7 @@
 from django.urls import path
 from .views import *
 
+
 urlpatterns = [
     #path("api/", testing, name="testing"),
    # path(r'api/register', register, name='register'),
@@ -41,12 +42,19 @@ urlpatterns = [
     # path('api/query_making', query_system, name='querying'),
 
     #SAP
-
    path('api/hana_connect', hana_connection, name='connecting'),
    path('api/upload_data', upload_data, name='uploading'),
    path('api/hana_dataread', reading_data, name='hana_reading_data'),
 
     # Flespi
-    path('api/download_flespi_data', download_flespi_data, name='download_flespi_data')
+    path('api/download_flespi_data', download_flespi_data, name='download_flespi_data'),
+
+    #KPIS URLS
+    path('api/kpi_process', get_prompt, name="kpi_process"),
+    path('api/generate_code', kpi_code, name="kpi_code"),
+
+    #models for prediction urls
+    path(r'models', models, name='models'),
+    path('model_predict', model_predict, name='model_predict')
 
 ]
