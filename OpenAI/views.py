@@ -1973,12 +1973,11 @@ def generate_code_kpi(prompt_eng):
         return None, None
 
 
-
 # For getting the KPI codes
 def generate_kpi_code(kpi_list):
     """
     Generates Python code for a list of KPIs, saves plots, and returns file paths,
-    Base64-encoded images, and the generated code.
+    a list of Base64-encoded images, and the generated code.
     """
     try:
         # Load and process data
@@ -1987,7 +1986,7 @@ def generate_kpi_code(kpi_list):
 
         codes = ''
         paths = {}
-        base64_images = {}
+        base64_images = []  # List to store only Base64-encoded images
 
         charts_dir = os.path.join(os.getcwd(), 'static', 'charts')
 
@@ -2009,7 +2008,7 @@ def generate_kpi_code(kpi_list):
 
             code = ''
             try:
-                code += generate_code2(prompt_desc)  # Assuming generate_code2 is a valid function
+                code += generate_code2(prompt_desc)
             except Exception as e:
                 print(f"Code generation failed for {kpi}: {str(e)}")
                 code += f'Code generation failed for {kpi}'
@@ -2020,18 +2019,17 @@ def generate_kpi_code(kpi_list):
             for path in os.listdir(charts_dir):
                 if path.endswith(('.png', '.jpg', '.jpeg')):  # Only include image files
                     image_path = os.path.join(charts_dir, path)
-                    paths[path[:-4]] = path  # Store the image filename
 
                     # Read the image and convert to Base64
                     with open(image_path, 'rb') as image_file:
                         base64_encoded_image = base64.b64encode(image_file.read()).decode('utf-8')
-                        base64_images[path[:-4]] = base64_encoded_image  # Key is the image name without extension
+                        base64_images.append(base64_encoded_image)  # Append only Base64 string
 
         return paths, base64_images, codes
     except Exception as e:
         error_message = f"An error occurred: {str(e)}"
-        print(error_message)  # Log the error
-        return {}, {}, error_message
+        print(error_message)
+        return {}, [], error_message
 
 
 @csrf_exempt
@@ -2051,7 +2049,7 @@ def kpi_code(request):
         # Return paths, base64 images, and code as JSON response
         return JsonResponse({
             'status': 'success',
-            'paths': paths,
+            #'paths': paths,
             'base64_images': base64_images,
             'code': codes,
             'kpis': KPI_LOGICS,  # Assuming KPI_LOGICS is a global or properly imported variable
@@ -2107,7 +2105,7 @@ def generate_code2(prompt_eng):
         print(e)
 
 
-#For Model checking....
+# For Model checking....
 from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.metrics import mean_squared_error
@@ -2138,6 +2136,8 @@ from dateutil.relativedelta import relativedelta
 import xml.etree.ElementTree as ET
 from keras.models import load_model
 import matplotlib.pyplot as plt
+
+
 @csrf_exempt
 def models(request):
     try:
@@ -2184,7 +2184,7 @@ def models(request):
 
             elif model_type == 'Arima':
                 stat = arima_train(df, col)  # Assuming arima_train is a valid function
-                path = f"./models/arima/{col}/actual_vs_forecast.png"
+                path = f"../models/arima/{col}/actual_vs_forecast.png"
                 return JsonResponse({
                     'form1': True,
                     'columns': list(df.columns),
@@ -2216,7 +2216,6 @@ def models(request):
             'form1': False,
             'msg': error_message
         }, status=500)
-
 
 
 def outliercheck(df, column):
@@ -2454,10 +2453,11 @@ def load_pipeline(save_path="model_pipeline.pkl"):
     print(f"Pipeline loaded from: {save_path}")
     return pipeline
 
+
 def random_forest(data, target_column):
     try:
         if not os.path.exists(os.path.join("models", "rf", target_column, 'deployment.json')):
-            os.makedirs(os.path.join("models", "rf", target_column),exist_ok=True)
+            os.makedirs(os.path.join("models", "rf", target_column), exist_ok=True)
             # Separate features and target
             X = data.drop(columns=[target_column])
             y = data[target_column]
@@ -2484,10 +2484,10 @@ def random_forest(data, target_column):
 
             # Choose Random Forest type based on target type
             if y.nunique() <= 5:  # Classification for few unique target values
-                model_type='Classification'
+                model_type = 'Classification'
                 model = RandomForestClassifier(random_state=42)
             else:  # Regression for continuous target values
-                model_type='Regression'
+                model_type = 'Regression'
                 model = RandomForestRegressor(random_state=42)
 
             # Create pipeline
@@ -2513,10 +2513,11 @@ def random_forest(data, target_column):
             print(f'Pipeline saved to: {os.path.join("models", "rf", target_column, "pipeline.pkl")}')
 
             with open(os.path.join("models", "rf", target_column, "deployment.json"), "w") as fp:
-                json.dump({"columns": list(X_train.columns), "model_type": model_type, "Target_column": target_column}, fp, indent=4)
+                json.dump({"columns": list(X_train.columns), "model_type": model_type, "Target_column": target_column},
+                          fp, indent=4)
             return True, list(X_train.columns)
         else:
-            with open(os.path.join(os.getcwd(), "models", "rf", target_column, 'deployment.json'),"r") as fp:
+            with open(os.path.join(os.getcwd(), "models", "rf", target_column, 'deployment.json'), "r") as fp:
                 data = json.load(fp)
             return True, data['columns']
     except Exception as e:
@@ -2524,8 +2525,10 @@ def random_forest(data, target_column):
         return False, []
 
 
-#Model prediction for random forest
+# Model prediction for random forest
 from django.shortcuts import redirect
+
+
 @csrf_exempt
 def model_predict(request):
     try:
@@ -2535,7 +2538,8 @@ def model_predict(request):
                 res.update({col: request.POST[col]})
             del res['form_name']
             df = pd.DataFrame([res])
-            loaded_pipeline = load_pipeline(os.path.join("models", "rf", request.session['col_predict'], "pipeline.pkl"))
+            loaded_pipeline = load_pipeline(
+                os.path.join("models", "rf", request.session['col_predict'], "pipeline.pkl"))
             predictions = loaded_pipeline.predict(df)
             print(predictions)
             request.session['rf_result'] = predictions[0]
