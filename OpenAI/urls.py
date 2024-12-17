@@ -49,9 +49,15 @@ urlpatterns = [
     # Flespi
     path('api/download_flespi_data', download_flespi_data, name='download_flespi_data'),
 
-    #KPIS URLS
+    # Customised KPIS URLS
     path('api/kpi_process', get_prompt, name="kpi_process"),
     path('api/generate_code', kpi_code, name="kpi_code"),
+
+    #Predefined KPI urls
+    path('api/detect_type', getting_types, name="detecting_type"),
+    path('api/predefined_kpi_process', predefined_kpi_getting, name="predefined_kpi_getting"),
+
+
 
     #models for prediction urls
     path(r'models', models, name='models'),
