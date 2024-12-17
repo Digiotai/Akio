@@ -2049,7 +2049,7 @@ def kpi_code(request):
         # Return paths, base64 images, and code as JSON response
         return JsonResponse({
             'status': 'success',
-            #'paths': paths,
+            # 'paths': paths,
             'base64_images': base64_images,
             'code': codes,
             'kpis': KPI_LOGICS,  # Assuming KPI_LOGICS is a global or properly imported variable
@@ -2103,6 +2103,192 @@ def generate_code2(prompt_eng):
                 trials -= 1
     except Exception as e:
         print(e)
+
+
+# Code for Predefined KPIS
+# step1:Detecting the type from the dataset,whether the data is sustainability data/oem/safety type
+
+def analyze_dataset_with_llm(df):
+    """
+    Simulate LLM logic to analyze the dataset and detect the type (Sustainability, Safety, or OEM),
+    along with the reasoning behind the classification.
+    """
+    prompt = f"""
+    You are an AI expert system that classifies datasets into one of three types: 
+    - **Sustainability**: Measures environmental and social impact, e.g., carbon emissions, energy efficiency, water usage, and waste recycling.
+    - **Safety**: Tracks workplace safety performance, e.g., incident rates, near-miss reports, safety training, and days without accidents.
+    - **OEM (Original Equipment Manufacturer)**: Evaluates manufacturing efficiency, e.g., production output, machine uptime, defect rates, and on-time delivery.
+
+    Here are the first 5 rows of the dataset and the column names:
+    Columns: {list(df.columns)}
+    Sample Data: {df.head().to_dict()}
+
+    Based on this information, determine the most likely type (Sustainability, Safety, or OEM) that best describes this dataset. 
+    Additionally, explain why you have classified it under this type, citing specific columns or data features that influenced the decision.
+    Please provide your response in the following format:
+    1. Type: [Classification Type]
+    2. Explanation: [Reasoning for classification]
+
+    Only respond with the type and the explanation, and do not provide any additional information.
+    """
+
+    try:
+        # Call the OpenAI API
+        response = client.chat.completions.create(
+            model="gpt-4-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+
+        all_text = ""
+
+        # Process the response and extract the classification and reasoning
+        for choice in response.choices:
+            message = choice.message
+            chunk_message = message.content if message else ''
+            all_text += chunk_message
+
+        print(f"LLM Response: {all_text}")  # Print the LLM response for debugging
+        lines = all_text.splitlines()
+        classification_type = lines[0].split(":")[1].strip() if lines else None
+        return classification_type
+
+    except Exception as e:
+        print(f"Error calling OpenAI API: {str(e)}")
+        return None  # Return None if there was an error
+
+
+# actual api for getting the response as type
+@csrf_exempt
+def getting_types(request):
+    """
+    Handles POST requests to process a user prompt, analyze a CSV file from a fixed folder,
+    and detect the type (Sustainability, Safety, or OEM) using an LLM.
+    """
+    try:
+        if request.method != "POST":
+            return HttpResponse("Invalid request method. Only POST requests are allowed.", status=405)
+
+        # Check if required file exists
+        processed_data_path = os.path.join('uploads', 'processed_data.csv')
+        if not os.path.exists(processed_data_path):
+            return HttpResponse("No processed data file found.", status=404)
+
+        # Read and save data.csv
+        try:
+            df = pd.read_csv(processed_data_path)
+        except Exception as e:
+            return HttpResponse(f"Error reading the CSV file: {str(e)}", status=500)
+
+        print("Dataset Columns:")
+        print(df.head(5))  # Print the first 5 rows for debugging
+        df.to_csv('data.csv', index=False)  # Save a copy of the file (optional)
+
+        # Call the LLM to detect the type
+        detected_type = analyze_dataset_with_llm(df)
+
+        # If no type was detected, return a message indicating no match
+        if not detected_type or detected_type not in ['Sustainability', 'Safety', 'OEM']:
+            return JsonResponse({
+                'status': 'failure',
+                'message': 'No relevant type detected for Sustainability, Safety, or OEM.'
+            })
+
+        # Return the detected type
+        return JsonResponse({
+            'status': 'success',
+            'type': detected_type  # Return only the detected type
+        })
+
+    except Exception as e:
+        error_message = f"An error occurred: {str(e)}"
+        print(error_message)  # Log the error
+        return HttpResponse(error_message, status=500)
+
+
+#Getting prepared the predefined kpis with this
+@csrf_exempt
+def predefined_kpi_getting(request):
+    """
+    Handles POST requests to process a user query, analyze a CSV file, generate KPIs based on type and category,
+    and store them in a JSON file.
+    """
+    try:
+        if request.method != "POST":
+            return HttpResponse("Invalid request method. Only POST requests are allowed.", status=405)
+
+        # Initialize variables
+        global KPI_LOGICS, checks
+        KPI_LOGICS = defaultdict()
+        checks = []
+
+        # Extract the type and category from the POST request
+        kpi_type = request.POST.get('type')
+        kpi_category = request.POST.get('category')
+
+        if not kpi_type or not kpi_category:
+            return HttpResponse("Both 'type' and 'category' are required.", status=400)
+
+        # Check if required file exists
+        processed_data_path = os.path.join('uploads', 'processed_data.csv')
+        if not os.path.exists(processed_data_path):
+            return HttpResponse("No processed data file found.", status=404)
+
+        # Read and save data.csv
+        df = pd.read_csv(processed_data_path)
+        df.to_csv('data.csv', index=False)
+
+        # Prepare the prompt description for the analytics bot using the type and category
+        prompt_desc = (
+            f"You are analytics_bot. Analyse the data: {df.head()} and based on the type '{kpi_type}' "
+            f"and category '{kpi_category}', generate KPIs with the response as KPI Name, Column, and Logic. "
+            f"Response should be in Python dictionary format with KPI names as keys. "
+            f"In the response, don't add any other information, just provide the response dictionary."
+        )
+
+        n = 2  # Retry logic for generating KPIs
+        kpis = {}
+        while n > 0:
+            res, kpis = generate_code_kpi(prompt_desc)  # Assuming generate_code_kpi is a valid function
+            if res is not None:
+                # Load existing KPIs from kpis.json if it exists, otherwise create an empty dictionary
+                kpis_store_path = 'kpis.json'
+                kpis_store = {}
+                if os.path.exists(kpis_store_path):
+                    with open(kpis_store_path, 'r') as fp:
+                        kpis_store = json.load(fp)
+
+                # Update kpis.json with new KPIs
+                with open(kpis_store_path, 'w') as fp:
+                    kpis_store.update(kpis)
+                    json.dump(kpis_store, fp)
+                break  # Exit loop if generation was successful
+            n -= 1  # Decrement retry count
+
+        # Check if KPI configuration exists and load additional KPIs from it
+        kpi_config_path = os.path.join('uploads', 'kpi_config.json')
+        if os.path.exists(kpi_config_path):
+            with open(kpi_config_path, 'r') as json_file:
+                kpis_dict = json.load(json_file)
+            for kpi in kpis_dict.get('Kpis', {}).get('kpi', []):
+                kpi_name = kpi.get('KPI_Name')
+                if kpi_name:
+                    kpis[kpi_name] = kpi
+                    checks.append(kpi_name)
+
+        # Return a JSON response with KPI data and checks
+        return JsonResponse({
+            'status': 'success',
+            'kpis': kpis,
+            'checks': checks
+        })
+
+    except Exception as e:
+        error_message = f"An error occurred: {str(e)}"
+        print(error_message)  # Log the error
+        return HttpResponse(error_message, status=500)
 
 
 # For Model checking....
