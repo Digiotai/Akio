@@ -2111,7 +2111,8 @@ def generate_code2(prompt_eng):
 def analyze_dataset_with_llm(df):
     """
     Simulate LLM logic to analyze the dataset and detect the type (Sustainability, Safety, or OEM),
-    along with the reasoning behind the classification.
+    along with the reasoning behind the classification. Additionally, for Sustainability type,
+    it returns categories and KPI descriptions.
     """
     prompt = f"""
     You are an AI expert system that classifies datasets into one of three types: 
@@ -2151,13 +2152,81 @@ def analyze_dataset_with_llm(df):
             all_text += chunk_message
 
         print(f"LLM Response: {all_text}")  # Print the LLM response for debugging
-        lines = all_text.splitlines()
-        classification_type = lines[0].split(":")[1].strip() if lines else None
-        return classification_type
+
+        # Extract the classification type and explanation
+        classification_type = None
+        explanation = None
+
+        try:
+            # Extract Type and Explanation from the response
+            lines = all_text.splitlines()
+            for line in lines:
+                if line.lower().startswith("1. type:"):
+                    classification_type = line.split(":")[1].strip()
+                elif line.lower().startswith("2. explanation:"):
+                    explanation = line.split(":")[1].strip()
+
+        except Exception as e:
+            print(f"Error parsing LLM response: {str(e)}")
+
+        # Default if parsing fails
+        if not classification_type:
+            classification_type = "Unknown"
+            explanation = "Could not parse the LLM response properly."
+
+        # Prepare the result dictionary
+        result = {
+            "type": classification_type,
+            "explanation": explanation
+        }
+
+        # Add category and KPI descriptions if the classification is "Sustainability"
+        if classification_type.lower() == "sustainability":
+            result["categories"] = [
+                {
+                    "name": "Footprint",
+                    "kpis": {
+                        "Energy Consumption": {
+                            "kpi_name": "Energy Consumption",
+                            "description": "Measures the amount of energy consumed over a specific period."
+                        },
+                        "Carbon Footprint": {
+                            "kpi_name": "Carbon Footprint",
+                            "description": "Tracks the total greenhouse gas emissions caused by an individual, organization, or product."
+                        },
+                        "Social Impact": {
+                            "kpi_name": "Social Impact",
+                            "description": "Assesses the effect of business activities on society and communities."
+                        }
+                    }
+                },
+                {
+                    "name": "Emission Reduction",
+                    "kpis": {
+                        "Air Quality": {
+                            "kpi_name": "Air Quality",
+                            "description": "Monitors the quality of air by measuring pollutants like PM2.5 and PM10."
+                        },
+                        "Decarbonization": {
+                            "kpi_name": "Decarbonization",
+                            "description": "Tracks the reduction in carbon emissions relative to a baseline."
+                        },
+                        "Green Tariff": {
+                            "kpi_name": "Green Tariff",
+                            "description": "Measures the percentage of energy sourced from green/renewable energy sources."
+                        }
+                    }
+                }
+            ]
+
+        return result
 
     except Exception as e:
         print(f"Error calling OpenAI API: {str(e)}")
-        return None  # Return None if there was an error
+        return {
+            "type": "Error",
+            "explanation": f"Error calling OpenAI API: {str(e)}"
+        }
 
 
 # actual api for getting the response as type
@@ -2186,20 +2255,31 @@ def getting_types(request):
         print(df.head(5))  # Print the first 5 rows for debugging
         df.to_csv('data.csv', index=False)  # Save a copy of the file (optional)
 
-        # Call the LLM to detect the type
-        detected_type = analyze_dataset_with_llm(df)
+        # Call the LLM to analyze the dataset
+        analysis_result = analyze_dataset_with_llm(df)
 
-        # If no type was detected, return a message indicating no match
-        if not detected_type or detected_type not in ['Sustainability', 'Safety', 'OEM']:
+        # Check if the response contains a valid classification type
+        if not analysis_result or 'type' not in analysis_result:
             return JsonResponse({
                 'status': 'failure',
                 'message': 'No relevant type detected for Sustainability, Safety, or OEM.'
             })
 
-        # Return the detected type
+        classification_type = analysis_result.get('type')
+
+        if classification_type not in ['Sustainability', 'Safety', 'OEM']:
+            return JsonResponse({
+                'status': 'failure',
+                'message': 'No relevant type detected for Sustainability, Safety, or OEM.',
+                'analysis_result': analysis_result  # Include full analysis result for debugging
+            })
+
+        # Return the detected type along with explanation and categories (if any)
         return JsonResponse({
             'status': 'success',
-            'type': detected_type  # Return only the detected type
+            'type': analysis_result.get('type'),
+            'explanation': analysis_result.get('explanation'),
+            'categories': analysis_result.get('categories', [])  # Default to an empty list if not provided
         })
 
     except Exception as e:
@@ -2212,84 +2292,80 @@ def getting_types(request):
 @csrf_exempt
 def predefined_kpi_getting(request):
     """
-    Handles POST requests to process a user query, analyze a CSV file, generate KPIs based on type and category,
-    and store them in a JSON file.
+    Handles POST requests to generate Python scripts and graphs for multiple KPIs.
+    This function requires 'type', 'category', and a list of 'kpi_name' as POST parameters.
+    It returns the Python code and Base64-encoded graph images for each KPI in the request.
     """
     try:
         if request.method != "POST":
             return HttpResponse("Invalid request method. Only POST requests are allowed.", status=405)
 
-        # Initialize variables
-        global KPI_LOGICS, checks
-        KPI_LOGICS = defaultdict()
-        checks = []
-
-        # Extract the type and category from the POST request
+        # Extract the type, category, and kpi_name from the POST request
         kpi_type = request.POST.get('type')
         kpi_category = request.POST.get('category')
+        kpi_names = request.POST.getlist('kpi_name')  # Get multiple KPI names as a list
 
-        if not kpi_type or not kpi_category:
-            return HttpResponse("Both 'type' and 'category' are required.", status=400)
+        # Check if all required parameters are provided
+        if not kpi_type or not kpi_category or not kpi_names:
+            return JsonResponse({
+                'status': 'failure',
+                'message': "Both 'type', 'category', and 'kpi_name' are required."
+            })
 
-        # Check if required file exists
+        # Check if required data file exists
         processed_data_path = os.path.join('uploads', 'processed_data.csv')
         if not os.path.exists(processed_data_path):
-            return HttpResponse("No processed data file found.", status=404)
+            return JsonResponse({
+                'status': 'failure',
+                'message': "No processed data file found."
+            })
 
-        # Read and save data.csv
+        # Read the data file and save it as 'data.csv'
         df = pd.read_csv(processed_data_path)
         df.to_csv('data.csv', index=False)
 
-        # Prepare the prompt description for the analytics bot using the type and category
-        prompt_desc = (
-            f"You are analytics_bot. Analyse the data: {df.head()} and based on the type '{kpi_type}' "
-            f"and category '{kpi_category}', generate KPIs with the response as KPI Name, Column, and Logic. "
-            f"Response should be in Python dictionary format with KPI names as keys. "
-            f"In the response, don't add any other information, just provide the response dictionary."
-        )
+        # Initialize a list to store results for multiple KPIs
+        kpi_results = []
 
-        n = 2  # Retry logic for generating KPIs
-        kpis = {}
-        while n > 0:
-            res, kpis = generate_code_kpi(prompt_desc)  # Assuming generate_code_kpi is a valid function
-            if res is not None:
-                # Load existing KPIs from kpis.json if it exists, otherwise create an empty dictionary
-                kpis_store_path = 'kpis.json'
-                kpis_store = {}
-                if os.path.exists(kpis_store_path):
-                    with open(kpis_store_path, 'r') as fp:
-                        kpis_store = json.load(fp)
+        # Loop through each KPI name and generate the code and graph
+        for kpi_name in kpi_names:
+            try:
+                paths, base64_images, kpi_code = generate_kpi_code([kpi_name])
+                kpi_results.append({
+                    'kpi_name': kpi_name,
+                    'kpi_code': kpi_code,
+                    'base64_images': base64_images  # Base64-encoded images for the KPI graph
+                })
+            except Exception as e:
+                kpi_results.append({
+                    'kpi_name': kpi_name,
+                    'error': f"Error generating code or graph for KPI '{kpi_name}': {str(e)}"
+                })
 
-                # Update kpis.json with new KPIs
-                with open(kpis_store_path, 'w') as fp:
-                    kpis_store.update(kpis)
-                    json.dump(kpis_store, fp)
-                break  # Exit loop if generation was successful
-            n -= 1  # Decrement retry count
+        # Check if at least one KPI was successfully processed
+        successful_kpis = [kpi for kpi in kpi_results if 'kpi_code' in kpi]
+        if not successful_kpis:
+            return JsonResponse({
+                'status': 'failure',
+                'message': 'Failed to generate code or graphs for all KPIs.',
+                'kpi_results': kpi_results  # Include all errors for each KPI
+            })
 
-        # Check if KPI configuration exists and load additional KPIs from it
-        kpi_config_path = os.path.join('uploads', 'kpi_config.json')
-        if os.path.exists(kpi_config_path):
-            with open(kpi_config_path, 'r') as json_file:
-                kpis_dict = json.load(json_file)
-            for kpi in kpis_dict.get('Kpis', {}).get('kpi', []):
-                kpi_name = kpi.get('KPI_Name')
-                if kpi_name:
-                    kpis[kpi_name] = kpi
-                    checks.append(kpi_name)
-
-        # Return a JSON response with KPI data and checks
+        # Return the response with the KPI details, code, and Base64 images for each KPI
         return JsonResponse({
             'status': 'success',
-            'kpis': kpis,
-            'checks': checks
+            'type': kpi_type,
+            'category': kpi_category,
+            'kpis': kpi_results
         })
 
     except Exception as e:
         error_message = f"An error occurred: {str(e)}"
         print(error_message)  # Log the error
-        return HttpResponse(error_message, status=500)
-
+        return JsonResponse({
+            'status': 'failure',
+            'message': error_message
+        })
 
 # For Model checking....
 from sklearn.preprocessing import LabelEncoder
@@ -2374,7 +2450,7 @@ def models(request):
                 return JsonResponse({
                     'form1': True,
                     'columns': list(df.columns),
-                    'status': stat,
+                    'status': stat['plot'],
                     'arima': True,
                     'path': path
                 })
@@ -2456,119 +2532,122 @@ def arima_train(data, target_col):
     try:
         # Identify date column by checking for datetime type
         date_column = None
+        print(f"Starting ARIMA training for target column: {target_col}")
+
         if not os.path.exists(os.path.join("models", 'arima', target_col)):
             os.makedirs(os.path.join("models", 'arima', target_col), exist_ok=True)
-            for col in data.columns:
-                if data.dtypes[col] == 'object':
-                    try:
-                        # Attempt to convert column to datetime
-                        pd.to_datetime(data[col])
+            print(f"Directory for {target_col} created.")
+
+        # Identify the date column explicitly (or make it more robust)
+        for col in data.columns:
+            print(f"Checking column: {col}")
+            if data.dtypes[col] == 'object':
+                try:
+                    parsed_dates = pd.to_datetime(data[col], errors='coerce')
+                    if parsed_dates.notnull().sum() > 0.9 * len(data):  # If at least 90% of the column can be converted
                         date_column = col
+                        print(f"Identified datetime column: {date_column}")
                         break
-                    except (ValueError, TypeError):
-                        continue
-            if not date_column:
-                raise ValueError("No datetime column found in the dataset.")
-            print(date_column)
-            # Set the date column as index
-            data[date_column] = pd.to_datetime(data[date_column])
-            data.set_index(date_column, inplace=True)
-            print(data.head(15))
-            # Identify forecast columns (numeric columns)
-            forecast_columns = data.select_dtypes(include=[np.number]).columns.tolist()
-            if not forecast_columns:
-                raise ValueError("No numeric columns found for forecasting in the dataset.")
+                except (ValueError, TypeError):
+                    continue
 
-            # Infer frequency of datetime index
-            freq = pd.infer_freq(data.index)
-            print(date_column, freq)
-            # Determine m based on inferred frequency
-            # Determine m based on inferred frequency
-            if freq == '15T':  # Quarter-hourly data (every 15 minutes)
-                m = 96  # Daily seasonality (96 intervals in a day)
-            elif freq == '30T':  # Half-hourly data (every 30 minutes)
-                m = 48  # Daily seasonality (48 intervals in a day)
-            elif freq == 'H':  # Hourly data
-                m = 24  # Daily seasonality (24 intervals in a day)
-            elif freq == 'D':  # Daily data
-                m = 7  # Weekly seasonality (7 days in a week)
-            elif freq == 'W':  # Weekly data
-                m = 52  # Yearly seasonality (52 weeks in a year)
-            elif freq == 'M':  # Monthly data
-                m = 12  # Yearly seasonality (12 months in a year)
-            elif freq == 'Q':  # Quarterly data
-                m = 4  # Yearly seasonality (4 quarters in a year)
-            elif freq == 'A' or (freq and freq.startswith('A-')):  # Annual data (any month-end)
-                m = 1  # No further seasonality within a year
-            else:
-                raise ValueError(f"Unsupported frequency '{freq}'. Ensure data is in a common time interval.")
-            results = {}
-            try:
-                data_actual = data[target_col].dropna()  # Remove NaNs if any
+        if not date_column:
+            raise ValueError("No datetime column found in the dataset.")
+        print(f"Setting {date_column} as index.")
 
-                # Split data into train and test sets
-                train = data_actual.iloc[:-m]
-                test = data_actual.iloc[-m:]
+        data[date_column] = pd.to_datetime(data[date_column], errors='coerce')
+        data.set_index(date_column, inplace=True)
+        print(f"Data after setting date index:\n{data.head(5)}")
 
-                # Auto ARIMA model selection
-                model = pm.auto_arima(train,
-                                      m=m,  # frequency of seasonality
-                                      seasonal=True,  # Enable seasonal ARIMA
-                                      d=None,  # determine differencing
-                                      test='adf',  # adf test for differencing
-                                      start_p=0, start_q=0,
-                                      max_p=12, max_q=12,
-                                      D=None,  # let model determine seasonal differencing
-                                      trace=True,
-                                      error_action='ignore',
-                                      suppress_warnings=True,
-                                      stepwise=True)
-                # Forecast and calculate errors
-                fc, confint = model.predict(n_periods=m, return_conf_int=True)
-                # Save results to dictionary
-                results = {
-                    "actual": {
-                        "date": list(test.index.astype(str)),
-                        "values": [float(val) if isinstance(val, np.float_) else int(val) for val in
-                                   test.values]
-                    },
-                    "forecast": {
-                        "date": list(test.index.astype(str)),
-                        "values": [float(val) if isinstance(val, np.float_) else int(val) for val in fc]
-                    }
-                }
-                if not os.path.exists(os.path.join("models", 'arima', target_col)):
-                    os.makedirs(os.path.join("models", 'arima', target_col), exist_ok=True)
-                with open(os.path.join("models", 'arima', target_col, target_col + '_results.json'), 'w') as fp:
-                    json.dump(results, fp)
-                    plot_graph(results, os.path.join('models', 'arima', target_col))
-                print(f"Results saved to {os.path.join('models', 'arima', target_col, target_col + '_results.json')}")
-            except Exception as e:
-                print(e)
-                return False
-            return True
+        # Handle missing dates and ensure a continuous date range
+        data = data.asfreq('D', method='pad')
+        print(f"Data after reindexing to daily frequency:\n{data.head(5)}")
+
+        forecast_columns = data.select_dtypes(include=[np.number]).columns.tolist()
+        if not forecast_columns:
+            raise ValueError("No numeric columns found for forecasting in the dataset.")
+        print(f"Forecast columns identified: {forecast_columns}")
+
+        freq = pd.infer_freq(data.index)
+        print(f"Inferred frequency: {freq}")
+
+        if not freq:
+            print(f"Frequency could not be inferred. Defaulting to 'D' (Daily).")
+            freq = 'D'
+
+        frequency_map = {
+            '15T': 96, '30T': 48, 'H': 24, 'D': 7, 'W': 52, 'M': 12, 'Q': 4, 'A': 1
+        }
+        m = frequency_map.get(freq, None)
+        if m is None:
+            raise ValueError(f"Unsupported frequency '{freq}'. Ensure data is in a common time interval.")
+        print(f"Frequency m determined as: {m}")
+
+        results = {}
+        try:
+            data_actual = data[target_col].dropna()
+            print(f"Data for {target_col} after removing NaNs:\n{data_actual.head(5)}")
+
+            train = data_actual.iloc[:-m]
+            test = data_actual.iloc[-m:]
+            print(f"Train data:\n{train.head(5)}")
+            print(f"Test data:\n{test.head(5)}")
+
+            print("Fitting Auto ARIMA model...")
+            model = pm.auto_arima(train,
+                                  m=m,
+                                  seasonal=True,
+                                  d=None,
+                                  test='adf',
+                                  start_p=0, start_q=0,
+                                  max_p=12, max_q=12,
+                                  D=None,
+                                  trace=True,
+                                  error_action='ignore',
+                                  suppress_warnings=True,
+                                  stepwise=True)
+            print(f"ARIMA model fitted: {model.summary()}")
+
+            fc, confint = model.predict(n_periods=m, return_conf_int=True)
+            print(f"Forecast values:\n{fc}")
+
+            results = {
+                "actual": {"date": list(test.index.astype(str)), "values": test.values.tolist()},
+                "forecast": {"date": list(test.index.astype(str)), "values": fc.tolist()}
+            }
+
+            with open(os.path.join("models", 'arima', target_col, target_col + '_results.json'), 'w') as fp:
+                json.dump(results, fp)
+            print("Plot results will be calling here........")
+            base64_image = plot_graph(results,os.path.join('models', 'arima', target_col))
+            results['plot'] = base64_image
+            print("Plot results will end here.......")
+            print(f"Results saved to {os.path.join('models', 'arima', target_col, target_col + '_results.json')}")
+
+        except Exception as e:
+            print(f"Error during ARIMA model training: {e}")
+            return False
+
+        return results
     except Exception as e:
-        print(e)
+        print(f"Error in arima_train: {e}")
         return False
 
 
-def plot_graph(data, file_path):
+def plot_graph(data,file_path):
     try:
         col = file_path.split('\\')[-1]
         actual_dates = [datetime.strptime(date, "%Y-%m-%d") for date in data["actual"]["date"]]
         forecast_dates = [datetime.strptime(date, "%Y-%m-%d") for date in data["forecast"]["date"]]
 
-        # Extract values
         actual_values = data["actual"]["values"]
         forecast_values = data["forecast"]["values"]
 
-        # Plotting
         plt.figure(figsize=(10, 6))
         plt.plot(actual_dates, actual_values, label='Actual', color='blue', marker='o')
         plt.plot(forecast_dates, forecast_values, label='Forecast', color='orange', linestyle='--', marker='x')
 
-        # Formatting
-        plt.title(f'{col} Actual vs Forecast Values Over Time')
+        plt.title('Actual vs Forecast Values')
         plt.xlabel('Date')
         plt.ylabel('Values')
         plt.xticks(rotation=45)
@@ -2577,9 +2656,24 @@ def plot_graph(data, file_path):
 
         # Save the plot as a PNG image
         plt.savefig(os.path.join(file_path, "actual_vs_forecast.png"), format="png", dpi=300)
-    except Exception as e:
-        print(e)
 
+        # Save plot to in-memory BytesIO buffer
+        buffer = io.BytesIO()
+        plt.savefig(buffer, format="png", dpi=300)
+        buffer.seek(0)  # Move to the beginning of the buffer
+
+        # Convert buffer content to base64 string
+        base64_image = base64.b64encode(buffer.read()).decode('utf-8')
+
+        # Close plot and buffer to release memory
+        plt.close()
+        buffer.close()
+
+        return base64_image
+
+    except Exception as e:
+        print(f"Error in plot_graph: {e}")
+        return None
 
 def kmeans_train(data):
     try:
@@ -2627,10 +2721,16 @@ def kmeans_train(data):
 
         # Add cluster labels to the original data
         data['Cluster'] = kmeans.labels_
-        return True, data
+
+        # Convert DataFrame to JSON serializable format
+        data_json = data.to_json(orient='records')  # Convert DataFrame to a JSON string (list of records)
+
+        # Optionally, you could return the JSON data or a response with it
+        return True, data_json  # Now returning a JSON-serializable string
     except Exception as e:
         print(e)
-        return False, data
+        return False, str(e)  # Returning error as a string instead of DataFrame
+
 
 
 def load_pipeline(save_path="model_pipeline.pkl"):
