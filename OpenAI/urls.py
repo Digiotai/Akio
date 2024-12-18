@@ -60,7 +60,7 @@ urlpatterns = [
 
 
     #models for prediction urls
-    path(r'models', models, name='models'),
+    path(r'api/models', models, name='models'),
     path('model_predict', model_predict, name='model_predict')
 
 ]
