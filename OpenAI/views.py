@@ -1939,7 +1939,7 @@ def generate_code_kpi(prompt_eng):
     try:
         global KPI_LOGICS
         response = client.chat.completions.create(
-            model="gpt-4-turbo",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
                 {"role": "user", "content": prompt_eng}
@@ -2067,7 +2067,7 @@ def generate_code2(prompt_eng):
     try:
         while trials > 0:
             response = client.chat.completions.create(
-                model="gpt-4-turbo",
+                model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant."},
                     {"role": "user", "content": prompt_eng}
@@ -2136,7 +2136,7 @@ def analyze_dataset_with_llm(df):
     try:
         # Call the OpenAI API
         response = client.chat.completions.create(
-            model="gpt-4-turbo",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
                 {"role": "user", "content": prompt}
@@ -2482,7 +2482,7 @@ def models(request):
 
 def outliercheck(df, column):
     response = client.chat.completions.create(
-        model="gpt-4-turbo",
+        model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": f'detect outliers for  the following data {df[column]}'}
