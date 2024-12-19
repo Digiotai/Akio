@@ -2461,7 +2461,7 @@ def models(request):
                     'form1': True,
                     'columns': list(df.columns),
                     'status': True,
-                    'processed_data': res,
+                    'processed_data': markdown_to_html(res),
                     'OutlierDetection': True
                 })
 
