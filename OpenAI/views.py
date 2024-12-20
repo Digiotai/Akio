@@ -2838,6 +2838,8 @@ def model_predict(request):
 
         # Path to the pipeline file
         pipeline_path = os.path.join("models", "rf", request.session['col_predict'], "pipeline.pkl")
+        print(pipeline_path)
+        print(request.session['col_predict'])
 
         # Check if the pipeline file exists
         if not os.path.exists(pipeline_path):
