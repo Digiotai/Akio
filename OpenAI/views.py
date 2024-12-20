@@ -1404,8 +1404,6 @@ def handle_forecasting(df, openai_api_key, user_prompt, table_name="default_tabl
 
 
 import markdown
-
-
 def markdown_to_html(md_text):
     html_text = markdown.markdown(md_text)
     return html_text
@@ -2812,23 +2810,65 @@ def random_forest(data, target_column):
 
 
 # Model prediction for random forest
-from django.shortcuts import redirect
+from django.http import JsonResponse, HttpResponse
+import os
+import pandas as pd
+from joblib import load
+from django.views.decorators.csrf import csrf_exempt
 
 
 @csrf_exempt
 def model_predict(request):
     try:
-        if request.POST.get('form_name') == 'rf':
-            res = {}
-            for col in request.POST:
-                res.update({col: request.POST[col]})
+        # Check if the form_name is 'rf'
+        if request.POST.get('form_name') != 'rf':
+            return JsonResponse({"status": "failure", "message": "Invalid form name."}, status=400)
+
+        # Check if 'col_predict' exists in the session
+        if 'col_predict' not in request.session:
+            return JsonResponse({"status": "failure", "message": "'col_predict' not found in session."}, status=400)
+
+        # Prepare the input data
+        res = {}
+        for col in request.POST:
+            res.update({col: request.POST[col]})
+
+        # Remove the 'form_name' key from the input data
+        if 'form_name' in res:
             del res['form_name']
-            df = pd.DataFrame([res])
-            loaded_pipeline = load_pipeline(
-                os.path.join("models", "rf", request.session['col_predict'], "pipeline.pkl"))
-            predictions = loaded_pipeline.predict(df)
-            print(predictions)
-            request.session['rf_result'] = predictions[0]
-            return redirect('models')
+
+        # Convert input data to DataFrame
+        df = pd.DataFrame([res])
+
+        # Path to the pipeline file
+        pipeline_path = os.path.join("models", "rf", request.session['col_predict'], "pipeline.pkl")
+
+        # Check if the pipeline file exists
+        if not os.path.exists(pipeline_path):
+            return JsonResponse({
+                "status": "failure",
+                "message": f"Pipeline not found at {pipeline_path}."
+            }, status=404)
+
+        # Load the pipeline
+        loaded_pipeline = load(pipeline_path)
+
+        # Make the prediction
+        predictions = loaded_pipeline.predict(df)
+        print(f"Predictions: {predictions}")
+
+        # Store the prediction in the session
+        request.session['rf_result'] = predictions[0]
+
+        # Return a success response with the prediction
+        return JsonResponse({
+            "status": "success",
+            "prediction": predictions[0]  # Return the first prediction
+        })
+
     except Exception as e:
-        print(e)
+        print(f"Error occurred: {str(e)}")
+        return JsonResponse({
+            "status": "failure",
+            "message": f"An error occurred: {str(e)}"
+        })
