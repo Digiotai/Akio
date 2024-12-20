@@ -2824,10 +2824,6 @@ def model_predict(request):
         if request.POST.get('form_name') != 'rf':
             return JsonResponse({"status": "failure", "message": "Invalid form name."}, status=400)
 
-        # Check if 'col_predict' exists in the session
-        if 'col_predict' not in request.session:
-            return JsonResponse({"status": "failure", "message": "'col_predict' not found in session."}, status=400)
-
         # Prepare the input data
         res = {}
         for col in request.POST:
