@@ -1518,7 +1518,9 @@ def extract_columns_from_prompt(user_prompt):
       -> ['s_no', 'name', 'address', 'first_name']
     """
     # Look for all possible field identifier formats followed by the column names
-    match = re.search(r'(field names|column names|fields|columns|field_names|column_names):\s*([a-zA-Z0-9_,\s\.]+)',
+    # match = re.search(r'(field names|column names|fields|columns|field_names|column_names):\s*([a-zA-Z0-9_,\s\.]+)',
+    #                   user_prompt, re.IGNORECASE)
+    match = re.search(r'(field names|column names|fields|columns|field_names|column_names)[\s:]*([a-zA-Z0-9_,\s\.]*)',
                       user_prompt, re.IGNORECASE)
 
     if match:
@@ -2105,7 +2107,6 @@ def generate_code2(prompt_eng):
 
 # Code for Predefined KPIS
 # step1:Detecting the type from the dataset,whether the data is sustainability data/oem/safety type
-
 def analyze_dataset_with_llm(df):
     """
     Simulate LLM logic to analyze the dataset and detect the type (Sustainability, Safety, or OEM),
@@ -2116,7 +2117,7 @@ def analyze_dataset_with_llm(df):
     You are an AI expert system that classifies datasets into one of three types: 
     - **Sustainability**: Measures environmental and social impact, e.g., carbon emissions, energy efficiency, water usage, and waste recycling.
     - **Safety**: Tracks workplace safety performance, e.g., incident rates, near-miss reports, safety training, and days without accidents.
-    - **OEM (Original Equipment Manufacturer)**: Evaluates manufacturing efficiency, e.g., production output, machine uptime, defect rates, and on-time delivery.
+    - **Productivity**: Evaluates manufacturing efficiency, e.g., production output, machine uptime, defect rates, and on-time delivery.
 
     Here are the first 5 rows of the dataset and the column names:
     Columns: {list(df.columns)}
@@ -2178,7 +2179,7 @@ def analyze_dataset_with_llm(df):
             "explanation": explanation
         }
 
-        # Add category and KPI descriptions if the classification is "Sustainability"
+        # Add category and KPI descriptions based on classification type
         if classification_type.lower() == "sustainability":
             result["categories"] = [
                 {
@@ -2212,6 +2213,82 @@ def analyze_dataset_with_llm(df):
                         "Green Tariff": {
                             "kpi_name": "Green Tariff",
                             "description": "Measures the percentage of energy sourced from green/renewable energy sources."
+                        }
+                    }
+                }
+            ]
+
+        elif classification_type.lower() == "safety":
+            result["categories"] = [
+                {
+                    "name": "Environment",
+                    "kpis": {
+                        "Risk Assessments": {
+                            "kpi_name": "Risk Assessments",
+                            "description": "Tracks the evaluation of potential hazards and risks in the workplace."
+                        },
+                        "Incidents": {
+                            "kpi_name": "Incidents",
+                            "description": "Monitors workplace incidents, including injuries and near-misses."
+                        },
+                        "Safety Prevention Costs": {
+                            "kpi_name": "Safety Prevention Costs",
+                            "description": "Measures expenses related to implementing safety measures and training."
+                        }
+                    }
+                },
+                {
+                    "name": "General",
+                    "kpis": {
+                        "Fitness Assessments": {
+                            "kpi_name": "Fitness Assessments",
+                            "description": "Evaluates the physical fitness and health of employees."
+                        },
+                        "Complaints": {
+                            "kpi_name": "Complaints",
+                            "description": "Tracks the number and nature of workplace complaints."
+                        },
+                        "Disciplinary": {
+                            "kpi_name": "Disciplinary",
+                            "description": "Monitors disciplinary actions and their causes."
+                        }
+                    }
+                }
+            ]
+
+        elif classification_type.lower() == "productivity":
+            result["categories"] = [
+                {
+                    "name": "Increase Availability",
+                    "kpis": {
+                        "Preventative Maintenance": {
+                            "kpi_name": "Preventative Maintenance",
+                            "description": "Tracks scheduled maintenance to prevent equipment failure."
+                        },
+                        "Response Time": {
+                            "kpi_name": "Response Time",
+                            "description": "Measures the time taken to respond to issues or breakdowns."
+                        },
+                        "Remaining Useful Life": {
+                            "kpi_name": "Remaining Useful Life",
+                            "description": "Estimates the remaining operational life of an asset."
+                        }
+                    }
+                },
+                {
+                    "name": "S4",
+                    "kpis": {
+                        "Asset Utilization": {
+                            "kpi_name": "Asset Utilization",
+                            "description": "Tracks how effectively assets are being used."
+                        },
+                        "Demand Forecasting": {
+                            "kpi_name": "Demand Forecasting",
+                            "description": "Predicts future demand for products or services."
+                        },
+                        "Overall Equipment Effectiveness": {
+                            "kpi_name": "Overall Equipment Effectiveness",
+                            "description": "Measures the efficiency and effectiveness of equipment."
                         }
                     }
                 }
@@ -2255,22 +2332,6 @@ def getting_types(request):
 
         # Call the LLM to analyze the dataset
         analysis_result = analyze_dataset_with_llm(df)
-
-        # Check if the response contains a valid classification type
-        if not analysis_result or 'type' not in analysis_result:
-            return JsonResponse({
-                'status': 'failure',
-                'message': 'No relevant type detected for Sustainability, Safety, or OEM.'
-            })
-
-        classification_type = analysis_result.get('type')
-
-        if classification_type not in ['Sustainability', 'Safety', 'OEM']:
-            return JsonResponse({
-                'status': 'failure',
-                'message': 'No relevant type detected for Sustainability, Safety, or OEM.',
-                'analysis_result': analysis_result  # Include full analysis result for debugging
-            })
 
         # Return the detected type along with explanation and categories (if any)
         return JsonResponse({
@@ -2397,7 +2458,6 @@ import xml.etree.ElementTree as ET
 from keras.models import load_model
 import matplotlib.pyplot as plt
 
-
 @csrf_exempt
 def models(request):
     try:
@@ -2408,22 +2468,14 @@ def models(request):
 
         # Read CSV file
         df = pd.read_csv(processed_data_path)
-        rf_result = request.session.get('rf_result', '')
-        if rf_result:
-            request.session['rf_result'] = ''
-            return JsonResponse({
-                'form1': True,
-                'columns': list(df.columns),
-                'rf_result': rf_result
-            })
+        print(df.head(5))
 
         if request.method == 'POST':
             model_type = request.POST.get('model')
             col = request.POST.get('col')
-            request.session['col_predict'] = col
 
             if model_type == 'RandomForest':
-                stat, cols = random_forest(df, col)  # Assuming random_forest is a valid function
+                stat, cols = random_forest(df, col)
                 return JsonResponse({
                     'form1': True,
                     'columns': list(df.columns),
@@ -2433,7 +2485,7 @@ def models(request):
                 })
 
             elif model_type == 'K-Means':
-                stat, clustered_data = kmeans_train(df)  # Assuming kmeans_train is a valid function
+                stat, clustered_data = kmeans_train(df)
                 return JsonResponse({
                     'form1': True,
                     'columns': list(df.columns),
@@ -2443,7 +2495,7 @@ def models(request):
                 })
 
             elif model_type == 'Arima':
-                stat = arima_train(df, col)  # Assuming arima_train is a valid function
+                stat = arima_train(df, col)
                 path = f"../models/arima/{col}/actual_vs_forecast.png"
                 return JsonResponse({
                     'form1': True,
@@ -2454,7 +2506,7 @@ def models(request):
                 })
 
             elif model_type == 'OutlierDetection':
-                res = detect_outliers_zscore(df, col)  # Assuming detect_outliers_zscore is a valid function
+                res = detect_outliers_zscore(df, col)
                 return JsonResponse({
                     'form1': True,
                     'columns': list(df.columns),
@@ -2476,6 +2528,7 @@ def models(request):
             'form1': False,
             'msg': error_message
         }, status=500)
+
 
 
 def outliercheck(df, column):
@@ -2817,6 +2870,7 @@ from joblib import load
 from django.views.decorators.csrf import csrf_exempt
 
 
+
 @csrf_exempt
 def model_predict(request):
     try:
@@ -2837,9 +2891,9 @@ def model_predict(request):
         df = pd.DataFrame([res])
 
         # Path to the pipeline file
-        pipeline_path = os.path.join("models", "rf", request.session['col_predict'], "pipeline.pkl")
+        col_predict = request.POST.get('col_predict')  # Retrieve `col_predict` from POST data
+        pipeline_path = os.path.join("models", "rf", col_predict, "pipeline.pkl")
         print(pipeline_path)
-        print(request.session['col_predict'])
 
         # Check if the pipeline file exists
         if not os.path.exists(pipeline_path):
@@ -2853,10 +2907,7 @@ def model_predict(request):
 
         # Make the prediction
         predictions = loaded_pipeline.predict(df)
-        print(f"Predictions: {predictions}")
-
-        # Store the prediction in the session
-        request.session['rf_result'] = predictions[0]
+        print(predictions[0])
 
         # Return a success response with the prediction
         return JsonResponse({
