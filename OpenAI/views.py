@@ -1802,6 +1802,25 @@ def reading_data(request):
         except Exception as e:
             return HttpResponse(f"Error: {str(e)}", status=500)
 
+#Hana table delete
+@csrf_exempt
+def delete_table_api(request):
+    if request.method == 'POST':
+        email = request.POST['mail']
+        table_name = request.POST['table_name']
+        print(table_name)
+
+        if not table_name:
+            return JsonResponse({"error": "Table name is required."}, status=400)
+
+        result = db1.delete_req_table(email,table_name)
+        print(result)
+
+        if "deleted successfully" in result:
+            return JsonResponse({"status": "success", "message": result})
+        else:
+            return JsonResponse({"status": "failure", "message": result}, status=400)
+
 
 @csrf_exempt
 def flespicred(request):
