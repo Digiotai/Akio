@@ -45,6 +45,7 @@ urlpatterns = [
    path('api/hana_connect', hana_connection, name='connecting'),
    path('api/upload_data', upload_data, name='uploading'),
    path('api/hana_dataread', reading_data, name='hana_reading_data'),
+   path('api/hana_delete', delete_table_api, name='hana_delete_data'),
 
     # Flespi
     path('api/download_flespi_data', download_flespi_data, name='download_flespi_data'),
