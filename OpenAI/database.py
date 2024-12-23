@@ -660,6 +660,17 @@ class HanaDBManager:
             print(f"Error dropping table: {err}")
             return str(err)
 
+    def delete_req_table(self, email, table_name):
+        try:
+            self.ensure_hana_connection()
+            with self.connection.cursor() as cursor:
+                cursor.execute("DELETE FROM USER_DATA_TABLE WHERE USER_EMAIL = ? AND DATA_NAME = ?", (email, table_name))
+                if cursor.rowcount == 0:
+                    return f"No data found for email: {email} and table: {table_name}"
+            return f"Record deleted successfully for email: {email} and table: {table_name}"
+        except Exception as err:
+            print(f"Error deleting table data: {err}")
+            return str(err)
 
 # HANA Database Configuration
 HANA_ADDRESS = "d256c191-2360-4567-a61e-069cf7b83ea9.hana.trial-us10.hanacloud.ondemand.com"
@@ -671,6 +682,9 @@ if __name__ == '__main__':
     hana_db = HanaDBManager()
     hana_db.connect_to_hana(HANA_USER, HANA_PASSWORD, HANA_ADDRESS, HANA_PORT)
     hana_db.create_user_data_table()
+    # print(hana_db.fetch_table_overview())
+    # print("------------------------------------")
+    # hana_db.delete_req_table("ramu@gmail.com","retail_sales_data")
 
     # # Test case: Users uploading files
     # df1 = pd.DataFrame({"Column1": [1, 2], "Column2": ["A", "B"]})
