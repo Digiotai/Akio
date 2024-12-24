@@ -2022,6 +2022,7 @@ def generate_kpi_code(kpi_list):
             prompt_desc = (
                 f"You are analytics_bot. Read the data from data.csv file with example data as {df.head()} and generate python code with kpi details as {KPI_LOGICS.get(kpi, {})}. "
                 f"Save result in variable named result, plot a suitable plot for the result obtained, save it as name based on kpi and use static/charts to save the file. "
+                f"You have to give the description regarding the plot generated within 3 lines."
                 f"If length of result variable is 1 then keep bar width thin and x-axis limit as -0.5 and 0.5."
             )
 
@@ -2940,3 +2941,101 @@ def model_predict(request):
             "status": "failure",
             "message": f"An error occurred: {str(e)}"
         })
+
+
+#
+# #Payment Gateway
+# import uuid
+# import requests
+# from django.http import JsonResponse
+# from django.views.decorators.csrf import csrf_exempt
+# from django.conf import settings
+# from .models import Payment
+#
+# COSMOFEED_API_URL = os.getenv("OPENAI_API_KEY")
+# COSMOFEED_SECRET_KEY = os.getenv("OPENAI_API_KEY")
+#
+# @csrf_exempt
+# def initiate_payment(request):
+#     if request.method == "POST":
+#         amount = request.POST.get("amount")
+#         email = request.POST.get("email")
+#
+#         if not amount or not email:
+#             return JsonResponse({"error": "Amount and email are required"}, status=400)
+#
+#         try:
+#             amount = float(amount)
+#         except ValueError:
+#             return JsonResponse({"error": "Invalid amount format"}, status=400)
+#
+#         # Generate a unique order ID
+#         order_id = str(uuid.uuid4())
+#
+#         # Create a Payment object
+#         payment = Payment.objects.create(
+#             order_id=order_id,
+#             amount=amount,
+#             email=email,
+#         )
+#
+#         # Prepare the payload
+#         payload = {
+#             "amount": amount,
+#             "currency": "INR",
+#             "email": email,
+#             "order_id": order_id,
+#         }
+#
+#         # Headers for Cosmofeed API
+#         headers = {
+#             "Authorization": f"Bearer {COSMOFEED_SECRET_KEY}",
+#         }
+#
+#         # Make API call to Cosmofeed
+#         response = requests.post(
+#             f"{COSMOFEED_API_URL}/payment/initiate",
+#             json=payload,
+#             headers=headers,
+#         )
+#
+#         if response.status_code == 200:
+#             payment_url = response.json().get("payment_url")
+#             return JsonResponse({"payment_url": payment_url}, status=200)
+#         else:
+#             return JsonResponse(
+#                 {"error": "Failed to initiate payment"}, status=500
+#             )
+#
+#     return JsonResponse({"error": "Invalid request"}, status=400)
+#
+#
+#
+# #Payment Call back
+# @csrf_exempt
+# def payment_callback(request):
+#     if request.method == "POST":
+#         data = request.POST
+#
+#         # Extract payment details from the callback
+#         order_id = data.get("order_id")
+#         payment_id = data.get("payment_id")
+#         status = data.get("status")  # success, failed, etc.
+#
+#         # Retrieve the corresponding payment record
+#         try:
+#             payment = Payment.objects.get(order_id=order_id)
+#             payment.payment_id = payment_id
+#             payment.status = status
+#             payment.save()
+#
+#             # Handle success or failure
+#             if status == "success":
+#                 return JsonResponse({"message": "Payment successful"}, status=200)
+#             else:
+#                 return JsonResponse({"message": "Payment failed"}, status=400)
+#
+#         except Payment.DoesNotExist:
+#             return JsonResponse({"error": "Invalid order ID"}, status=400)
+#
+#     return JsonResponse({"error": "Invalid request"}, status=400)
