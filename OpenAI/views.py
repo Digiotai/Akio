@@ -1849,7 +1849,8 @@ def download_flespi_data(request):
                 })
             multi_data = json.loads(response.text)['result']
             multi_data = pre_process_multi_data(multi_data)
-            return HttpResponse(json.dumps({"data": multi_data}), content_type="application/json")
+            multi_data = convert_to_hourly(multi_data)
+            return HttpResponse(multi_data.to_json(orient="records", indent=4), content_type="application/json")
         except Exception as e:
             return HttpResponse(str(e))
 
@@ -1864,6 +1865,40 @@ def pre_process_multi_data(multi_data):
                 "%Y-%m-%d %H-%M-%S")
         })
     return multi_data
+
+
+def convert_to_hourly(data):
+    # Convert the list of dictionaries to a DataFrame
+    df = pd.DataFrame(data)
+
+    # Convert the 'timestamp' column to datetime
+    df['timestamp'] = pd.to_datetime(df['timestamp'], format='%Y-%m-%d %H-%M-%S')
+
+    # Extract the hour for grouping
+    df['hour'] = df['timestamp'].dt.floor('H')
+
+    # Define columns for aggregation
+    value_columns = ['Current', 'Humidity', 'Power', 'Temperature', 'Voltage']
+
+    # Flatten nested dictionaries for easier aggregation
+    for col in value_columns:
+        df[f'{col}_value'] = df[col].apply(lambda x: x['value'])
+
+    # Aggregate values by hour
+    hourly_data = df.groupby('hour').agg(
+        Current_avg=('Current_value', 'mean'),
+        Humidity_avg=('Humidity_value', 'mean'),
+        Power_avg=('Power_value', 'mean'),
+        Temperature_avg=('Temperature_value', 'mean'),
+        Voltage_avg=('Voltage_value', 'mean'),
+    ).reset_index()
+
+    hourly_data['hour'] = pd.to_datetime(hourly_data['hour'], unit='ms')
+
+    # Now, if you want a specific format (e.g., 'YYYY-MM-DD HH:MM:SS')
+    hourly_data['hour'] = hourly_data['hour'].dt.strftime('%Y-%m-%d %H:%M:%S')
+
+    return hourly_data
 
 
 # KPI APIS
