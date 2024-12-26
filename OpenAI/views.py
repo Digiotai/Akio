@@ -1837,10 +1837,10 @@ def download_flespi_data(request):
         flespi_token = request.POST.get('flespi_token')
         try:
             current_datetime = datetime.now(tz=ZoneInfo('Asia/Kolkata'))
-            start_of_day = current_datetime.replace(month=current_datetime.month - 1, day=current_datetime.day,
-                                                    hour=current_datetime.hour, minute=current_datetime.minute,
-                                                    second=0,
-                                                    microsecond=0)
+
+            start_of_day = (current_datetime - timedelta(weeks=1)).replace(hour=current_datetime.hour,
+                                                                           minute=current_datetime.minute, second=0,
+                                                                           microsecond=0)
             response = requests.get(
                 f'{flespi_URL}?data=%7B%22from%22%3A{start_of_day.timestamp()}%2C%22to%22%3A{datetime.now().timestamp()}%7D',
                 headers={
