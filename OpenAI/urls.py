@@ -58,10 +58,15 @@ urlpatterns = [
     path('api/detect_type', getting_types, name="detecting_type"),
     path('api/predefined_kpi_process', predefined_kpi_getting, name="predefined_kpi_getting"),
 
-
-
     #models for prediction urls
     path(r'api/models', models, name='models'),
-    path('model_predict', model_predict, name='model_predict')
+    path('model_predict', model_predict, name='model_predict'),
 
+    #Dashboard
+    path('api/dashboard',gen_graph_plotly_response, name="plotly dashboard"),
+
+    # #Payment Gateway
+    # path("api/initiate-payment", initiate_payment, name="initiate_payment"),
+    # path("api/payment-callback", payment_callback, name="payment_callback"),
 ]
+
