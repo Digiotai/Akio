@@ -18,6 +18,7 @@ from django.views.decorators.csrf import csrf_exempt
 from dotenv import load_dotenv
 from keras.models import load_model
 from openai import OpenAI
+from plotly.graph_objs import Figure
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
@@ -1404,6 +1405,8 @@ def handle_forecasting(df, openai_api_key, user_prompt, table_name="default_tabl
 
 
 import markdown
+
+
 def markdown_to_html(md_text):
     html_text = markdown.markdown(md_text)
     return html_text
@@ -1802,7 +1805,8 @@ def reading_data(request):
         except Exception as e:
             return HttpResponse(f"Error: {str(e)}", status=500)
 
-#Hana table delete
+
+# Hana table delete
 @csrf_exempt
 def delete_table_api(request):
     if request.method == 'POST':
@@ -1813,7 +1817,7 @@ def delete_table_api(request):
         if not table_name:
             return JsonResponse({"error": "Table name is required."}, status=400)
 
-        result = db1.delete_req_table(email,table_name)
+        result = db1.delete_req_table(email, table_name)
         print(result)
 
         if "deleted successfully" in result:
@@ -2402,7 +2406,7 @@ def getting_types(request):
         return HttpResponse(error_message, status=500)
 
 
-#Getting prepared the predefined kpis with this
+# Getting prepared the predefined kpis with this
 @csrf_exempt
 def predefined_kpi_getting(request):
     """
@@ -2481,6 +2485,7 @@ def predefined_kpi_getting(request):
             'message': error_message
         })
 
+
 # For Model checking....
 from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
@@ -2512,6 +2517,7 @@ from dateutil.relativedelta import relativedelta
 import xml.etree.ElementTree as ET
 from keras.models import load_model
 import matplotlib.pyplot as plt
+
 
 @csrf_exempt
 def models(request):
@@ -2583,7 +2589,6 @@ def models(request):
             'form1': False,
             'msg': error_message
         }, status=500)
-
 
 
 def outliercheck(df, column):
@@ -2725,7 +2730,7 @@ def arima_train(data, target_col):
             with open(os.path.join("models", 'arima', target_col, target_col + '_results.json'), 'w') as fp:
                 json.dump(results, fp)
             print("Plot results will be calling here........")
-            base64_image = plot_graph(results,os.path.join('models', 'arima', target_col))
+            base64_image = plot_graph(results, os.path.join('models', 'arima', target_col))
             results['plot'] = base64_image
             print("Plot results will end here.......")
             print(f"Results saved to {os.path.join('models', 'arima', target_col, target_col + '_results.json')}")
@@ -2740,7 +2745,7 @@ def arima_train(data, target_col):
         return False
 
 
-def plot_graph(data,file_path):
+def plot_graph(data, file_path):
     try:
         col = file_path.split('\\')[-1]
         actual_dates = [datetime.strptime(date, "%Y-%m-%d") for date in data["actual"]["date"]]
@@ -2780,6 +2785,7 @@ def plot_graph(data,file_path):
     except Exception as e:
         print(f"Error in plot_graph: {e}")
         return None
+
 
 def kmeans_train(data):
     try:
@@ -2836,7 +2842,6 @@ def kmeans_train(data):
     except Exception as e:
         print(e)
         return False, str(e)  # Returning error as a string instead of DataFrame
-
 
 
 def load_pipeline(save_path="model_pipeline.pkl"):
@@ -2925,7 +2930,6 @@ from joblib import load
 from django.views.decorators.csrf import csrf_exempt
 
 
-
 @csrf_exempt
 def model_predict(request):
     try:
@@ -2977,100 +2981,344 @@ def model_predict(request):
             "message": f"An error occurred: {str(e)}"
         })
 
-
 #
-# #Payment Gateway
-# import uuid
-# import requests
+# #Dasboard
+# import pandas as pd
+# import plotly.express as px
+# from plotly.utils import PlotlyJSONEncoder
 # from django.http import JsonResponse
 # from django.views.decorators.csrf import csrf_exempt
-# from django.conf import settings
-# from .models import Payment
-#
-# COSMOFEED_API_URL = os.getenv("OPENAI_API_KEY")
-# COSMOFEED_SECRET_KEY = os.getenv("OPENAI_API_KEY")
+# import json
 #
 # @csrf_exempt
-# def initiate_payment(request):
+# def gen_graph_plotly_response(request):
 #     if request.method == "POST":
-#         amount = request.POST.get("amount")
-#         email = request.POST.get("email")
+#         print("POST request received for generating Plotly graphs.")
 #
-#         if not amount or not email:
-#             return JsonResponse({"error": "Amount and email are required"}, status=400)
-#
+#         # Load CSV file
+#         csv_file_path = 'data.csv'
+#         print(f"CSV File Path: {csv_file_path}")
 #         try:
-#             amount = float(amount)
-#         except ValueError:
-#             return JsonResponse({"error": "Invalid amount format"}, status=400)
+#             df = pd.read_csv(csv_file_path)
+#             print("CSV loaded successfully.")
+#         except Exception as e:
+#             print(f"Error loading CSV: {e}")
+#             return JsonResponse({"error": f"Error loading CSV: {e}"}, status=500)
 #
-#         # Generate a unique order ID
-#         order_id = str(uuid.uuid4())
+#         print(f"Dataframe Head:\n{df.head()}")
 #
-#         # Create a Payment object
-#         payment = Payment.objects.create(
-#             order_id=order_id,
-#             amount=amount,
-#             email=email,
-#         )
+#         # Select numerical columns
+#         try:
+#             numerical_columns = df.select_dtypes(include=['number']).columns.tolist()
+#             print(numerical_columns[0])
+#             if len(numerical_columns) < 2:
+#                 return JsonResponse(
+#                     {"error": "Dataset must contain at least two numerical columns for graph generation."},
+#                     status=400
+#                 )
+#             print(f"Numerical columns detected: {numerical_columns}")
 #
-#         # Prepare the payload
-#         payload = {
-#             "amount": amount,
-#             "currency": "INR",
-#             "email": email,
-#             "order_id": order_id,
-#         }
+#         except Exception as e:
+#             print(f"Error selecting numerical columns: {e}")
+#             return JsonResponse({"error": f"Error selecting numerical columns: {e}"}, status=500)
 #
-#         # Headers for Cosmofeed API
-#         headers = {
-#             "Authorization": f"Bearer {COSMOFEED_SECRET_KEY}",
-#         }
+#         # Create the graphs using Plotly
+#         try:
+#             graphs = []
 #
-#         # Make API call to Cosmofeed
-#         response = requests.post(
-#             f"{COSMOFEED_API_URL}/payment/initiate",
-#             json=payload,
-#             headers=headers,
-#         )
-#
-#         if response.status_code == 200:
-#             payment_url = response.json().get("payment_url")
-#             return JsonResponse({"payment_url": payment_url}, status=200)
-#         else:
-#             return JsonResponse(
-#                 {"error": "Failed to initiate payment"}, status=500
+#             # Scatter Plot
+#             fig_scatter = px.scatter(
+#                 df,
+#                 x=numerical_columns[0],
+#                 y=numerical_columns[1],
+#                 title=f"Scatter Plot: {numerical_columns[0]} vs {numerical_columns[1]}",
+#                 labels={numerical_columns[0]: numerical_columns[0], numerical_columns[1]: numerical_columns[1]}
 #             )
+#             graphs.append(fig_scatter)
 #
-#     return JsonResponse({"error": "Invalid request"}, status=400)
+#             # Grouped Bar Chart
+#             if len(numerical_columns) > 2 and df.columns.size > len(numerical_columns):
+#                 categorical_column = df.select_dtypes(exclude=['number']).columns[0]
+#                 fig_bar = px.bar(
+#                     df,
+#                     x=categorical_column,
+#                     y=numerical_columns[2],
+#                     title=f"Grouped Bar Chart: {categorical_column} vs {numerical_columns[2]}",
+#                     color=categorical_column,
+#                     barmode='group'
+#                 )
+#                 graphs.append(fig_bar)
 #
+#             # Line Graph
+#             if len(numerical_columns) > 2:
+#                 fig_line = px.line(
+#                     df,
+#                     x=numerical_columns[0],
+#                     y=numerical_columns[2],
+#                     title=f"Line Graph: {numerical_columns[0]} vs {numerical_columns[2]}",
+#                     labels={numerical_columns[0]: numerical_columns[0], numerical_columns[2]: numerical_columns[2]}
+#                 )
+#                 graphs.append(fig_line)
 #
+#             # Simple Bar Chart
+#             fig_simple_bar = px.bar(
+#                 df,
+#                 x=numerical_columns[0],
+#                 y=numerical_columns[1],
+#                 title=f"Bar Chart: {numerical_columns[0]} vs {numerical_columns[1]}",
+#                 labels={numerical_columns[0]: numerical_columns[0], numerical_columns[1]: numerical_columns[1]}
+#             )
+#             graphs.append(fig_simple_bar)
 #
-# #Payment Call back
+#             # Pie Chart
+#             if df.columns.size > len(numerical_columns):
+#                 categorical_column = df.select_dtypes(exclude=['number']).columns[0]
+#                 fig_pie = px.pie(
+#                     df,
+#                     names=categorical_column,
+#                     values=numerical_columns[0],
+#                     title=f"Pie Chart: {categorical_column} Composition"
+#                 )
+#                 graphs.append(fig_pie)
+#
+#             # Convert all figures to JSON using PlotlyJSONEncoder
+#             charts_json = [json.loads(json.dumps(fig, cls=PlotlyJSONEncoder)) for fig in graphs]
+#
+#             # Return all graphs as JSON
+#             return JsonResponse({"charts": charts_json}, status=200)
+#
+#         except Exception as e:
+#             print(f"Error generating graphs: {e}")
+#             return JsonResponse({"error": f"Error generating graphs: {e}"}, status=500)
+#
+#     return JsonResponse({"error": "Invalid request method."}, status=400)
+#
+
 # @csrf_exempt
-# def payment_callback(request):
+# def gen_graph_plotly_response(request):
 #     if request.method == "POST":
-#         data = request.POST
+#         print("POST request received for generating Plotly graphs.")
 #
-#         # Extract payment details from the callback
-#         order_id = data.get("order_id")
-#         payment_id = data.get("payment_id")
-#         status = data.get("status")  # success, failed, etc.
-#
-#         # Retrieve the corresponding payment record
+#         # Load CSV file
+#         csv_file_path = 'data.csv'
+#         print(f"CSV File Path: {csv_file_path}")
 #         try:
-#             payment = Payment.objects.get(order_id=order_id)
-#             payment.payment_id = payment_id
-#             payment.status = status
-#             payment.save()
+#             df = pd.read_csv(csv_file_path)
+#             print("CSV loaded successfully.")
+#         except Exception as e:
+#             print(f"Error loading CSV: {e}")
+#             return JsonResponse({"error": f"Error loading CSV: {e}"}, status=500)
 #
-#             # Handle success or failure
-#             if status == "success":
-#                 return JsonResponse({"message": "Payment successful"}, status=200)
-#             else:
-#                 return JsonResponse({"message": "Payment failed"}, status=400)
+#         print(f"Dataframe Head:\n{df.head()}")
 #
-#         except Payment.DoesNotExist:
-#             return JsonResponse({"error": "Invalid order ID"}, status=400)
+#         # Select numerical and non-numerical columns
+#         try:
+#             numerical_columns = df.select_dtypes(include=['number']).columns.tolist()
+#             non_numerical_columns = df.select_dtypes(exclude=['number']).columns.tolist()
 #
-#     return JsonResponse({"error": "Invalid request"}, status=400)
+#             if not numerical_columns:
+#                 return JsonResponse(
+#                     {"error": "Dataset must contain at least one numerical column for graph generation."},
+#                     status=400
+#                 )
+#             if not non_numerical_columns:
+#                 return JsonResponse(
+#                     {"error": "Dataset must contain at least one non-numerical column for graph generation."},
+#                     status=400
+#                 )
+#
+#             print(f"Numerical columns detected: {numerical_columns}")
+#             print(f"Non-numerical columns detected: {non_numerical_columns}")
+#
+#         except Exception as e:
+#             print(f"Error selecting columns: {e}")
+#             return JsonResponse({"error": f"Error selecting columns: {e}"}, status=500)
+#
+#         # Create the graphs using Plotly
+#         try:
+#             graphs = []
+#
+#             # Generate graphs for all numerical columns against all non-numerical columns
+#             for x_col in non_numerical_columns:
+#                 for y_col in numerical_columns:
+#                     # Scatter Plot
+#                     fig_scatter = px.scatter(
+#                         df,
+#                         x=x_col,
+#                         y=y_col,
+#                         title=f"Scatter Plot: {x_col} vs {y_col}",
+#                         labels={x_col: x_col, y_col: y_col}
+#                     )
+#                     graphs.append(fig_scatter)
+#
+#                     # Grouped Bar Chart
+#                     fig_bar = px.bar(
+#                         df,
+#                         x=x_col,
+#                         y=y_col,
+#                         title=f"Grouped Bar Chart: {x_col} vs {y_col}",
+#                         color=x_col,
+#                         barmode='group'
+#                     )
+#                     graphs.append(fig_bar)
+#
+#                     # Line Graph
+#                     fig_line = px.line(
+#                         df,
+#                         x=x_col,
+#                         y=y_col,
+#                         title=f"Line Graph: {x_col} vs {y_col}",
+#                         labels={x_col: x_col, y_col: y_col}
+#                     )
+#                     graphs.append(fig_line)
+#
+#             # Convert all figures to JSON using PlotlyJSONEncoder
+#             charts_json = [json.loads(json.dumps(fig, cls=PlotlyJSONEncoder)) for fig in graphs]
+#
+#             # Return all graphs as JSON
+#             return JsonResponse({"charts": charts_json}, status=200)
+#
+#         except Exception as e:
+#             print(f"Error generating graphs: {e}")
+#             return JsonResponse({"error": f"Error generating graphs: {e}"}, status=500)
+#
+#     return JsonResponse({"error": "Invalid request method."}, status=400)
+
+
+
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import pandas as pd
+import plotly.express as px
+import json
+import random
+from plotly.utils import PlotlyJSONEncoder
+
+
+@csrf_exempt
+def gen_graph_plotly_response(request):
+    global fig
+    if request.method == "POST":
+        print("POST request received for generating Plotly graphs.")
+
+        # Load CSV file
+        csv_file_path = 'data.csv'
+        print(f"CSV File Path: {csv_file_path}")
+        try:
+            df = pd.read_csv(csv_file_path)
+            print("CSV loaded successfully.")
+        except Exception as e:
+            print(f"Error loading CSV: {e}")
+            return JsonResponse({"error": f"Error loading CSV: {e}"}, status=500)
+
+        print(f"Dataframe Head:\n{df.head()}")
+
+        # Detect and process columns
+        try:
+            # Convert Date column to datetime if it's not already in datetime format
+            if df['Date'].dtype == 'object':  # Check if 'Date' is not already datetime
+                df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+                print(f"Date column successfully converted to datetime.")
+
+            # Identify date, numerical, and non-numerical columns
+            date_columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
+            numerical_columns = df.select_dtypes(include=['number']).columns.tolist()
+            non_numerical_columns = df.select_dtypes(exclude=['number']).columns.tolist()
+
+            if not numerical_columns:
+                return JsonResponse({"error": "Dataset must contain at least one numerical column."}, status=400)
+
+            print(f"Date columns detected: {date_columns}")
+            print(f"Numerical columns detected: {numerical_columns}")
+            print(f"Non-numerical columns detected: {non_numerical_columns}")
+
+            # Calculate correlation matrix
+            correlation_matrix = df[numerical_columns].corr()
+            important_columns = correlation_matrix.columns[correlation_matrix.max() > 0.5].tolist()
+            print(f"Important columns based on correlation: {important_columns}")
+
+        except Exception as e:
+            print(f"Error detecting columns: {e}")
+            return JsonResponse({"error": f"Error detecting columns: {e}"}, status=500)
+
+        # Generate graphs for the selected columns
+        try:
+            graphs = []
+
+            if date_columns:
+                # If a date column exists, group by year
+                date_col = date_columns[0]
+                df['Year'] = df[date_col].dt.year
+
+                # Aggregate numerical data by year
+                yearly_data = df.groupby('Year')[numerical_columns].mean().reset_index()
+
+                # Create a single random graph for each important numerical column
+                for y_col in important_columns:  # Only generate graphs for important columns
+                    if y_col in numerical_columns:
+                        # Randomly choose whether to generate a line graph or a bar graph
+                        graph_type = random.choice(['line', 'bar'])
+
+                        if graph_type == 'line':
+                            fig = px.line(
+                                yearly_data,
+                                x='Year',
+                                y=y_col,
+                                title=f"Yearly Trend for {y_col}",
+                                labels={'Year': 'Year', y_col: y_col},
+                                markers=True
+                            )
+                        elif graph_type == 'bar':
+                            fig = px.bar(
+                                yearly_data,
+                                x='Year',
+                                y=y_col,
+                                title=f"Yearly Summary for {y_col}",
+                                labels={'Year': 'Year', y_col: y_col}
+                            )
+
+                        graphs.append(fig)
+
+            else:
+                # If no date column exists, group by non-numeric column (e.g., Area)
+                for non_num_col in non_numerical_columns:
+                    if non_num_col != 'Date':  # Ensure 'Date' column is excluded
+                        grouped_data = df.groupby([non_num_col])[numerical_columns].mean().reset_index()
+
+                        # Create a single random graph for each important numerical column
+                        for y_col in important_columns:  # Only generate graphs for important columns
+                            if y_col in numerical_columns:
+                                # Randomly choose whether to generate a line graph or a bar graph
+                                graph_type = random.choice(['line', 'bar'])
+
+                                if graph_type == 'line':
+                                    fig = px.line(
+                                        grouped_data,
+                                        x=non_num_col,
+                                        y=y_col,
+                                        title=f"Grouped by {non_num_col}: Trend for {y_col}",
+                                        labels={non_num_col: non_num_col, y_col: y_col},
+                                        markers=True
+                                    )
+                                elif graph_type == 'bar':
+                                    fig = px.bar(
+                                        grouped_data,
+                                        x=non_num_col,
+                                        y=y_col,
+                                        title=f"Grouped by {non_num_col}: Summary for {y_col}",
+                                        labels={non_num_col: non_num_col, y_col: y_col}
+                                    )
+
+                                graphs.append(fig)
+
+            # Convert all figures to JSON using PlotlyJSONEncoder
+            charts_json = [json.loads(json.dumps(fig, cls=PlotlyJSONEncoder)) for fig in graphs]
+
+            # Return all graphs as JSON
+            return JsonResponse({"charts": charts_json}, status=200)
+
+        except Exception as e:
+            print(f"Error generating graphs: {e}")
+            return JsonResponse({"error": f"Error generating graphs: {e}"}, status=500)
+
+    return JsonResponse({"error": "Invalid request method."}, status=400)
