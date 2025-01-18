@@ -718,6 +718,80 @@ def get_user_data(request):
         return HttpResponse(json.dumps({"result": table_info}), content_type="application/json")
 
 
+# Deleting all the tables based on the user email
+@csrf_exempt
+def delete_all_user_tables(request):
+    if request.method == 'POST':
+        try:
+            email = request.POST.get('email')
+            print(f"Received email for deletion: {email}")  # Debug statement
+
+            if not email:
+                print("Email is missing in the request.")  # Debug statement
+                return JsonResponse({"error": "Email is required"}, status=400)
+
+            # Assuming `db` is an instance of your database class
+            print(f"Calling delete_user_tables method with email: {email}")  # Debug statement
+            deletion_status = db.delete_all_tables_data(email)
+
+            if deletion_status:
+                print(f"All tables associated with email '{email}' have been deleted.")  # Debug statement
+                return JsonResponse({"message": f"All tables associated with email '{email}' have been deleted."},
+                                    status=200)
+            else:
+                print(f"No tables found for email '{email}' or an error occurred.")  # Debug statement
+                return JsonResponse({"error": f"No tables found for email '{email}' or an error occurred."}, status=404)
+        except Exception as e:
+            print(f"Exception occurred while deleting tables: {str(e)}")  # Debug statement
+            return JsonResponse({"error": f"An error occurred: {str(e)}"}, status=500)
+    print("Invalid request method. Only POST is allowed.")  # Debug statement
+    return JsonResponse({"error": "Invalid request method. Use POST."}, status=405)
+
+
+# Deleting the user-specific list of tables
+@csrf_exempt
+def delete_selected_tables_by_name(request):
+    if request.method == 'POST':
+        try:
+            # Extract user email and table names from the request
+            print("Parsing request body for table deletion.")  # Debug statement
+
+            email = request.POST.get('email')
+            table_names = request.POST.getlist('table_names')  # List of table names to delete
+
+            print(f"Received email: {email}, table names: {table_names}")  # Debug statement
+
+            if not email or not table_names:
+                print("Missing 'email' or 'table_names' in the request.")  # Debug statement
+                return JsonResponse({"error": "Both 'email' and 'table_names' are required"}, status=400)
+
+            if not isinstance(table_names, list):
+                print(f"Invalid data type for table_names: {type(table_names)}")  # Debug statement
+                return JsonResponse({"error": "'table_names' must be a list"}, status=400)
+
+            # Assuming `db` is your database manager instance
+            print(
+                f"Calling delete_selected_user_tables_by_name with email: {email} and table_names: {table_names}")  # Debug statement
+            deletion_status = db.delete_tables_data(email, table_names)
+
+            if deletion_status:
+                print(f"Deleted {len(table_names)} table(s) for email '{email}'.")  # Debug statement
+                return JsonResponse({
+                    "message": f"{len(table_names)} table(s) associated with email '{email}' have been deleted."
+                }, status=200)
+            else:
+                print(
+                    f"No matching tables found for email '{email}' or the provided table names: {table_names}")  # Debug statement
+                return JsonResponse({
+                    "error": f"No matching tables found for email '{email}' or the provided table names."
+                }, status=404)
+        except Exception as e:
+            print(f"Exception occurred while deleting selected tables: {str(e)}")  # Debug statement
+            return JsonResponse({"error": f"An error occurred: {str(e)}"}, status=500)
+    print("Invalid request method. Only POST is allowed.")  # Debug statement
+    return JsonResponse({"error": "Invalid request method. Use POST."}, status=405)
+
+
 # Showing the data to the user based on the table name
 @csrf_exempt
 def read_db_table_data(request):
@@ -933,61 +1007,61 @@ def execute_py_code(code, df):
 
 
 # For Genai
-from django.views.decorators.csrf import csrf_exempt
-
-
-@csrf_exempt
-def gen_graph_response(request):
-    if request.method == "POST":
-
-        csv_file_path = 'data.csv'
-        df = pd.read_csv(csv_file_path)
-
-        # Generate CSV metadata
-        csv_metadata = {"columns": df.columns.tolist()}
-        metadata_str = ", ".join(csv_metadata["columns"])
-
-        query = request.POST["query"]
-
-        prompt_eng = (
-            f"You are an AI specialized in data analytics and visualization."
-            f" Data used for analysis is stored in a CSV file data.csv."
-            f"Attributes of the data are: {metadata_str}."
-            f"Consider 'data.csv' as the data source for any analysis."
-            f"Based on the query generate only the Python code using Matplotlib to plot the graph."
-            f"Save the graph as 'graph.png'. Also save the graph description in description.txt"
-            f"The user asks: {query}"
-        )
-
-        code = generate_code(prompt_eng)
-        print(code)
-
-        if 'import matplotlib' in code:
-            try:
-                exec(code)
-                # Send the generated 'graph.png' as the file response
-                image_path = "graph.png"
-                if os.path.exists(image_path):
-                    return FileResponse(open(image_path, 'rb'), content_type='image/png')
-                else:
-                    return HttpResponse("Graph image not found", status=404)
-            except Exception as e:
-                prompt_eng = f"There has occurred an error while executing the code, please take a look at the error " \
-                             f"and strictly only reply with the full python code. Do not apologize or anything; just " \
-                             f"give the code. {str(e)}"
-                code = generate_code(prompt_eng)
-                try:
-                    exec(code)
-                    # Send the generated 'graph.png' as the file response
-                    image_path = "graph.png"
-                    if os.path.exists(image_path):
-                        return FileResponse(open(image_path, 'rb'), content_type='image/png')
-                    else:
-                        return HttpResponse("Graph image not found", status=404)
-                except Exception as e:
-                    return HttpResponse("Failed to generate the chart. Please try again")
-        else:
-            return HttpResponse(code)
+# from django.views.decorators.csrf import csrf_exempt
+#
+#
+# @csrf_exempt
+# def gen_graph_response(request):
+#     if request.method == "POST":
+#
+#         csv_file_path = 'data.csv'
+#         df = pd.read_csv(csv_file_path)
+#
+#         # Generate CSV metadata
+#         csv_metadata = {"columns": df.columns.tolist()}
+#         metadata_str = ", ".join(csv_metadata["columns"])
+#
+#         query = request.POST["query"]
+#
+#         prompt_eng = (
+#             f"You are an AI specialized in data analytics and visualization."
+#             f" Data used for analysis is stored in a CSV file data.csv."
+#             f"Attributes of the data are: {metadata_str}."
+#             f"Consider 'data.csv' as the data source for any analysis."
+#             f"Based on the query generate only the Python code using Matplotlib to plot the graph."
+#             f"Save the graph as 'graph.png'. Also save the graph description in description.txt"
+#             f"The user asks: {query}"
+#         )
+#
+#         code = generate_code(prompt_eng)
+#         print(code)
+#
+#         if 'import matplotlib' in code:
+#             try:
+#                 exec(code)
+#                 # Send the generated 'graph.png' as the file response
+#                 image_path = "graph.png"
+#                 if os.path.exists(image_path):
+#                     return FileResponse(open(image_path, 'rb'), content_type='image/png')
+#                 else:
+#                     return HttpResponse("Graph image not found", status=404)
+#             except Exception as e:
+#                 prompt_eng = f"There has occurred an error while executing the code, please take a look at the error " \
+#                              f"and strictly only reply with the full python code. Do not apologize or anything; just " \
+#                              f"give the code. {str(e)}"
+#                 code = generate_code(prompt_eng)
+#                 try:
+#                     exec(code)
+#                     # Send the generated 'graph.png' as the file response
+#                     image_path = "graph.png"
+#                     if os.path.exists(image_path):
+#                         return FileResponse(open(image_path, 'rb'), content_type='image/png')
+#                     else:
+#                         return HttpResponse("Graph image not found", status=404)
+#                 except Exception as e:
+#                     return HttpResponse("Failed to generate the chart. Please try again")
+#         else:
+#             return HttpResponse(code)
 
 
 @csrf_exempt
@@ -998,6 +1072,107 @@ def get_description(request):
         return HttpResponse(json.dumps({"description": data}), content_type="application/json")
     except Exception as e:
         print(e)
+
+
+#For genai using plotly
+from django.http import JsonResponse, HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+import pandas as pd
+from plotly.graph_objects import Figure
+
+@csrf_exempt
+def gen_graph_response(request):
+    if request.method == "POST":
+        try:
+            # Load CSV
+            csv_file_path = 'data.csv'
+            df = pd.read_csv(csv_file_path)
+
+            # Generate CSV metadata
+            csv_metadata = {"columns": df.columns.tolist()}
+            metadata_str = ", ".join(csv_metadata["columns"])
+
+            # User's query
+            query = request.POST.get("query", "")
+
+            # Prompt engineering for AI
+            prompt_eng = (
+                f"You are an AI specialized in data analytics and visualization."
+                f"Data used for analysis is stored in a CSV file named 'data.csv'."
+                f"Attributes of the data are: {metadata_str}."
+                f"Consider 'data.csv' as the data source for any analysis."
+                f"Based on the user's query, generate Python code using Plotly to create the requested type of graph "
+                f"(e.g., bar, pie, scatter, etc.)."
+                f"If the user does not specify a graph type, decide whether to generate a line or bar graph based on the situation."
+                f"Every graph must include a title, axis labels (if applicable), and appropriate colors for better visualization."
+                f"Ensure the graph is visually appealing and provides sufficient context for understanding."
+                f"The code must output a Plotly 'Figure' object stored in a variable named 'fig', and the 'data' and 'layout' "
+                f"dictionaries required for the graph."
+                f"The user asks: {query}"
+            )
+
+            # Call AI to generate the code
+            chat = generate_code(prompt_eng)
+            print("Generated code from AI:")
+            print(chat)
+
+            # Check for valid Plotly code in the AI response
+            if 'import' in chat:
+                # print("Executing generated code...")
+                #
+                # # Generate the code dynamically
+                # code = generate_code(chat)
+                # print("Generated Python code:")
+                # print(code)
+
+                namespace = {}
+                try:
+                    # Execute the generated code
+                    exec(chat, namespace)
+
+                    # Retrieve the Plotly figure from the namespace
+                    fig = namespace.get("fig")
+
+                    if fig and isinstance(fig, Figure):
+                        # Convert the Plotly figure to JSON
+                        chart_data = fig.to_plotly_json()
+
+                        # Ensure JSON serialization by converting NumPy arrays to lists
+                        def make_serializable(obj):
+                            if isinstance(obj, np.ndarray):
+                                return obj.tolist()
+                            elif isinstance(obj, dict):
+                                return {k: make_serializable(v) for k, v in obj.items()}
+                            elif isinstance(obj, list):
+                                return [make_serializable(v) for v in obj]
+                            return obj
+
+                        # Recursively process the chart_data
+                        chart_data_serializable = make_serializable(chart_data)
+
+                        # Return the structured response to the frontend
+                        return JsonResponse({
+                            "chartData": chart_data_serializable
+                        }, status=200)
+                    else:
+                        print("No valid Plotly figure found.")
+                        return JsonResponse({"message": "No valid Plotly figure found."}, status=200)
+                except Exception as e:
+                    error_message = f"There was an error while executing the code: {str(e)}"
+                    print(error_message)
+                    return JsonResponse({"message": error_message}, status=500)
+            else:
+                print("Invalid AI response.")
+                return JsonResponse({"message": "AI response does not contain valid code."}, status=400)
+        except Exception as e:
+            # Handle general exceptions
+            error_message = f"An unexpected error occurred: {str(e)}"
+            print(error_message)
+            return JsonResponse({"message": error_message}, status=500)
+
+    # Return a fallback HttpResponse for invalid request methods
+    return HttpResponse("Invalid request method", status=405)
+
 
 
 # For genbi
@@ -1905,6 +2080,7 @@ def convert_to_hourly(data):
     return hourly_data
 
 
+#------------------------------------------------------------------------------------
 # KPI APIS
 from collections import defaultdict
 
@@ -2604,6 +2780,8 @@ def outliercheck(df, column):
     for choice in response.choices:
         message = choice.message
         chunk_message = message.content if message else ''
+        # Replace 'red' styling keywords with 'skyblue' or similar
+        chunk_message = chunk_message.replace("color: red;", "color: skyblue;")
         all_text += chunk_message
     print(all_text)
     return all_text
@@ -2981,17 +3159,20 @@ def model_predict(request):
             "message": f"An error occurred: {str(e)}"
         })
 
-#
+
 # #Dasboard
-# import pandas as pd
-# import plotly.express as px
-# from plotly.utils import PlotlyJSONEncoder
 # from django.http import JsonResponse
 # from django.views.decorators.csrf import csrf_exempt
+# import pandas as pd
+# import plotly.express as px
 # import json
+# import random
+# from plotly.utils import PlotlyJSONEncoder
+#
 #
 # @csrf_exempt
 # def gen_graph_plotly_response(request):
+#     global fig
 #     if request.method == "POST":
 #         print("POST request received for generating Plotly graphs.")
 #
@@ -3007,170 +3188,103 @@ def model_predict(request):
 #
 #         print(f"Dataframe Head:\n{df.head()}")
 #
-#         # Select numerical columns
+#         # Detect and process columns
 #         try:
-#             numerical_columns = df.select_dtypes(include=['number']).columns.tolist()
-#             print(numerical_columns[0])
-#             if len(numerical_columns) < 2:
-#                 return JsonResponse(
-#                     {"error": "Dataset must contain at least two numerical columns for graph generation."},
-#                     status=400
-#                 )
-#             print(f"Numerical columns detected: {numerical_columns}")
+#             # Convert Date column to datetime if it's not already in datetime format
+#             if df['Date'].dtype == 'object':  # Check if 'Date' is not already datetime
+#                 df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+#                 print(f"Date column successfully converted to datetime.")
 #
-#         except Exception as e:
-#             print(f"Error selecting numerical columns: {e}")
-#             return JsonResponse({"error": f"Error selecting numerical columns: {e}"}, status=500)
-#
-#         # Create the graphs using Plotly
-#         try:
-#             graphs = []
-#
-#             # Scatter Plot
-#             fig_scatter = px.scatter(
-#                 df,
-#                 x=numerical_columns[0],
-#                 y=numerical_columns[1],
-#                 title=f"Scatter Plot: {numerical_columns[0]} vs {numerical_columns[1]}",
-#                 labels={numerical_columns[0]: numerical_columns[0], numerical_columns[1]: numerical_columns[1]}
-#             )
-#             graphs.append(fig_scatter)
-#
-#             # Grouped Bar Chart
-#             if len(numerical_columns) > 2 and df.columns.size > len(numerical_columns):
-#                 categorical_column = df.select_dtypes(exclude=['number']).columns[0]
-#                 fig_bar = px.bar(
-#                     df,
-#                     x=categorical_column,
-#                     y=numerical_columns[2],
-#                     title=f"Grouped Bar Chart: {categorical_column} vs {numerical_columns[2]}",
-#                     color=categorical_column,
-#                     barmode='group'
-#                 )
-#                 graphs.append(fig_bar)
-#
-#             # Line Graph
-#             if len(numerical_columns) > 2:
-#                 fig_line = px.line(
-#                     df,
-#                     x=numerical_columns[0],
-#                     y=numerical_columns[2],
-#                     title=f"Line Graph: {numerical_columns[0]} vs {numerical_columns[2]}",
-#                     labels={numerical_columns[0]: numerical_columns[0], numerical_columns[2]: numerical_columns[2]}
-#                 )
-#                 graphs.append(fig_line)
-#
-#             # Simple Bar Chart
-#             fig_simple_bar = px.bar(
-#                 df,
-#                 x=numerical_columns[0],
-#                 y=numerical_columns[1],
-#                 title=f"Bar Chart: {numerical_columns[0]} vs {numerical_columns[1]}",
-#                 labels={numerical_columns[0]: numerical_columns[0], numerical_columns[1]: numerical_columns[1]}
-#             )
-#             graphs.append(fig_simple_bar)
-#
-#             # Pie Chart
-#             if df.columns.size > len(numerical_columns):
-#                 categorical_column = df.select_dtypes(exclude=['number']).columns[0]
-#                 fig_pie = px.pie(
-#                     df,
-#                     names=categorical_column,
-#                     values=numerical_columns[0],
-#                     title=f"Pie Chart: {categorical_column} Composition"
-#                 )
-#                 graphs.append(fig_pie)
-#
-#             # Convert all figures to JSON using PlotlyJSONEncoder
-#             charts_json = [json.loads(json.dumps(fig, cls=PlotlyJSONEncoder)) for fig in graphs]
-#
-#             # Return all graphs as JSON
-#             return JsonResponse({"charts": charts_json}, status=200)
-#
-#         except Exception as e:
-#             print(f"Error generating graphs: {e}")
-#             return JsonResponse({"error": f"Error generating graphs: {e}"}, status=500)
-#
-#     return JsonResponse({"error": "Invalid request method."}, status=400)
-#
-
-# @csrf_exempt
-# def gen_graph_plotly_response(request):
-#     if request.method == "POST":
-#         print("POST request received for generating Plotly graphs.")
-#
-#         # Load CSV file
-#         csv_file_path = 'data.csv'
-#         print(f"CSV File Path: {csv_file_path}")
-#         try:
-#             df = pd.read_csv(csv_file_path)
-#             print("CSV loaded successfully.")
-#         except Exception as e:
-#             print(f"Error loading CSV: {e}")
-#             return JsonResponse({"error": f"Error loading CSV: {e}"}, status=500)
-#
-#         print(f"Dataframe Head:\n{df.head()}")
-#
-#         # Select numerical and non-numerical columns
-#         try:
+#             # Identify date, numerical, and non-numerical columns
+#             date_columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
 #             numerical_columns = df.select_dtypes(include=['number']).columns.tolist()
 #             non_numerical_columns = df.select_dtypes(exclude=['number']).columns.tolist()
 #
 #             if not numerical_columns:
-#                 return JsonResponse(
-#                     {"error": "Dataset must contain at least one numerical column for graph generation."},
-#                     status=400
-#                 )
-#             if not non_numerical_columns:
-#                 return JsonResponse(
-#                     {"error": "Dataset must contain at least one non-numerical column for graph generation."},
-#                     status=400
-#                 )
+#                 return JsonResponse({"error": "Dataset must contain at least one numerical column."}, status=400)
 #
+#             print(f"Date columns detected: {date_columns}")
 #             print(f"Numerical columns detected: {numerical_columns}")
 #             print(f"Non-numerical columns detected: {non_numerical_columns}")
 #
-#         except Exception as e:
-#             print(f"Error selecting columns: {e}")
-#             return JsonResponse({"error": f"Error selecting columns: {e}"}, status=500)
+#             # Calculate correlation matrix
+#             correlation_matrix = df[numerical_columns].corr()
+#             important_columns = correlation_matrix.columns[correlation_matrix.max() > 0.5].tolist()
+#             print(f"Important columns based on correlation: {important_columns}")
 #
-#         # Create the graphs using Plotly
+#         except Exception as e:
+#             print(f"Error detecting columns: {e}")
+#             return JsonResponse({"error": f"Error detecting columns: {e}"}, status=500)
+#
+#         # Generate graphs for the selected columns
 #         try:
 #             graphs = []
 #
-#             # Generate graphs for all numerical columns against all non-numerical columns
-#             for x_col in non_numerical_columns:
-#                 for y_col in numerical_columns:
-#                     # Scatter Plot
-#                     fig_scatter = px.scatter(
-#                         df,
-#                         x=x_col,
-#                         y=y_col,
-#                         title=f"Scatter Plot: {x_col} vs {y_col}",
-#                         labels={x_col: x_col, y_col: y_col}
-#                     )
-#                     graphs.append(fig_scatter)
+#             if date_columns:
+#                 # If a date column exists, group by year
+#                 date_col = date_columns[0]
+#                 df['Year'] = df[date_col].dt.year
 #
-#                     # Grouped Bar Chart
-#                     fig_bar = px.bar(
-#                         df,
-#                         x=x_col,
-#                         y=y_col,
-#                         title=f"Grouped Bar Chart: {x_col} vs {y_col}",
-#                         color=x_col,
-#                         barmode='group'
-#                     )
-#                     graphs.append(fig_bar)
+#                 # Aggregate numerical data by year
+#                 yearly_data = df.groupby('Year')[numerical_columns].mean().reset_index()
 #
-#                     # Line Graph
-#                     fig_line = px.line(
-#                         df,
-#                         x=x_col,
-#                         y=y_col,
-#                         title=f"Line Graph: {x_col} vs {y_col}",
-#                         labels={x_col: x_col, y_col: y_col}
-#                     )
-#                     graphs.append(fig_line)
+#                 # Create a single random graph for each important numerical column
+#                 for y_col in important_columns:  # Only generate graphs for important columns
+#                     if y_col in numerical_columns:
+#                         # Randomly choose whether to generate a line graph or a bar graph
+#                         graph_type = random.choice(['line', 'bar'])
+#
+#                         if graph_type == 'line':
+#                             fig = px.line(
+#                                 yearly_data,
+#                                 x='Year',
+#                                 y=y_col,
+#                                 title=f"Yearly Trend for {y_col}",
+#                                 labels={'Year': 'Year', y_col: y_col},
+#                                 markers=True
+#                             )
+#                         elif graph_type == 'bar':
+#                             fig = px.bar(
+#                                 yearly_data,
+#                                 x='Year',
+#                                 y=y_col,
+#                                 title=f"Yearly Summary for {y_col}",
+#                                 labels={'Year': 'Year', y_col: y_col}
+#                             )
+#
+#                         graphs.append(fig)
+#
+#             else:
+#                 # If no date column exists, group by non-numeric column (e.g., Area)
+#                 for non_num_col in non_numerical_columns:
+#                     if non_num_col != 'Date':  # Ensure 'Date' column is excluded
+#                         grouped_data = df.groupby([non_num_col])[numerical_columns].mean().reset_index()
+#
+#                         # Create a single random graph for each important numerical column
+#                         for y_col in important_columns:  # Only generate graphs for important columns
+#                             if y_col in numerical_columns:
+#                                 # Randomly choose whether to generate a line graph or a bar graph
+#                                 graph_type = random.choice(['line', 'bar'])
+#
+#                                 if graph_type == 'line':
+#                                     fig = px.line(
+#                                         grouped_data,
+#                                         x=non_num_col,
+#                                         y=y_col,
+#                                         title=f"Grouped by {non_num_col}: Trend for {y_col}",
+#                                         labels={non_num_col: non_num_col, y_col: y_col},
+#                                         markers=True
+#                                     )
+#                                 elif graph_type == 'bar':
+#                                     fig = px.bar(
+#                                         grouped_data,
+#                                         x=non_num_col,
+#                                         y=y_col,
+#                                         title=f"Grouped by {non_num_col}: Summary for {y_col}",
+#                                         labels={non_num_col: non_num_col, y_col: y_col}
+#                                     )
+#
+#                                 graphs.append(fig)
 #
 #             # Convert all figures to JSON using PlotlyJSONEncoder
 #             charts_json = [json.loads(json.dumps(fig, cls=PlotlyJSONEncoder)) for fig in graphs]
@@ -3183,8 +3297,6 @@ def model_predict(request):
 #             return JsonResponse({"error": f"Error generating graphs: {e}"}, status=500)
 #
 #     return JsonResponse({"error": "Invalid request method."}, status=400)
-
-
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -3193,7 +3305,6 @@ import plotly.express as px
 import json
 import random
 from plotly.utils import PlotlyJSONEncoder
-
 
 @csrf_exempt
 def gen_graph_plotly_response(request):
@@ -3216,9 +3327,11 @@ def gen_graph_plotly_response(request):
         # Detect and process columns
         try:
             # Convert Date column to datetime if it's not already in datetime format
-            if df['Date'].dtype == 'object':  # Check if 'Date' is not already datetime
-                df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-                print(f"Date column successfully converted to datetime.")
+            possible_date_columns = ['Date', 'Hour']  # Possible temporal columns
+            for col in possible_date_columns:
+                if col in df.columns and df[col].dtype == 'object':  # Check if column exists and is not datetime
+                    df[col] = pd.to_datetime(df[col], errors='coerce')
+                    print(f"{col} column successfully converted to datetime.")
 
             # Identify date, numerical, and non-numerical columns
             date_columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
@@ -3246,39 +3359,80 @@ def gen_graph_plotly_response(request):
             graphs = []
 
             if date_columns:
-                # If a date column exists, group by year
+                # If a date column exists, group by year or month/day if single-year data
                 date_col = date_columns[0]
                 df['Year'] = df[date_col].dt.year
 
-                # Aggregate numerical data by year
-                yearly_data = df.groupby('Year')[numerical_columns].mean().reset_index()
+                unique_years = df['Year'].nunique()
+                if unique_years == 1:
+                    print("Single-year data detected. Aggregating by months or days.")
+                    single_year = df['Year'].iloc[0]  # Get the single year value
 
-                # Create a single random graph for each important numerical column
-                for y_col in important_columns:  # Only generate graphs for important columns
-                    if y_col in numerical_columns:
-                        # Randomly choose whether to generate a line graph or a bar graph
-                        graph_type = random.choice(['line', 'bar'])
+                    # Add Month and Day columns
+                    df['Month'] = df[date_col].dt.month
+                    df['Day'] = df[date_col].dt.day
 
-                        if graph_type == 'line':
-                            fig = px.line(
-                                yearly_data,
-                                x='Year',
-                                y=y_col,
-                                title=f"Yearly Trend for {y_col}",
-                                labels={'Year': 'Year', y_col: y_col},
-                                markers=True
-                            )
-                        elif graph_type == 'bar':
-                            fig = px.bar(
-                                yearly_data,
-                                x='Year',
-                                y=y_col,
-                                title=f"Yearly Summary for {y_col}",
-                                labels={'Year': 'Year', y_col: y_col}
-                            )
+                    # Determine whether to group by months or days
+                    if len(df['Month'].unique()) > 1:
+                        # Group by months
+                        grouped_data = df.groupby('Month')[numerical_columns].mean().reset_index()
+                        x_col = 'Month'
+                        x_title = 'Month'
+                    else:
+                        # Group by days
+                        grouped_data = df.groupby('Day')[numerical_columns].mean().reset_index()
+                        x_col = 'Day'
+                        x_title = 'Day'
 
-                        graphs.append(fig)
+                    # Generate graphs
+                    for y_col in important_columns:  # Only generate graphs for important columns
+                        if y_col in numerical_columns:
+                            graph_type = random.choice(['line', 'bar'])
+                            if graph_type == 'line':
+                                fig = px.line(
+                                    grouped_data,
+                                    x=x_col,
+                                    y=y_col,
+                                    title=f"{x_title}-wise Trend for {y_col} ({single_year})",
+                                    labels={x_col: x_title, y_col: y_col},
+                                    markers=True
+                                )
+                            elif graph_type == 'bar':
+                                fig = px.bar(
+                                    grouped_data,
+                                    x=x_col,
+                                    y=y_col,
+                                    title=f"{x_title}-wise Summary for {y_col} ({single_year})",
+                                    labels={x_col: x_title, y_col: y_col}
+                                )
+                            graphs.append(fig)
+                else:
+                    # Aggregate numerical data by year
+                    yearly_data = df.groupby('Year')[numerical_columns].mean().reset_index()
 
+                    # Create a single random graph for each important numerical column
+                    for y_col in important_columns:  # Only generate graphs for important columns
+                        if y_col in numerical_columns:
+                            graph_type = random.choice(['line', 'bar'])
+
+                            if graph_type == 'line':
+                                fig = px.line(
+                                    yearly_data,
+                                    x='Year',
+                                    y=y_col,
+                                    title=f"Yearly Trend for {y_col}",
+                                    labels={'Year': 'Year', y_col: y_col},
+                                    markers=True
+                                )
+                            elif graph_type == 'bar':
+                                fig = px.bar(
+                                    yearly_data,
+                                    x='Year',
+                                    y=y_col,
+                                    title=f"Yearly Summary for {y_col}",
+                                    labels={'Year': 'Year', y_col: y_col}
+                                )
+                            graphs.append(fig)
             else:
                 # If no date column exists, group by non-numeric column (e.g., Area)
                 for non_num_col in non_numerical_columns:
@@ -3288,7 +3442,6 @@ def gen_graph_plotly_response(request):
                         # Create a single random graph for each important numerical column
                         for y_col in important_columns:  # Only generate graphs for important columns
                             if y_col in numerical_columns:
-                                # Randomly choose whether to generate a line graph or a bar graph
                                 graph_type = random.choice(['line', 'bar'])
 
                                 if graph_type == 'line':
@@ -3308,7 +3461,6 @@ def gen_graph_plotly_response(request):
                                         title=f"Grouped by {non_num_col}: Summary for {y_col}",
                                         labels={non_num_col: non_num_col, y_col: y_col}
                                     )
-
                                 graphs.append(fig)
 
             # Convert all figures to JSON using PlotlyJSONEncoder
