@@ -1,17 +1,18 @@
 from django.urls import path
 from .views import *
 
-
 urlpatterns = [
-    #path("api/", testing, name="testing"),
-   # path(r'api/register', register, name='register'),
-   # path(r'api/login', loginpage, name='login'),
+    # path("api/", testing, name="testing"),
+    # path(r'api/register', register, name='register'),
+    # path(r'api/login', loginpage, name='login'),
     path('api/connect', connection, name='connection'),
     path("api/upload", upload_and_analyze_data, name='upload_data'),
     path('api/tableinfo', get_tableinfo, name='get_table_info'),
     path("api/tabledata", read_data, name='read_table_data'),
     path("api/read_db_table_data", read_db_table_data, name='read_table_data'),
     path("api/get_user_data", get_user_data, name='gwt_user_data'),
+    path('api/delete_selected_tables', delete_selected_tables_by_name, name='delete_selected_tables_by_name'),
+    path('api/delete_all_user_tables', delete_all_user_tables, name='delete_all_user_tables'),
 
     # Analytical
     path("api/gen_txt_response", gen_txt_response, name="regenerate_chart"),
@@ -32,7 +33,7 @@ urlpatterns = [
     path('api/deployments/<str:data>/predict', deployment_predict, name='deployment_predict'),
     path('api/forecast/<str:data>/<str:col>', deployment_forecast, name='deployment_forecast'),
 
-    #Forecast with wyge
+    # Forecast with wyge
     path('api/forecasts', forecast_sales, name='forecasting'),
     path('api/synthetic_data', handle_synthetic_data_api, name='synthetic_data_generation'),
     path('api/synthetic_data_extended', handle_synthetic_data_extended, name='extended_synthetic_data_generation'),
@@ -41,11 +42,11 @@ urlpatterns = [
     # path('api/process_files', processing_files, name='processing_files'),
     # path('api/query_making', query_system, name='querying'),
 
-    #SAP
-   path('api/hana_connect', hana_connection, name='connecting'),
-   path('api/upload_data', upload_data, name='uploading'),
-   path('api/hana_dataread', reading_data, name='hana_reading_data'),
-   path('api/hana_delete', delete_table_api, name='hana_delete_data'),
+    # SAP
+    path('api/hana_connect', hana_connection, name='connecting'),
+    path('api/upload_data', upload_data, name='uploading'),
+    path('api/hana_dataread', reading_data, name='hana_reading_data'),
+    path('api/hana_delete', delete_table_api, name='hana_delete_data'),
 
     # Flespi
     path('api/download_flespi_data', download_flespi_data, name='download_flespi_data'),
@@ -54,19 +55,18 @@ urlpatterns = [
     path('api/kpi_process', get_prompt, name="kpi_process"),
     path('api/generate_code', kpi_code, name="kpi_code"),
 
-    #Predefined KPI urls
+    # Predefined KPI urls
     path('api/detect_type', getting_types, name="detecting_type"),
     path('api/predefined_kpi_process', predefined_kpi_getting, name="predefined_kpi_getting"),
 
-    #models for prediction urls
+    # models for prediction urls
     path(r'api/models', models, name='models'),
     path('model_predict', model_predict, name='model_predict'),
 
-    #Dashboard
-    path('api/dashboard',gen_graph_plotly_response, name="plotly dashboard"),
+    # Dashboard
+    path('api/dashboard', gen_graph_plotly_response, name="plotly dashboard"),
 
     # #Payment Gateway
     # path("api/initiate-payment", initiate_payment, name="initiate_payment"),
     # path("api/payment-callback", payment_callback, name="payment_callback"),
 ]
-
