@@ -394,16 +394,44 @@ class PostgresDatabase:
             print(f"Error getting table data: {err}")
             return pd.DataFrame()
 
-    def delete_table_data(self, email, table_name):
+    # Deleting the tables required by the user
+    def delete_tables_data(self, email, table_names):
+        try:
+            if not table_names:
+                return "No table names provided for deletion."
+            self.ensure_connection()
+            with self.connection.cursor() as cursor:
+                placeholders = ', '.join(['%s'] * len(table_names))  # Create placeholders for the SQL query
+                query = f"DELETE FROM akio_data WHERE email = %s AND name IN ({placeholders})"
+                params = [email] + table_names  # Combine email and table names into a single list for parameters
+
+                cursor.execute(query, params)
+                if cursor.rowcount == 0:
+                    return f"No data found for email: {email} and tables: {table_names}"
+
+                self.connection.commit()  # Commit the transaction
+                return f"{cursor.rowcount} record(s) deleted successfully for email: {email} and tables: {table_names}"
+        except Exception as err:
+            print(f"Error deleting tables data: {err}")
+            return str(err)
+
+    #Delete all tables data.
+    def delete_all_tables_data(self, email):
         try:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
-                cursor.execute("DELETE FROM akio_data WHERE email = %s AND name = %s", (email, table_name))
+                # SQL query to delete all rows for the given email
+                query = "DELETE FROM akio_data WHERE email = %s"
+                params = (email,)
+
+                cursor.execute(query, params)
                 if cursor.rowcount == 0:
-                    return f"No data found for email: {email} and table: {table_name}"
-            return f"Record deleted successfully for email: {email} and table: {table_name}"
+                    return f"No data found for email: {email}"
+
+                self.connection.commit()  # Commit the transaction
+                return f"{cursor.rowcount} record(s) deleted successfully for email: {email}"
         except Exception as err:
-            print(f"Error deleting table data: {err}")
+            print(f"Error deleting all tables data: {err}")
             return str(err)
 
     def delete_main_table(self):
