@@ -1107,7 +1107,7 @@ def gen_graph_response(request):
                 f"Every graph must include a title, axis labels (if applicable), and appropriate colors for better visualization."
                 f"Ensure the graph is visually appealing and provides sufficient context for understanding."
                 f"The graph must have a white background for both the plot and paper."
-                f"The code must output a Plotly 'Figure' object stored in a variable named 'fig', and the 'data' and 'layout' "
+                f"The code must output a Plotly 'Figure' object stored in a variable named 'fig', and the 'data' and 'layout'  and the code generated will be compatable to React."
                 f"dictionaries required for the graph."
                 f"The user asks: {query}"
             )
