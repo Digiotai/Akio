@@ -1074,11 +1074,12 @@ def get_description(request):
         print(e)
 
 
-#For genai using plotly
+# For genai using plotly
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 import pandas as pd
 from plotly.graph_objects import Figure
+
 
 @csrf_exempt
 def gen_graph_response(request):
@@ -1173,7 +1174,6 @@ def gen_graph_response(request):
 
     # Return a fallback HttpResponse for invalid request methods
     return HttpResponse("Invalid request method", status=405)
-
 
 
 # For genbi
@@ -2081,7 +2081,7 @@ def convert_to_hourly(data):
     return hourly_data
 
 
-#------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------
 # KPI APIS
 from collections import defaultdict
 
@@ -2209,10 +2209,25 @@ def generate_code_kpi(prompt_eng):
 
 
 # For getting the KPI codes
+import os
+import pandas as pd
+import base64
+from plotly.graph_objs import Figure
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+
+import os
+import pandas as pd
+from plotly.graph_objs import Figure
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+
+
+# For getting the KPI codes
 def generate_kpi_code(kpi_list):
     """
     Generates Python code for a list of KPIs, saves plots, and returns file paths,
-    a list of Base64-encoded images, and the generated code.
+    a list of Plotly charts data (data and layout), and the generated code.
     """
     try:
         # Load and process data
@@ -2220,56 +2235,97 @@ def generate_kpi_code(kpi_list):
         df = updatedtypes(df)
 
         codes = ''
-        paths = {}
-        base64_images = []  # List to store only Base64-encoded images
-
-        charts_dir = os.path.join(os.getcwd(), 'static', 'charts')
-
-        if not os.path.exists(charts_dir):
-            os.makedirs(charts_dir)
-
-        # Clear existing charts
-        for f in os.listdir(charts_dir):
-            file_path = os.path.join(charts_dir, f)
-            if os.path.isfile(file_path):
-                os.remove(file_path)
+        charts_data = []  # List to store chart data in Plotly data and layout format
 
         for kpi in kpi_list:
             prompt_desc = (
-                f"You are analytics_bot. Read the data from data.csv file with example data as {df.head()} and generate python code with kpi details as {KPI_LOGICS.get(kpi, {})}. "
-                f"Save result in variable named result, plot a suitable plot for the result obtained, save it as name based on kpi and use static/charts to save the file. "
-                f"You have to give the description regarding the plot generated within 3 lines."
-                f"If length of result variable is 1 then keep bar width thin and x-axis limit as -0.5 and 0.5."
+                f"You are analytics_bot. Read the data from data.csv file with example data as {df.head()} and generate Python code with KPI details as {KPI_LOGICS.get(kpi, {})}. "
+                f"Save result in variable named result, plot a suitable plot for the result obtained using Plotly, and structure the data and layout as JSON format for frontend use.Make sure that plot can be compatable with React. "
+                f"Provide a description regarding the plot generated within 3 lines. "
+                f"If the length of the result variable is 1, then keep the bar width thin and set the x-axis limit as -0.5 to 0.5."
             )
 
             code = ''
             try:
-                code += generate_code2(prompt_desc)
+                generated_code, chart_data = generate_code3(prompt_desc)
+                code += generated_code
+                if chart_data:
+                    charts_data.extend(chart_data)
             except Exception as e:
                 print(f"Code generation failed for {kpi}: {str(e)}")
                 code += f'Code generation failed for {kpi}'
 
             codes += f"<b>{kpi.capitalize()}</b>\n{code}\n"
 
-        if os.path.exists(charts_dir):
-            for path in os.listdir(charts_dir):
-                if path.endswith(('.png', '.jpg', '.jpeg')):  # Only include image files
-                    image_path = os.path.join(charts_dir, path)
-
-                    # Read the image and convert to Base64
-                    with open(image_path, 'rb') as image_file:
-                        base64_encoded_image = base64.b64encode(image_file.read()).decode('utf-8')
-                        base64_images.append(base64_encoded_image)  # Append only Base64 string
-
-        return paths, base64_images, codes
+        return charts_data, codes
     except Exception as e:
         error_message = f"An error occurred: {str(e)}"
         print(error_message)
-        return {}, [], error_message
+        return [], error_message
+
+
+@csrf_exempt
+def generate_code3(prompt_eng):
+    """
+    Generates Python code dynamically and returns the Plotly chart data (data and layout).
+    """
+    charts_data = []
+    trials = 2
+    try:
+        while trials > 0:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": prompt_eng}
+                ]
+            )
+            all_text = ""
+
+            # Process generated content dynamically
+            for choice in response.choices:
+                message = choice.message
+                chunk_message = message.content if message else ''
+                all_text += chunk_message
+
+            print(all_text)
+            python_chunks = all_text.count("```python")
+            idx = 0
+            code = ''
+            for i in range(python_chunks):
+                code_start = all_text[idx:].find("```python") + 9
+                code_end = all_text[idx:].find("```", code_start)
+                code += all_text[idx:][code_start:code_end]
+                idx = code_end
+
+            print(code)
+            try:
+                local_vars = {}
+                exec(code, {}, local_vars)
+                result = local_vars.get('result', None)
+                fig = local_vars.get('fig', None)
+                if fig and isinstance(fig, Figure):
+                    chart_data = fig.to_plotly_json()
+                    charts_data.append(chart_data)
+                else:
+                    raise ValueError("Generated code did not produce a valid Plotly figure.")
+                code += f"\n <b>Output: {result}</b> \n <hr>"
+                return code, charts_data
+            except Exception as e:
+                print(f"Error executing generated code: {e}")
+                trials -= 1
+    except Exception as e:
+        print(f"Error generating code: {e}")
+    return '', charts_data
 
 
 @csrf_exempt
 def kpi_code(request):
+    """
+    Handles POST requests to generate KPI code and associated Plotly chart data.
+    Expects 'kpi_names' as a list in the POST request.
+    Returns generated code, chart data, and any additional KPI-related information.
+    """
     try:
         if request.method != "POST":
             return JsonResponse({"error": "Invalid request method. Only POST requests are allowed."}, status=405)
@@ -2279,14 +2335,13 @@ def kpi_code(request):
         if not kpi_list:
             return JsonResponse({"error": "KPI names are required."}, status=400)
 
-        # Generate paths, base64 images, and code for the provided KPIs
-        paths, base64_images, codes = generate_kpi_code(kpi_list)  # Assuming generate_kpi_code is a valid function
+        # Generate Plotly charts data and code for the provided KPIs
+        charts_data, codes = generate_kpi_code(kpi_list)  # Updated to match the modified generate_kpi_code
 
-        # Return paths, base64 images, and code as JSON response
+        # Return chart data and code as JSON response
         return JsonResponse({
             'status': 'success',
-            # 'paths': paths,
-            'base64_images': base64_images,
+            'charts_data': charts_data,  # Plotly chart data (data and layout)
             'code': codes,
             'kpis': KPI_LOGICS,  # Assuming KPI_LOGICS is a global or properly imported variable
             'checks': checks  # Assuming checks is a global or properly imported variable
@@ -2584,30 +2639,30 @@ def getting_types(request):
 
 
 # Getting prepared the predefined kpis with this
+import os
+import pandas as pd
+import base64
+from django.http import JsonResponse, HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+from plotly.graph_objs import Figure
+
+
 @csrf_exempt
 def predefined_kpi_getting(request):
-    """
-    Handles POST requests to generate Python scripts and graphs for multiple KPIs.
-    This function requires 'type', 'category', and a list of 'kpi_name' as POST parameters.
-    It returns the Python code and Base64-encoded graph images for each KPI in the request.
-    """
     try:
         if request.method != "POST":
             return HttpResponse("Invalid request method. Only POST requests are allowed.", status=405)
 
-        # Extract the type, category, and kpi_name from the POST request
         kpi_type = request.POST.get('type')
         kpi_category = request.POST.get('category')
-        kpi_names = request.POST.getlist('kpi_name')  # Get multiple KPI names as a list
+        kpi_names = request.POST.getlist('kpi_name')
 
-        # Check if all required parameters are provided
         if not kpi_type or not kpi_category or not kpi_names:
             return JsonResponse({
                 'status': 'failure',
                 'message': "Both 'type', 'category', and 'kpi_name' are required."
             })
 
-        # Check if required data file exists
         processed_data_path = os.path.join('uploads', 'processed_data.csv')
         if not os.path.exists(processed_data_path):
             return JsonResponse({
@@ -2615,21 +2670,28 @@ def predefined_kpi_getting(request):
                 'message': "No processed data file found."
             })
 
-        # Read the data file and save it as 'data.csv'
         df = pd.read_csv(processed_data_path)
         df.to_csv('data.csv', index=False)
 
-        # Initialize a list to store results for multiple KPIs
         kpi_results = []
 
-        # Loop through each KPI name and generate the code and graph
         for kpi_name in kpi_names:
             try:
-                paths, base64_images, kpi_code = generate_kpi_code([kpi_name])
+                charts_data, kpi_code = generate_kpi_code([kpi_name])
+
+                # Ensure data and layout are returned in the response
+                kpi_charts = [
+                    {
+                        "data": chart["data"],
+                        "layout": chart["layout"]
+                    }
+                    for chart in charts_data
+                ]
+
                 kpi_results.append({
                     'kpi_name': kpi_name,
                     'kpi_code': kpi_code,
-                    'base64_images': base64_images  # Base64-encoded images for the KPI graph
+                    'charts_data': kpi_charts
                 })
             except Exception as e:
                 kpi_results.append({
@@ -2637,16 +2699,14 @@ def predefined_kpi_getting(request):
                     'error': f"Error generating code or graph for KPI '{kpi_name}': {str(e)}"
                 })
 
-        # Check if at least one KPI was successfully processed
-        successful_kpis = [kpi for kpi in kpi_results if 'kpi_code' in kpi]
+        successful_kpis = [kpi for kpi in kpi_results if 'charts_data' in kpi]
         if not successful_kpis:
             return JsonResponse({
                 'status': 'failure',
                 'message': 'Failed to generate code or graphs for all KPIs.',
-                'kpi_results': kpi_results  # Include all errors for each KPI
+                'kpi_results': kpi_results
             })
 
-        # Return the response with the KPI details, code, and Base64 images for each KPI
         return JsonResponse({
             'status': 'success',
             'type': kpi_type,
@@ -2656,7 +2716,7 @@ def predefined_kpi_getting(request):
 
     except Exception as e:
         error_message = f"An error occurred: {str(e)}"
-        print(error_message)  # Log the error
+        print(error_message)
         return JsonResponse({
             'status': 'failure',
             'message': error_message
@@ -3306,6 +3366,7 @@ import plotly.express as px
 import json
 import random
 from plotly.utils import PlotlyJSONEncoder
+
 
 @csrf_exempt
 def gen_graph_plotly_response(request):
