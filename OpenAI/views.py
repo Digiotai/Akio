@@ -3595,3 +3595,128 @@ def gen_graph_plotly_response(request):
             return JsonResponse({"error": f"Error generating graphs: {e}"}, status=500)
 
     return JsonResponse({"error": "Invalid request method."}, status=400)
+
+
+
+# File: sla_breach_app/views.py(Actually implemented in flask
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from langchain_openai import ChatOpenAI
+from langchain.prompts import PromptTemplate
+import pandas as pd
+import json
+
+@csrf_exempt
+def sla_breach(request):
+    """
+    Function-based view to handle query-specific preprocessing and generate a report.
+    """
+    if request.method != 'POST':
+        return JsonResponse({"error": "Invalid request method. Only POST is allowed."}, status=405)
+
+    try:
+        # Check if a file is uploaded
+        if 'file' not in request.FILES:
+            return JsonResponse({"error": "No file uploaded"}, status=400)
+
+        file = request.FILES['file']
+        if not file.name.endswith('.csv'):
+            return JsonResponse({"error": "Invalid file format. Please upload a CSV file."}, status=400)
+
+        # Read the content of the uploaded file
+        csv_data = pd.read_csv(file)
+        csv_data_str = csv_data.to_csv(index=False)
+
+        # Get the user query
+        query = request.POST.get("query")
+        if not query:
+            return JsonResponse({"error": "Query is required"}, status=400)
+
+        # Initialize the OpenAI Chat Model with LangChain
+        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.5, api_key=OPENAI_API_KEY)
+
+        # Updated prompt template
+        prompt_template = PromptTemplate(
+            input_variables=["csv_data", "query"],
+            template="""
+                    You are an expert data scientist. Preprocess the provided CSV data based on the specified date columns. Perform the following tasks:
+                    1. Identify and adjust timestamps in the date columns by subtracting 6 hours.
+                    2. Reformat valid date entries to the format: MM/DD/YYYY, HH:MM AM/PM.
+                    3. For time entries in HH:MM:SS AM/PM format:
+                    - Convert them to 24-hour format.
+                    - Subtract 6 hours.
+                    - Convert back to 12-hour format.
+                    4. Ignore entries that cannot be parsed as valid dates or times.
+
+                    Then, analyze the data to generate a report based on the following requirements:
+                    1. Identify the following transitions:
+                    - 'Work in progress' → 'Suspended'
+                    - 'Suspended' → 'Solved'
+                    - 'Solved' → 'Closed'
+                    2. For each transition:
+                    - Extract the 'Change' column (time duration in HH:MM:SS format) for these transitions.
+                    - Calculate the following:
+                        a. **Total Elapsed Time**:
+                            - Sum the 'Change' values for:
+                            - 'Work in progress' → 'Suspended'
+                            - 'Suspended' → 'Solved'
+                            - 'Solved' → 'Closed'
+                            - If any 'Change' value is invalid or missing, treat it as 00:00:00.
+                        b. **Suspended Time**:
+                            - Sum the 'Change' values for:
+                            - 'Work in progress' → 'Suspended'
+                            - 'Suspended' → 'Solved'
+                            - If any 'Change' value is invalid or missing, treat it as 00:00:00.
+                    3. Provide the report with the following columns in this exact order:
+                    - Ticket: The ticket ID.
+                    - Priority: The priority of the ticket.
+                    - Allowed Duration: A fixed value (40 hours).
+                    - Total Elapsed Time: Total elapsed time in hours.
+                    - Suspended Time: Total suspended time in hours.
+
+                    Input Data:
+                    {csv_data}
+
+                    Query:
+                    {query}
+
+                    Provide the resulting report as valid JSON with the following structure:
+                    {{
+                        "Ticket": <ticket>,
+                        "Priority": <priority>,
+                        "Allowed Duration": <allowed_duration>,
+                        "Total Elapsed Time": <total_elapsed_time_in_hours>,
+                        "Suspended Time": <suspended_time_in_hours>
+                    }}
+
+                    """
+        )
+
+        # Use LangChain to dynamically preprocess and analyze the data
+        formatted_prompt = prompt_template.format(query=query, csv_data=csv_data_str)
+        response = llm.invoke(formatted_prompt)
+        response_text = response.content  # Extract text content from AIMessage
+
+        if '```json' in response_text:
+            # Generate the code dynamically
+            code = generate_coding(response_text)
+            response_json = eval(code)  # Evaluate JSON string
+            return JsonResponse(response_json, safe=False, status=200)
+        else:
+            return JsonResponse({"message": "Not found."}, status=200)
+
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+def generate_coding(response):
+    """
+    Extract JSON code block from the response.
+    """
+    if "```json" in response:
+        code_start = response.find("```json") + 7
+        code_end = response.find("```", code_start)
+        code = response[code_start:code_end]
+    else:
+        code = response
+    return code
