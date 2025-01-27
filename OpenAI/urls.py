@@ -66,6 +66,9 @@ urlpatterns = [
     # Dashboard
     path('api/dashboard', gen_graph_plotly_response, name="plotly dashboard"),
 
+    #Sla Breach
+    path('api/sla_breach', sla_breach, name="plotly dashboard"),
+
     # #Payment Gateway
     # path("api/initiate-payment", initiate_payment, name="initiate_payment"),
     # path("api/payment-callback", payment_callback, name="payment_callback"),
