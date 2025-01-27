@@ -1105,9 +1105,9 @@ def gen_graph_response(request):
                 f"Based on the user's query, generate Python code using Plotly to create the requested type of graph "
                 f"(e.g., bar, pie, scatter, etc.)."
                 f"If the user does not specify a graph type, decide whether to generate a line or bar graph based on the situation."
-                f"Every graph must include a title, axis labels (if applicable), and appropriate colors for better visualization."
+                f"Every graph must include a title, axis labels (if applicable), and appropriate colors for data for better visualization."
                 f"Ensure the graph is visually appealing and provides sufficient context for understanding."
-                f"The graph must have a white background for both the plot and paper."
+                f"The graph must and should  have a white background for both the plot and paper."
                 f"The code must output a Plotly 'Figure' object stored in a variable named 'fig', and the 'data' and 'layout'  and the code generated will be compatable to React."
                 f"dictionaries required for the graph."
                 f"The user asks: {query}"
@@ -3221,7 +3221,7 @@ def model_predict(request):
         })
 
 
-# #Dasboard
+# # #Dasboard
 # from django.http import JsonResponse
 # from django.views.decorators.csrf import csrf_exempt
 # import pandas as pd
@@ -3252,9 +3252,11 @@ def model_predict(request):
 #         # Detect and process columns
 #         try:
 #             # Convert Date column to datetime if it's not already in datetime format
-#             if df['Date'].dtype == 'object':  # Check if 'Date' is not already datetime
-#                 df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-#                 print(f"Date column successfully converted to datetime.")
+#             possible_date_columns = ['Date', 'Hour']  # Possible temporal columns
+#             for col in possible_date_columns:
+#                 if col in df.columns and df[col].dtype == 'object':  # Check if column exists and is not datetime
+#                     df[col] = pd.to_datetime(df[col], errors='coerce')
+#                     print(f"{col} column successfully converted to datetime.")
 #
 #             # Identify date, numerical, and non-numerical columns
 #             date_columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
@@ -3282,39 +3284,80 @@ def model_predict(request):
 #             graphs = []
 #
 #             if date_columns:
-#                 # If a date column exists, group by year
+#                 # If a date column exists, group by year or month/day if single-year data
 #                 date_col = date_columns[0]
 #                 df['Year'] = df[date_col].dt.year
 #
-#                 # Aggregate numerical data by year
-#                 yearly_data = df.groupby('Year')[numerical_columns].mean().reset_index()
+#                 unique_years = df['Year'].nunique()
+#                 if unique_years == 1:
+#                     print("Single-year data detected. Aggregating by months or days.")
+#                     single_year = df['Year'].iloc[0]  # Get the single year value
 #
-#                 # Create a single random graph for each important numerical column
-#                 for y_col in important_columns:  # Only generate graphs for important columns
-#                     if y_col in numerical_columns:
-#                         # Randomly choose whether to generate a line graph or a bar graph
-#                         graph_type = random.choice(['line', 'bar'])
+#                     # Add Month and Day columns
+#                     df['Month'] = df[date_col].dt.month
+#                     df['Day'] = df[date_col].dt.day
 #
-#                         if graph_type == 'line':
-#                             fig = px.line(
-#                                 yearly_data,
-#                                 x='Year',
-#                                 y=y_col,
-#                                 title=f"Yearly Trend for {y_col}",
-#                                 labels={'Year': 'Year', y_col: y_col},
-#                                 markers=True
-#                             )
-#                         elif graph_type == 'bar':
-#                             fig = px.bar(
-#                                 yearly_data,
-#                                 x='Year',
-#                                 y=y_col,
-#                                 title=f"Yearly Summary for {y_col}",
-#                                 labels={'Year': 'Year', y_col: y_col}
-#                             )
+#                     # Determine whether to group by months or days
+#                     if len(df['Month'].unique()) > 1:
+#                         # Group by months
+#                         grouped_data = df.groupby('Month')[numerical_columns].mean().reset_index()
+#                         x_col = 'Month'
+#                         x_title = 'Month'
+#                     else:
+#                         # Group by days
+#                         grouped_data = df.groupby('Day')[numerical_columns].mean().reset_index()
+#                         x_col = 'Day'
+#                         x_title = 'Day'
 #
-#                         graphs.append(fig)
+#                     # Generate graphs
+#                     for y_col in important_columns:  # Only generate graphs for important columns
+#                         if y_col in numerical_columns:
+#                             graph_type = random.choice(['line', 'bar'])
+#                             if graph_type == 'line':
+#                                 fig = px.line(
+#                                     grouped_data,
+#                                     x=x_col,
+#                                     y=y_col,
+#                                     title=f"{x_title}-wise Trend for {y_col} ({single_year})",
+#                                     labels={x_col: x_title, y_col: y_col},
+#                                     markers=True
+#                                 )
+#                             elif graph_type == 'bar':
+#                                 fig = px.bar(
+#                                     grouped_data,
+#                                     x=x_col,
+#                                     y=y_col,
+#                                     title=f"{x_title}-wise Summary for {y_col} ({single_year})",
+#                                     labels={x_col: x_title, y_col: y_col}
+#                                 )
+#                             graphs.append(fig)
+#                 else:
+#                     # Aggregate numerical data by year
+#                     yearly_data = df.groupby('Year')[numerical_columns].mean().reset_index()
 #
+#                     # Create a single random graph for each important numerical column
+#                     for y_col in important_columns:  # Only generate graphs for important columns
+#                         if y_col in numerical_columns:
+#                             graph_type = random.choice(['line', 'bar'])
+#
+#                             if graph_type == 'line':
+#                                 fig = px.line(
+#                                     yearly_data,
+#                                     x='Year',
+#                                     y=y_col,
+#                                     title=f"Yearly Trend for {y_col}",
+#                                     labels={'Year': 'Year', y_col: y_col},
+#                                     markers=True
+#                                 )
+#                             elif graph_type == 'bar':
+#                                 fig = px.bar(
+#                                     yearly_data,
+#                                     x='Year',
+#                                     y=y_col,
+#                                     title=f"Yearly Summary for {y_col}",
+#                                     labels={'Year': 'Year', y_col: y_col}
+#                                 )
+#                             graphs.append(fig)
 #             else:
 #                 # If no date column exists, group by non-numeric column (e.g., Area)
 #                 for non_num_col in non_numerical_columns:
@@ -3324,7 +3367,6 @@ def model_predict(request):
 #                         # Create a single random graph for each important numerical column
 #                         for y_col in important_columns:  # Only generate graphs for important columns
 #                             if y_col in numerical_columns:
-#                                 # Randomly choose whether to generate a line graph or a bar graph
 #                                 graph_type = random.choice(['line', 'bar'])
 #
 #                                 if graph_type == 'line':
@@ -3344,7 +3386,6 @@ def model_predict(request):
 #                                         title=f"Grouped by {non_num_col}: Summary for {y_col}",
 #                                         labels={non_num_col: non_num_col, y_col: y_col}
 #                                     )
-#
 #                                 graphs.append(fig)
 #
 #             # Convert all figures to JSON using PlotlyJSONEncoder
@@ -3467,6 +3508,12 @@ def gen_graph_plotly_response(request):
                                     title=f"{x_title}-wise Summary for {y_col} ({single_year})",
                                     labels={x_col: x_title, y_col: y_col}
                                 )
+                            fig.update_layout(
+                                plot_bgcolor="white",
+                                paper_bgcolor="white",
+                                xaxis=dict(showgrid=False),
+                                yaxis=dict(showgrid=False)
+                            )
                             graphs.append(fig)
                 else:
                     # Aggregate numerical data by year
@@ -3494,6 +3541,12 @@ def gen_graph_plotly_response(request):
                                     title=f"Yearly Summary for {y_col}",
                                     labels={'Year': 'Year', y_col: y_col}
                                 )
+                            fig.update_layout(
+                                plot_bgcolor="white",
+                                paper_bgcolor="white",
+                                xaxis=dict(showgrid=False),
+                                yaxis=dict(showgrid=False)
+                            )
                             graphs.append(fig)
             else:
                 # If no date column exists, group by non-numeric column (e.g., Area)
@@ -3523,6 +3576,12 @@ def gen_graph_plotly_response(request):
                                         title=f"Grouped by {non_num_col}: Summary for {y_col}",
                                         labels={non_num_col: non_num_col, y_col: y_col}
                                     )
+                                fig.update_layout(
+                                    plot_bgcolor="white",
+                                    paper_bgcolor="white",
+                                    xaxis=dict(showgrid=False),
+                                    yaxis=dict(showgrid=False)
+                                )
                                 graphs.append(fig)
 
             # Convert all figures to JSON using PlotlyJSONEncoder
