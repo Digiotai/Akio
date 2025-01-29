@@ -3330,6 +3330,12 @@ def model_predict(request):
 #                                     title=f"{x_title}-wise Summary for {y_col} ({single_year})",
 #                                     labels={x_col: x_title, y_col: y_col}
 #                                 )
+#                             fig.update_layout(
+#                                 plot_bgcolor="white",
+#                                 paper_bgcolor="white",
+#                                 xaxis=dict(showgrid=False),
+#                                 yaxis=dict(showgrid=False)
+#                             )
 #                             graphs.append(fig)
 #                 else:
 #                     # Aggregate numerical data by year
@@ -3357,6 +3363,12 @@ def model_predict(request):
 #                                     title=f"Yearly Summary for {y_col}",
 #                                     labels={'Year': 'Year', y_col: y_col}
 #                                 )
+#                             fig.update_layout(
+#                                 plot_bgcolor="white",
+#                                 paper_bgcolor="white",
+#                                 xaxis=dict(showgrid=False),
+#                                 yaxis=dict(showgrid=False)
+#                             )
 #                             graphs.append(fig)
 #             else:
 #                 # If no date column exists, group by non-numeric column (e.g., Area)
@@ -3386,6 +3398,12 @@ def model_predict(request):
 #                                         title=f"Grouped by {non_num_col}: Summary for {y_col}",
 #                                         labels={non_num_col: non_num_col, y_col: y_col}
 #                                     )
+#                                 fig.update_layout(
+#                                     plot_bgcolor="white",
+#                                     paper_bgcolor="white",
+#                                     xaxis=dict(showgrid=False),
+#                                     yaxis=dict(showgrid=False)
+#                                 )
 #                                 graphs.append(fig)
 #
 #             # Convert all figures to JSON using PlotlyJSONEncoder
@@ -3405,38 +3423,23 @@ from django.views.decorators.csrf import csrf_exempt
 import pandas as pd
 import plotly.express as px
 import json
-import random
 from plotly.utils import PlotlyJSONEncoder
 
 
 @csrf_exempt
 def gen_graph_plotly_response(request):
-    global fig
     if request.method == "POST":
-        print("POST request received for generating Plotly graphs.")
-
-        # Load CSV file
-        csv_file_path = 'data.csv'
-        print(f"CSV File Path: {csv_file_path}")
         try:
-            df = pd.read_csv(csv_file_path)
-            print("CSV loaded successfully.")
+            df = pd.read_csv('data.csv')
         except Exception as e:
-            print(f"Error loading CSV: {e}")
             return JsonResponse({"error": f"Error loading CSV: {e}"}, status=500)
 
-        print(f"Dataframe Head:\n{df.head()}")
-
-        # Detect and process columns
         try:
-            # Convert Date column to datetime if it's not already in datetime format
-            possible_date_columns = ['Date', 'Hour']  # Possible temporal columns
+            possible_date_columns = ['Date', 'Hour']
             for col in possible_date_columns:
-                if col in df.columns and df[col].dtype == 'object':  # Check if column exists and is not datetime
+                if col in df.columns and df[col].dtype == 'object':
                     df[col] = pd.to_datetime(df[col], errors='coerce')
-                    print(f"{col} column successfully converted to datetime.")
 
-            # Identify date, numerical, and non-numerical columns
             date_columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
             numerical_columns = df.select_dtypes(include=['number']).columns.tolist()
             non_numerical_columns = df.select_dtypes(exclude=['number']).columns.tolist()
@@ -3444,161 +3447,59 @@ def gen_graph_plotly_response(request):
             if not numerical_columns:
                 return JsonResponse({"error": "Dataset must contain at least one numerical column."}, status=400)
 
-            print(f"Date columns detected: {date_columns}")
-            print(f"Numerical columns detected: {numerical_columns}")
-            print(f"Non-numerical columns detected: {non_numerical_columns}")
-
-            # Calculate correlation matrix
             correlation_matrix = df[numerical_columns].corr()
             important_columns = correlation_matrix.columns[correlation_matrix.max() > 0.5].tolist()
-            print(f"Important columns based on correlation: {important_columns}")
-
         except Exception as e:
-            print(f"Error detecting columns: {e}")
             return JsonResponse({"error": f"Error detecting columns: {e}"}, status=500)
 
-        # Generate graphs for the selected columns
         try:
-            graphs = []
+            line_graph_df = pd.DataFrame()
+            bar_graph_df = pd.DataFrame()
+            x_label = ""
 
             if date_columns:
-                # If a date column exists, group by year or month/day if single-year data
                 date_col = date_columns[0]
                 df['Year'] = df[date_col].dt.year
 
-                unique_years = df['Year'].nunique()
-                if unique_years == 1:
-                    print("Single-year data detected. Aggregating by months or days.")
-                    single_year = df['Year'].iloc[0]  # Get the single year value
-
-                    # Add Month and Day columns
+                if df['Year'].nunique() == 1:
                     df['Month'] = df[date_col].dt.month
-                    df['Day'] = df[date_col].dt.day
-
-                    # Determine whether to group by months or days
-                    if len(df['Month'].unique()) > 1:
-                        # Group by months
-                        grouped_data = df.groupby('Month')[numerical_columns].mean().reset_index()
-                        x_col = 'Month'
-                        x_title = 'Month'
-                    else:
-                        # Group by days
-                        grouped_data = df.groupby('Day')[numerical_columns].mean().reset_index()
-                        x_col = 'Day'
-                        x_title = 'Day'
-
-                    # Generate graphs
-                    for y_col in important_columns:  # Only generate graphs for important columns
-                        if y_col in numerical_columns:
-                            graph_type = random.choice(['line', 'bar'])
-                            if graph_type == 'line':
-                                fig = px.line(
-                                    grouped_data,
-                                    x=x_col,
-                                    y=y_col,
-                                    title=f"{x_title}-wise Trend for {y_col} ({single_year})",
-                                    labels={x_col: x_title, y_col: y_col},
-                                    markers=True
-                                )
-                            elif graph_type == 'bar':
-                                fig = px.bar(
-                                    grouped_data,
-                                    x=x_col,
-                                    y=y_col,
-                                    title=f"{x_title}-wise Summary for {y_col} ({single_year})",
-                                    labels={x_col: x_title, y_col: y_col}
-                                )
-                            fig.update_layout(
-                                plot_bgcolor="white",
-                                paper_bgcolor="white",
-                                xaxis=dict(showgrid=False),
-                                yaxis=dict(showgrid=False)
-                            )
-                            graphs.append(fig)
+                    x_label = 'Month'
+                    line_graph_df = df.groupby('Month')[important_columns].mean().reset_index()
                 else:
-                    # Aggregate numerical data by year
-                    yearly_data = df.groupby('Year')[numerical_columns].mean().reset_index()
+                    x_label = 'Year'
+                    line_graph_df = df.groupby('Year')[important_columns].mean().reset_index()
 
-                    # Create a single random graph for each important numerical column
-                    for y_col in important_columns:  # Only generate graphs for important columns
-                        if y_col in numerical_columns:
-                            graph_type = random.choice(['line', 'bar'])
-
-                            if graph_type == 'line':
-                                fig = px.line(
-                                    yearly_data,
-                                    x='Year',
-                                    y=y_col,
-                                    title=f"Yearly Trend for {y_col}",
-                                    labels={'Year': 'Year', y_col: y_col},
-                                    markers=True
-                                )
-                            elif graph_type == 'bar':
-                                fig = px.bar(
-                                    yearly_data,
-                                    x='Year',
-                                    y=y_col,
-                                    title=f"Yearly Summary for {y_col}",
-                                    labels={'Year': 'Year', y_col: y_col}
-                                )
-                            fig.update_layout(
-                                plot_bgcolor="white",
-                                paper_bgcolor="white",
-                                xaxis=dict(showgrid=False),
-                                yaxis=dict(showgrid=False)
-                            )
-                            graphs.append(fig)
+                bar_graph_df = line_graph_df.copy()
             else:
-                # If no date column exists, group by non-numeric column (e.g., Area)
                 for non_num_col in non_numerical_columns:
-                    if non_num_col != 'Date':  # Ensure 'Date' column is excluded
-                        grouped_data = df.groupby([non_num_col])[numerical_columns].mean().reset_index()
+                    if non_num_col != 'Date':
+                        x_label = non_num_col
+                        line_graph_df = df.groupby(non_num_col)[important_columns].mean().reset_index()
+                        bar_graph_df = line_graph_df.copy()
+                        break
 
-                        # Create a single random graph for each important numerical column
-                        for y_col in important_columns:  # Only generate graphs for important columns
-                            if y_col in numerical_columns:
-                                graph_type = random.choice(['line', 'bar'])
+            fig_line = px.line(line_graph_df, x=x_label, y=important_columns,
+                               title=f"Trend Analysis of {', '.join(important_columns)}",
+                               markers=True, color_discrete_sequence=px.colors.qualitative.Set1)
+            fig_bar = px.bar(bar_graph_df, x=x_label, y=important_columns,
+                             title=f"Summary of {', '.join(important_columns)}",
+                             color_discrete_sequence=px.colors.qualitative.Set2)
 
-                                if graph_type == 'line':
-                                    fig = px.line(
-                                        grouped_data,
-                                        x=non_num_col,
-                                        y=y_col,
-                                        title=f"Grouped by {non_num_col}: Trend for {y_col}",
-                                        labels={non_num_col: non_num_col, y_col: y_col},
-                                        markers=True
-                                    )
-                                elif graph_type == 'bar':
-                                    fig = px.bar(
-                                        grouped_data,
-                                        x=non_num_col,
-                                        y=y_col,
-                                        title=f"Grouped by {non_num_col}: Summary for {y_col}",
-                                        labels={non_num_col: non_num_col, y_col: y_col}
-                                    )
-                                fig.update_layout(
-                                    plot_bgcolor="white",
-                                    paper_bgcolor="white",
-                                    xaxis=dict(showgrid=False),
-                                    yaxis=dict(showgrid=False)
-                                )
-                                graphs.append(fig)
+            for fig in [fig_line, fig_bar]:
+                fig.update_layout(plot_bgcolor="white", paper_bgcolor="white",
+                                  xaxis=dict(showgrid=False), yaxis=dict(showgrid=False))
 
-            # Convert all figures to JSON using PlotlyJSONEncoder
-            charts_json = [json.loads(json.dumps(fig, cls=PlotlyJSONEncoder)) for fig in graphs]
-
-            # Return all graphs as JSON
+            charts_json = [json.loads(json.dumps(fig, cls=PlotlyJSONEncoder)) for fig in [fig_line, fig_bar]]
+            print(charts_json)
             return JsonResponse({"charts": charts_json}, status=200)
-
         except Exception as e:
-            print(f"Error generating graphs: {e}")
             return JsonResponse({"error": f"Error generating graphs: {e}"}, status=500)
 
     return JsonResponse({"error": "Invalid request method."}, status=400)
 
 
-
 # File: sla_breach_app/views.py(Actually implemented in flask
+
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from langchain_openai import ChatOpenAI
@@ -3638,69 +3539,83 @@ def sla_breach(request):
         # Updated prompt template
         prompt_template = PromptTemplate(
             input_variables=["csv_data", "query"],
+
             template="""
-                    You are an expert data scientist. Preprocess the provided CSV data based on the specified date columns. Perform the following tasks:
-                    1. Identify and adjust timestamps in the date columns by subtracting 6 hours.
-                    2. Reformat valid date entries to the format: MM/DD/YYYY, HH:MM AM/PM.
-                    3. For time entries in HH:MM:SS AM/PM format:
-                    - Convert them to 24-hour format.
-                    - Subtract 6 hours.
-                    - Convert back to 12-hour format.
-                    4. Ignore entries that cannot be parsed as valid dates or times.
+                   You are an expert data scientist who gives very accurate answers. Preprocess the provided CSV data based on the specified date columns. Perform the following tasks:
+                   1. Identify and adjust timestamps in the date columns by subtracting 6 hours.
+                   2. Reformat valid date entries to the format: MM/DD/YYYY, HH:MM AM/PM.
+                   3. For time entries in HH:MM:SS AM/PM format:
+                   - Convert them to 24-hour format.
+                   - Subtract 6 hours.
+                   - Convert back to 12-hour format.
+                   4. Ignore entries that cannot be parsed as valid dates or times.
 
-                    Then, analyze the data to generate a report based on the following requirements:
-                    1. Identify the following transitions:
-                    - 'Work in progress' → 'Suspended'
-                    - 'Suspended' → 'Solved'
-                    - 'Solved' → 'Closed'
-                    2. For each transition:
-                    - Extract the 'Change' column (time duration in HH:MM:SS format) for these transitions.
-                    - Calculate the following:
-                        a. **Total Elapsed Time**:
-                            - Sum the 'Change' values for:
-                            - 'Work in progress' → 'Suspended'
-                            - 'Suspended' → 'Solved'
-                            - 'Solved' → 'Closed'
-                            - If any 'Change' value is invalid or missing, treat it as 00:00:00.
-                        b. **Suspended Time**:
-                            - Sum the 'Change' values for:
-                            - 'Work in progress' → 'Suspended'
-                            - 'Suspended' → 'Solved'
-                            - If any 'Change' value is invalid or missing, treat it as 00:00:00.
-                    3. Provide the report with the following columns in this exact order:
-                    - Ticket: The ticket ID.
-                    - Priority: The priority of the ticket.
-                    - Allowed Duration: A fixed value (40 hours).
-                    - Total Elapsed Time: Total elapsed time in hours.
-                    - Suspended Time: Total suspended time in hours.
+                   Then, analyze the data to generate a report based on the following requirements:
+                   1. Group all the transitions based on the 'Request_ID' column.
+                   2. Identify the following transitions:
+                   - 'Work in progress' → 'Suspended'
+                   - 'Suspended' → 'Solved'
+                   - 'Solved' → 'Closed'
+                   3. For each transition:
+                   - Extract the 'Change' column (time duration in HH:MM:SS format) for these transitions.
+                   - Calculate the following:
+                       a. **Total Elapsed Time**:
+                           - Sum the 'Change' values for:
+                           - 'Work in progress' → 'Suspended'
+                           - 'Suspended' → 'Solved'
+                           - 'Solved' → 'Closed'
+                           - If any 'Change' value is invalid or missing, treat it as 00:00:00.
+                   4.Add a **Status** column:
+                       - The status is the last valid transition in the ticket.
+                       - If transitions are missing, assume `Zero hours` for the elapsed time.
+                       - If no transitions are found, set the status to `Unknown`.
+                   5.Add the **Breached** column:
+                       - If the total elapsed time exceeds the allowed duration of 40 hours, set the value to `Yes`; otherwise, set it to `No`.
+                   5. Provide the report with the following columns in this exact order:
+                   - Ticket: The ticket ID.
+                   - Priority: The priority of the ticket.
+                   - Allowed Duration: A fixed value (40 hours).
+                   - Total Elapsed Time: Total elapsed time in hours.
+                   - Status: The status of the ticket.
+                   - Breached: Whether the ticket breached the allowed duration.
 
-                    Input Data:
-                    {csv_data}
+                   Input Data:
+                   {csv_data}
 
-                    Query:
-                    {query}
+                   Query:
+                   {query}
 
-                    Provide the resulting report as valid JSON with the following structure:
-                    {{
-                        "Ticket": <ticket>,
-                        "Priority": <priority>,
-                        "Allowed Duration": <allowed_duration>,
-                        "Total Elapsed Time": <total_elapsed_time_in_hours>,
-                        "Suspended Time": <suspended_time_in_hours>
-                    }}
+                   Provide the resulting report as valid JSON with the following structure:
+                   {{
+                       "Ticket": <ticket>,
+                       "Priority": <priority>,
+                       "Allowed Duration": <allowed_duration>,
+                       "Total Elapsed Time": <total_elapsed_time_in_hours>,
+                       "Status": <status>
+                       "Breached": <breached>
+                   }}
 
-                    """
+                   If any words like breach,violated,exceeded,overdue,late,missed,unmet,unfulfilled are found in the query, then also provide the report.
+                   If the query related to the particular ticket, then provide the report of that ticket only.
+                   For any query,the answer should be in report format only.
+                   Must calculate the total elapsed time for each ticket and provide the status and breached column.
+
+                   """
         )
 
         # Use LangChain to dynamically preprocess and analyze the data
         formatted_prompt = prompt_template.format(query=query, csv_data=csv_data_str)
         response = llm.invoke(formatted_prompt)
         response_text = response.content  # Extract text content from AIMessage
+        print(response_text)
 
         if '```json' in response_text:
             # Generate the code dynamically
             code = generate_coding(response_text)
-            response_json = eval(code)  # Evaluate JSON string
+            response_json = json.loads(code)  # Safely parse the JSON string
+            print("----------------------------------------------------------")
+            print(code)
+
             return JsonResponse(response_json, safe=False, status=200)
         else:
             return JsonResponse({"message": "Not found."}, status=200)
@@ -3711,12 +3626,13 @@ def sla_breach(request):
 
 def generate_coding(response):
     """
-    Extract JSON code block from the response.
+    Extract JSON code block from the response text.
     """
     if "```json" in response:
         code_start = response.find("```json") + 7
         code_end = response.find("```", code_start)
-        code = response[code_start:code_end]
+        code = response[code_start:code_end].strip()  # Strip whitespace/newlines
     else:
-        code = response
+        raise ValueError("No JSON block found in the response")
     return code
+
