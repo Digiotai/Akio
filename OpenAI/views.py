@@ -1120,13 +1120,6 @@ def gen_graph_response(request):
 
             # Check for valid Plotly code in the AI response
             if 'import' in chat:
-                # print("Executing generated code...")
-                #
-                # # Generate the code dynamically
-                # code = generate_code(chat)
-                # print("Generated Python code:")
-                # print(code)
-
                 namespace = {}
                 try:
                     # Execute the generated code
@@ -3418,6 +3411,7 @@ def model_predict(request):
 #
 #     return JsonResponse({"error": "Invalid request method."}, status=400)
 
+
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 import pandas as pd
@@ -3455,6 +3449,8 @@ def gen_graph_plotly_response(request):
         try:
             line_graph_df = pd.DataFrame()
             bar_graph_df = pd.DataFrame()
+            scatter_graph_df = pd.DataFrame()
+            pie_graph_df = pd.DataFrame()
             x_label = ""
 
             if date_columns:
@@ -3470,26 +3466,36 @@ def gen_graph_plotly_response(request):
                     line_graph_df = df.groupby('Year')[important_columns].mean().reset_index()
 
                 bar_graph_df = line_graph_df.copy()
+                scatter_graph_df = line_graph_df.copy()
+                pie_graph_df = line_graph_df.copy()
             else:
                 for non_num_col in non_numerical_columns:
                     if non_num_col != 'Date':
                         x_label = non_num_col
                         line_graph_df = df.groupby(non_num_col)[important_columns].mean().reset_index()
                         bar_graph_df = line_graph_df.copy()
+                        scatter_graph_df = line_graph_df.copy()
+                        pie_graph_df = line_graph_df.copy()
                         break
 
             fig_line = px.line(line_graph_df, x=x_label, y=important_columns,
-                               title=f"Trend Analysis of {', '.join(important_columns)}",
+                               title=f"<b>Trend Analysis of {', '.join(important_columns)}</b>",
                                markers=True, color_discrete_sequence=px.colors.qualitative.Set1)
             fig_bar = px.bar(bar_graph_df, x=x_label, y=important_columns,
-                             title=f"Summary of {', '.join(important_columns)}",
+                             title=f"<b>Summary of {', '.join(important_columns)}</b>",
                              color_discrete_sequence=px.colors.qualitative.Set2)
+            fig_scatter = px.scatter(scatter_graph_df, x=x_label, y=important_columns,
+                                     title=f"<b>Scatter Plot of {', '.join(important_columns)}</b>",
+                                     color_discrete_sequence=px.colors.qualitative.Set3)
+            fig_pie = px.pie(pie_graph_df, names=x_label, values=important_columns[0] if important_columns else None,
+                             title=f"<b>Pie Chart of {important_columns[0] if important_columns else 'Data'}</b>")
 
-            for fig in [fig_line, fig_bar]:
+            for fig in [fig_line, fig_bar, fig_scatter, fig_pie]:
                 fig.update_layout(plot_bgcolor="white", paper_bgcolor="white",
-                                  xaxis=dict(showgrid=False), yaxis=dict(showgrid=False))
+                                  xaxis=dict(showgrid=False), yaxis=dict(showgrid=False),
+                                  width=1200)
 
-            charts_json = [json.loads(json.dumps(fig, cls=PlotlyJSONEncoder)) for fig in [fig_line, fig_bar]]
+            charts_json = [json.loads(json.dumps(fig, cls=PlotlyJSONEncoder)) for fig in [fig_line, fig_bar, fig_scatter, fig_pie]]
             print(charts_json)
             return JsonResponse({"charts": charts_json}, status=200)
         except Exception as e:
@@ -3498,8 +3504,8 @@ def gen_graph_plotly_response(request):
     return JsonResponse({"error": "Invalid request method."}, status=400)
 
 
-# File: sla_breach_app/views.py(Actually implemented in flask
 
+# File: sla_breach_app/views.py(Actually implemented in flask
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from langchain_openai import ChatOpenAI
