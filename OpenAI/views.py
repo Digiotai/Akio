@@ -416,6 +416,7 @@ import xmltodict
 
 # Helper function to store email and data locally
 def save_email_and_data_locally(email, df, upload_dir):
+    # Debug statement
     # Save email
     email_file_path = os.path.join(upload_dir, "email.json")
     with open(email_file_path, "w") as email_file:
@@ -425,12 +426,15 @@ def save_email_and_data_locally(email, df, upload_dir):
     csv_file_path = os.path.join(upload_dir, "data.csv")
     df.to_csv(csv_file_path, index=False)
 
-    excel_file_path = os.path.join(upload_dir, "data.xlsx")
-    df.to_excel(excel_file_path, index=False, engine='openpyxl')
+
+    excel_file_path = os.path.join(upload_dir, "data1.xlsx")
+    df.to_excel(excel_file_path, index=False, engine="openpyxl")
+
 
 
 # Helper function to load email and data from local storage
 def load_email_and_data(upload_dir):
+    print("[DEBUG] Loading email and data from local storage...")  # Debug statement
     email_file_path = os.path.join(upload_dir, "email.json")
     csv_file_path = os.path.join(upload_dir, "data.csv")
 
@@ -442,6 +446,7 @@ def load_email_and_data(upload_dir):
         email_data = json.load(email_file)
         email = email_data.get("email")
 
+
     # Load data
     df = pd.read_csv(csv_file_path)
     return email, df
@@ -450,61 +455,87 @@ def load_email_and_data(upload_dir):
 @csrf_exempt
 def upload_and_store_data(request):
     try:
-        if request.method == 'POST':
-            email = request.POST.get('mail')
-            files = request.FILES.get('file')  # Retrieve the uploaded file
+        print("[DEBUG] Received a request with method:", request.method)  # Debug statement
 
+        if request.method == "POST":
+            email = request.POST.get("mail")
+
+
+            files = request.FILES.get("file")  # Retrieve the uploaded file
             if not files:
+
                 return JsonResponse({"error": "No files uploaded"}, status=400)
 
             file_name = files.name
             file_extension = os.path.splitext(file_name)[1].lower()  # Extract file extension
+
+
 
             try:
                 # Create a directory for storing uploaded files
                 upload_dir = "uploads"
                 os.makedirs(upload_dir, exist_ok=True)
 
+
                 # Save the uploaded file locally
                 local_file_path = os.path.join(upload_dir, file_name)
-                with open(local_file_path, 'wb') as f:
+                with open(local_file_path, "wb") as f:
                     for chunk in files.chunks():
                         f.write(chunk)
 
+
                 # Process the uploaded file based on its extension
-                if file_extension == '.csv':
-                    content = files.read().decode('utf-8')
+                if file_extension == ".csv":
+                    print("[DEBUG] Processing as CSV file...")  # Debug statement
+                    files.seek(0)  # Reset file pointer
+                    content = files.read().decode("utf-8")
+
                     csv_data = io.StringIO(content)
                     df = pd.read_csv(csv_data)
-                elif file_extension in ['.xls', '.xlsx']:
+                    print("[DEBUG] CSV parsed successfully. DataFrame shape:", df.shape)  # Debug statement
+
+                elif file_extension in [".xls", ".xlsx"]:
+                    print("[DEBUG] Processing as Excel file...")  # Debug statement
                     df = pd.read_excel(local_file_path)  # Read from the saved local file
+                    print("[DEBUG] Excel parsed successfully. DataFrame shape:", df.shape)  # Debug statement
+
                 else:
                     raise SuspiciousOperation("Unsupported file format")
+
+                # Validate the DataFrame
+                if df.empty:
+                    return JsonResponse({"error": "Uploaded file contains no data"}, status=400)
 
                 # Save email and data locally
                 save_email_and_data_locally(email, df, upload_dir)
 
                 # Store data directly into the database
+                print("[DEBUG] Storing data into the database...")  # Debug statement
                 results = db.insert_or_update(email, df, file_name)  # Insert into MongoDB
+                print("[DEBUG] Database operation results:", results)  # Debug statement
 
                 # Prepare response
                 response_data = {
                     "message": "File uploaded, stored locally, and data saved to the database successfully",
                     "upload_status": results,
-                    "preview": df.head(10).to_dict(orient='records')
+                    "preview": df.head(10).to_dict(orient="records"),
                 }
 
                 return JsonResponse(response_data, safe=False)
 
             except Exception as e:
+                print("[ERROR] Failed to process and store file:", str(e))  # Debug statement
                 return JsonResponse({"error": f"Failed to process and store file: {str(e)}"}, status=500)
 
-        elif request.method == 'GET':
+        elif request.method == "GET":
+            print("[DEBUG] GET method is not supported for this endpoint")  # Debug statement
             return JsonResponse({"error": "GET method is not supported for this endpoint"}, status=405)
 
+        print("[DEBUG] Invalid request method")  # Debug statement
         return JsonResponse({"error": "Invalid Request Method"}, status=405)
 
     except Exception as e:
+        print("[ERROR] An error occurred:", str(e))  # Debug statement
         return JsonResponse({"error": f"An error occurred: {str(e)}"}, status=500)
 
 
@@ -517,7 +548,8 @@ def upload_and_analyze_data(request):
             email, df = load_email_and_data(upload_dir)
 
             if df is None or email is None:
-                return JsonResponse({"error": "No previously uploaded data found. Please upload a file first."}, status=400)
+                return JsonResponse({"error": "No previously uploaded data found. Please upload a file first."},
+                                    status=400)
 
             kpi_file = request.FILES.get("kpi_file")
             file_name = "data.csv"  # Use the previously stored data filename
@@ -571,7 +603,6 @@ def upload_and_analyze_data(request):
         return JsonResponse({"error": f"An error occurred: {str(e)}"}, status=500)
 
 
-
 # Upload data to the database (CSV and Excel)
 import os
 import io
@@ -583,6 +614,7 @@ from django.views.decorators.csrf import csrf_exempt
 import xmltodict
 from django.core.cache import cache
 from django.core.exceptions import SuspiciousOperation
+
 
 # Original
 # @csrf_exempt
@@ -679,7 +711,7 @@ from django.core.exceptions import SuspiciousOperation
 #     except Exception as e:
 #         return JsonResponse({"error": f"An error occurred: {str(e)}"}, status=500)
 
-#Duplicate
+# Duplicate
 #
 # @csrf_exempt
 # def upload_and_analyze_data(request):
@@ -3759,14 +3791,14 @@ def gen_graph_plotly_response(request):
                                   xaxis=dict(showgrid=False), yaxis=dict(showgrid=False),
                                   width=1200)
 
-            charts_json = [json.loads(json.dumps(fig, cls=PlotlyJSONEncoder)) for fig in [fig_line, fig_bar, fig_scatter, fig_pie]]
+            charts_json = [json.loads(json.dumps(fig, cls=PlotlyJSONEncoder)) for fig in
+                           [fig_line, fig_bar, fig_scatter, fig_pie]]
             print(charts_json)
             return JsonResponse({"charts": charts_json}, status=200)
         except Exception as e:
             return JsonResponse({"error": f"Error generating graphs: {e}"}, status=500)
 
     return JsonResponse({"error": "Invalid request method."}, status=400)
-
 
 
 # File: sla_breach_app/views.py(Actually implemented in flask
@@ -3776,6 +3808,7 @@ from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
 import pandas as pd
 import json
+
 
 @csrf_exempt
 def sla_breach(request):
@@ -3905,4 +3938,3 @@ def generate_coding(response):
     else:
         raise ValueError("No JSON block found in the response")
     return code
-
