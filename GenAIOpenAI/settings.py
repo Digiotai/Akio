@@ -82,12 +82,12 @@ WSGI_APPLICATION = 'GenAIOpenAI.wsgi.application'
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
 DATABASES = {
-'default': {
+    'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'mabpfgiu',
-        'USER':'mabpfgiu',
-        'PASSWORD':'vzKsrtuh2PTCsQwoExC7gympinp57ADp',
-        'HOST': 'abul.db.elephantsql.com',
+        'NAME': 'test',
+        'USER': 'test_owner',
+        'PASSWORD': 'tcWI7unQ6REA',
+        'HOST': 'ep-yellow-recipe-a5fny139.us-east-2.aws.neon.tech',
         'PORT': '5432',
     }
 }
