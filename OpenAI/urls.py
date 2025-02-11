@@ -6,6 +6,7 @@ urlpatterns = [
     # path(r'api/register', register, name='register'),
     # path(r'api/login', loginpage, name='login'),
     path('api/connect', connection, name='connection'),
+    path("api/upload_only",upload_and_store_data,name="upload functionaliy only"),
     path("api/upload", upload_and_analyze_data, name='upload_data'),
     path('api/tableinfo', get_tableinfo, name='get_table_info'),
     path("api/tabledata", read_data, name='read_table_data'),
