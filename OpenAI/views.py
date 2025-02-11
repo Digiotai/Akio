@@ -403,7 +403,175 @@ def connection(request):
         return HttpResponse(json.dumps({"tables": connection_obj}), content_type="application/json")
 
 
-# Upload data to the database
+# Upload functionality only
+import os
+import io
+import json
+import pandas as pd
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.core.exceptions import SuspiciousOperation
+import xmltodict
+
+
+# Helper function to store email and data locally
+def save_email_and_data_locally(email, df, upload_dir):
+    # Save email
+    email_file_path = os.path.join(upload_dir, "email.json")
+    with open(email_file_path, "w") as email_file:
+        json.dump({"email": email}, email_file, indent=4)
+
+    # Save data as CSV and Excel
+    csv_file_path = os.path.join(upload_dir, "data.csv")
+    df.to_csv(csv_file_path, index=False)
+
+    excel_file_path = os.path.join(upload_dir, "data.xlsx")
+    df.to_excel(excel_file_path, index=False, engine='openpyxl')
+
+
+# Helper function to load email and data from local storage
+def load_email_and_data(upload_dir):
+    email_file_path = os.path.join(upload_dir, "email.json")
+    csv_file_path = os.path.join(upload_dir, "data.csv")
+
+    if not os.path.exists(email_file_path) or not os.path.exists(csv_file_path):
+        return None, None
+
+    # Load email
+    with open(email_file_path, "r") as email_file:
+        email_data = json.load(email_file)
+        email = email_data.get("email")
+
+    # Load data
+    df = pd.read_csv(csv_file_path)
+    return email, df
+
+
+@csrf_exempt
+def upload_and_store_data(request):
+    try:
+        if request.method == 'POST':
+            email = request.POST.get('mail')
+            files = request.FILES.get('file')  # Retrieve the uploaded file
+
+            if not files:
+                return JsonResponse({"error": "No files uploaded"}, status=400)
+
+            file_name = files.name
+            file_extension = os.path.splitext(file_name)[1].lower()  # Extract file extension
+
+            try:
+                # Create a directory for storing uploaded files
+                upload_dir = "uploads"
+                os.makedirs(upload_dir, exist_ok=True)
+
+                # Save the uploaded file locally
+                local_file_path = os.path.join(upload_dir, file_name)
+                with open(local_file_path, 'wb') as f:
+                    for chunk in files.chunks():
+                        f.write(chunk)
+
+                # Process the uploaded file based on its extension
+                if file_extension == '.csv':
+                    content = files.read().decode('utf-8')
+                    csv_data = io.StringIO(content)
+                    df = pd.read_csv(csv_data)
+                elif file_extension in ['.xls', '.xlsx']:
+                    df = pd.read_excel(local_file_path)  # Read from the saved local file
+                else:
+                    raise SuspiciousOperation("Unsupported file format")
+
+                # Save email and data locally
+                save_email_and_data_locally(email, df, upload_dir)
+
+                # Store data directly into the database
+                results = db.insert_or_update(email, df, file_name)  # Insert into MongoDB
+
+                # Prepare response
+                response_data = {
+                    "message": "File uploaded, stored locally, and data saved to the database successfully",
+                    "upload_status": results,
+                    "preview": df.head(10).to_dict(orient='records')
+                }
+
+                return JsonResponse(response_data, safe=False)
+
+            except Exception as e:
+                return JsonResponse({"error": f"Failed to process and store file: {str(e)}"}, status=500)
+
+        elif request.method == 'GET':
+            return JsonResponse({"error": "GET method is not supported for this endpoint"}, status=405)
+
+        return JsonResponse({"error": "Invalid Request Method"}, status=405)
+
+    except Exception as e:
+        return JsonResponse({"error": f"An error occurred: {str(e)}"}, status=500)
+
+
+@csrf_exempt
+def upload_and_analyze_data(request):
+    try:
+        if request.method == 'POST':
+            # Load the previously stored email and data
+            upload_dir = "uploads"
+            email, df = load_email_and_data(upload_dir)
+
+            if df is None or email is None:
+                return JsonResponse({"error": "No previously uploaded data found. Please upload a file first."}, status=400)
+
+            kpi_file = request.FILES.get("kpi_file")
+            file_name = "data.csv"  # Use the previously stored data filename
+
+            try:
+                # Analyze and process the data
+                new_df, html_df = process_missing_data(df.copy())
+
+                processed_file_path = os.path.join(upload_dir, "processed_data.csv")
+                new_df.to_csv(processed_file_path, index=False)
+
+                kpi_config_file_name = ''
+                if kpi_file:
+                    kpis_dict = xmltodict.parse(kpi_file.read())
+                    kpi_config_file_path = os.path.join(upload_dir, "kpi_config.json")
+                    with open(kpi_config_file_path, "w") as json_file:
+                        json.dump(kpis_dict, json_file, indent=4)
+                        kpi_config_file_name = kpi_file.name
+
+                # Save configurations locally
+                config_file_path = os.path.join(upload_dir, "configs.json")
+                with open(config_file_path, "w") as json_file:
+                    json.dump({
+                        "data_file_name": file_name,
+                        "kpi_config_file_name": kpi_config_file_name
+                    }, json_file, indent=4)
+
+                # Run data analysis
+                response_data1 = analyze_data(df)
+                response_data1['preview'] = df.head(10).to_dict(orient='records')
+                response_data1['upload_status'] = "Data reused successfully"
+
+                return JsonResponse(response_data1, safe=False)
+
+            except Exception as e:
+                return JsonResponse({"error": f"Failed to analyze data: {str(e)}"}, status=500)
+
+        elif request.method == 'GET':
+            # Load and serve processed data
+            upload_dir = "uploads"
+            processed_file_path = os.path.join(upload_dir, "processed_data.csv")
+            if os.path.exists(processed_file_path):
+                processed_df = pd.read_csv(processed_file_path)
+                return JsonResponse({"df_preview": processed_df.head(10).to_dict(orient='records')})
+
+            return JsonResponse({"error": "No processed data found"}, status=400)
+
+        return JsonResponse({"error": "Invalid Request Method"}, status=405)
+
+    except Exception as e:
+        return JsonResponse({"error": f"An error occurred: {str(e)}"}, status=500)
+
+
+
 # Upload data to the database (CSV and Excel)
 import os
 import io
@@ -416,100 +584,196 @@ import xmltodict
 from django.core.cache import cache
 from django.core.exceptions import SuspiciousOperation
 
+# Original
+# @csrf_exempt
+# def upload_and_analyze_data(request):
+#     try:
+#         if request.method == 'POST':
+#             email = request.POST.get('mail')
+#             files = request.FILES.get('file')  # Retrieve the uploaded file
+#             kpi_file = request.FILES.get("kpi_file")
+#
+#             if not files:
+#                 return JsonResponse({"error": "No files uploaded"}, status=400)
+#
+#             file_name = files.name
+#             file_extension = os.path.splitext(file_name)[1].lower()  # Extract file extension
+#
+#             try:
+#                 # Process the uploaded file based on its extension
+#                 if file_extension == '.csv':
+#                     content = files.read().decode('utf-8')
+#                     csv_data = io.StringIO(content)
+#                     df = pd.read_csv(csv_data)
+#                 elif file_extension in ['.xls', '.xlsx']:
+#                     df = pd.read_excel(files)
+#                 else:
+#                     raise SuspiciousOperation("Unsupported file format")
+#
+#                 # Save the uploaded file locally for backup/logging purposes
+#                 upload_dir = "uploads"
+#                 os.makedirs(upload_dir, exist_ok=True)
+#
+#                 csv_file_path = os.path.join(upload_dir, file_name.replace(file_extension, '.csv').lower())
+#                 df.to_csv(csv_file_path, index=False)
+#
+#                 excel_file_path = os.path.join(upload_dir, file_name.replace(file_extension, '.xlsx').lower())
+#                 df.to_excel(excel_file_path, index=False, engine='openpyxl')
+#
+#                 df.to_csv('data.csv', index=False)
+#                 df.to_excel('data1.xlsx', index=False, engine='openpyxl')
+#
+#                 results = db.insert_or_update(email, df, file_name)  # Insert into MongoDB
+#
+#                 data_file_name, kpi_config_file_name = file_name, ''
+#
+#                 new_df, html_df = process_missing_data(df.copy())
+#                 cache.set('dataframe', html_df)
+#                 request.session['dataframe'] = html_df
+#
+#                 new_df.to_csv(os.path.join('uploads', 'processed_data.csv'), index=False)
+#
+#                 if os.path.exists('kpis.json'):
+#                     os.remove('kpis.json')
+#                 request.session['uploadedFileName'] = files.name
+#
+#                 if kpi_file:
+#                     kpis_dict = xmltodict.parse(kpi_file.read())
+#                     with open('uploads/kpi_config.json', 'w') as json_file:
+#                         json.dump(kpis_dict, json_file, indent=4)
+#                         kpi_config_file_name = kpi_file.name
+#
+#                 with open('uploads/configs.json', 'w') as json_file:
+#                     json.dump({
+#                         "data_file_name": data_file_name,
+#                         "kpi_config_file_name": kpi_config_file_name
+#                     }, json_file, indent=4)
+#
+#                 response_data1 = analyze_data(df)  # Assuming analyze_data is a function that analyzes data
+#                 response_data1['preview'] = df.head(10).to_dict(orient='records')
+#                 response_data1['upload_status'] = results
+#
+#                 return JsonResponse(response_data1, safe=False)
+#
+#             except Exception as e:
+#                 return JsonResponse({"error": f"Failed to upload and analyze file: {str(e)}"}, status=500)
+#
+#         elif request.method == 'GET':
+#             if os.path.exists('uploads') and os.path.exists(os.path.join('uploads', 'data.csv')):
+#                 data_frame = pd.read_csv(os.path.join('uploads', 'data.csv'))
+#                 data_frame = updatedtypes(data_frame)
+#
+#                 with open('uploads/configs.json', 'r') as json_file:
+#                     data = json.load(json_file)
+#                     return JsonResponse({
+#                         "uploadedInfo": True,
+#                         "df_preview": data_frame.head().to_dict(orient='records'),
+#                         "data_file_name": data['data_file_name'],
+#                         "kpi_config_file_name": data["kpi_config_file_name"]
+#                     })
+#
+#             return JsonResponse({"uploadedInfo": False})
+#
+#         return JsonResponse({"error": "Invalid Request Method"}, status=405)
+#
+#     except Exception as e:
+#         return JsonResponse({"error": f"An error occurred: {str(e)}"}, status=500)
 
-@csrf_exempt
-def upload_and_analyze_data(request):
-    try:
-        if request.method == 'POST':
-            email = request.POST.get('mail')
-            files = request.FILES.get('file')  # Retrieve the uploaded file
-            kpi_file = request.FILES.get("kpi_file")
-
-            if not files:
-                return JsonResponse({"error": "No files uploaded"}, status=400)
-
-            file_name = files.name
-            file_extension = os.path.splitext(file_name)[1].lower()  # Extract file extension
-
-            try:
-                # Process the uploaded file based on its extension
-                if file_extension == '.csv':
-                    content = files.read().decode('utf-8')
-                    csv_data = io.StringIO(content)
-                    df = pd.read_csv(csv_data)
-                elif file_extension in ['.xls', '.xlsx']:
-                    df = pd.read_excel(files)
-                else:
-                    raise SuspiciousOperation("Unsupported file format")
-
-                # Save the uploaded file locally for backup/logging purposes
-                upload_dir = "uploads"
-                os.makedirs(upload_dir, exist_ok=True)
-
-                csv_file_path = os.path.join(upload_dir, file_name.replace(file_extension, '.csv').lower())
-                df.to_csv(csv_file_path, index=False)
-
-                excel_file_path = os.path.join(upload_dir, file_name.replace(file_extension, '.xlsx').lower())
-                df.to_excel(excel_file_path, index=False, engine='openpyxl')
-
-                df.to_csv('data.csv', index=False)
-                df.to_excel('data1.xlsx', index=False, engine='openpyxl')
-
-                results = db.insert_or_update(email, df, file_name)  # Insert into MongoDB
-
-                data_file_name, kpi_config_file_name = file_name, ''
-
-                new_df, html_df = process_missing_data(df.copy())
-                cache.set('dataframe', html_df)
-                request.session['dataframe'] = html_df
-
-                new_df.to_csv(os.path.join('uploads', 'processed_data.csv'), index=False)
-
-                if os.path.exists('kpis.json'):
-                    os.remove('kpis.json')
-                request.session['uploadedFileName'] = files.name
-
-                if kpi_file:
-                    kpis_dict = xmltodict.parse(kpi_file.read())
-                    with open('uploads/kpi_config.json', 'w') as json_file:
-                        json.dump(kpis_dict, json_file, indent=4)
-                        kpi_config_file_name = kpi_file.name
-
-                with open('uploads/configs.json', 'w') as json_file:
-                    json.dump({
-                        "data_file_name": data_file_name,
-                        "kpi_config_file_name": kpi_config_file_name
-                    }, json_file, indent=4)
-
-                response_data1 = analyze_data(df)  # Assuming analyze_data is a function that analyzes data
-                response_data1['preview'] = df.head(10).to_dict(orient='records')
-                response_data1['upload_status'] = results
-
-                return JsonResponse(response_data1, safe=False)
-
-            except Exception as e:
-                return JsonResponse({"error": f"Failed to upload and analyze file: {str(e)}"}, status=500)
-
-        elif request.method == 'GET':
-            if os.path.exists('uploads') and os.path.exists(os.path.join('uploads', 'data.csv')):
-                data_frame = pd.read_csv(os.path.join('uploads', 'data.csv'))
-                data_frame = updatedtypes(data_frame)
-
-                with open('uploads/configs.json', 'r') as json_file:
-                    data = json.load(json_file)
-                    return JsonResponse({
-                        "uploadedInfo": True,
-                        "df_preview": data_frame.head().to_dict(orient='records'),
-                        "data_file_name": data['data_file_name'],
-                        "kpi_config_file_name": data["kpi_config_file_name"]
-                    })
-
-            return JsonResponse({"uploadedInfo": False})
-
-        return JsonResponse({"error": "Invalid Request Method"}, status=405)
-
-    except Exception as e:
-        return JsonResponse({"error": f"An error occurred: {str(e)}"}, status=500)
+#Duplicate
+#
+# @csrf_exempt
+# def upload_and_analyze_data(request):
+#     try:
+#         if request.method == 'POST':
+#             email = request.POST.get('mail')
+#             files = request.FILES.get('file')  # Retrieve the uploaded file
+#             kpi_file = request.FILES.get("kpi_file")
+#
+#             if not files:
+#                 return JsonResponse({"error": "No files uploaded"}, status=400)
+#
+#             file_name = files.name
+#             file_extension = os.path.splitext(file_name)[1].lower()  # Extract file extension
+#
+#             try:
+#                 # Process the uploaded file based on its extension
+#                 if file_extension == '.csv':
+#                     content = files.read().decode('utf-8')
+#                     csv_data = io.StringIO(content)
+#                     df = pd.read_csv(csv_data)
+#                 elif file_extension in ['.xls', '.xlsx']:
+#                     df = pd.read_excel(files)
+#                 else:
+#                     raise SuspiciousOperation("Unsupported file format")
+#
+#                 # Save the uploaded file locally for backup/logging purposes
+#                 upload_dir = "uploads"
+#                 os.makedirs(upload_dir, exist_ok=True)
+#
+#                 csv_file_path = os.path.join(upload_dir, file_name.replace(file_extension, '.csv').lower())
+#                 df.to_csv(csv_file_path, index=False)
+#
+#                 excel_file_path = os.path.join(upload_dir, file_name.replace(file_extension, '.xlsx').lower())
+#                 df.to_excel(excel_file_path, index=False, engine='openpyxl')
+#
+#                 df.to_csv('data.csv', index=False)
+#                 df.to_excel('data1.xlsx', index=False, engine='openpyxl')
+#
+#                 results = db.insert_or_update(email, df, file_name)  # Insert into MongoDB
+#
+#                 data_file_name, kpi_config_file_name = file_name, ''
+#
+#                 new_df, html_df = process_missing_data(df.copy())
+#                 cache.set('dataframe', html_df)
+#                 request.session['dataframe'] = html_df
+#
+#                 new_df.to_csv(os.path.join('uploads', 'processed_data.csv'), index=False)
+#
+#                 if os.path.exists('kpis.json'):
+#                     os.remove('kpis.json')
+#                 request.session['uploadedFileName'] = files.name
+#
+#                 if kpi_file:
+#                     kpis_dict = xmltodict.parse(kpi_file.read())
+#                     with open('uploads/kpi_config.json', 'w') as json_file:
+#                         json.dump(kpis_dict, json_file, indent=4)
+#                         kpi_config_file_name = kpi_file.name
+#
+#                 with open('uploads/configs.json', 'w') as json_file:
+#                     json.dump({
+#                         "data_file_name": data_file_name,
+#                         "kpi_config_file_name": kpi_config_file_name
+#                     }, json_file, indent=4)
+#
+#                 response_data1 = analyze_data(df)  # Assuming analyze_data is a function that analyzes data
+#                 response_data1['preview'] = df.head(10).to_dict(orient='records')
+#                 response_data1['upload_status'] = results
+#
+#                 return JsonResponse(response_data1, safe=False)
+#
+#             except Exception as e:
+#                 return JsonResponse({"error": f"Failed to upload and analyze file: {str(e)}"}, status=500)
+#
+#         elif request.method == 'GET':
+#             if os.path.exists('uploads') and os.path.exists(os.path.join('uploads', 'data.csv')):
+#                 data_frame = pd.read_csv(os.path.join('uploads', 'data.csv'))
+#                 data_frame = updatedtypes(data_frame)
+#
+#                 with open('uploads/configs.json', 'r') as json_file:
+#                     data = json.load(json_file)
+#                     return JsonResponse({
+#                         "uploadedInfo": True,
+#                         "df_preview": data_frame.head().to_dict(orient='records'),
+#                         "data_file_name": data['data_file_name'],
+#                         "kpi_config_file_name": data["kpi_config_file_name"]
+#                     })
+#
+#             return JsonResponse({"uploadedInfo": False})
+#
+#         return JsonResponse({"error": "Invalid Request Method"}, status=405)
+#
+#     except Exception as e:
+#         return JsonResponse({"error": f"An error occurred: {str(e)}"}, status=500)
 
 
 def analyze_data(df):
