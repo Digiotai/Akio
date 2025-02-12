@@ -494,6 +494,7 @@ def upload_and_store_data(request):
                 # Process the uploaded file based on its extension
                 if file_extension == ".csv":
                     print("[DEBUG] Processing as CSV file...")  # Debug statement
+                    files.seek(0)  # Reset file pointer
                     content = files.read().decode("utf-8")
                     csv_data = io.StringIO(content)
                     df = pd.read_csv(csv_data)
@@ -505,6 +506,7 @@ def upload_and_store_data(request):
                     print("[DEBUG] Excel parsed successfully. DataFrame shape:", df.shape)  # Debug statement
 
                 else:
+                    files.seek(0)  # Reset file pointer
                     content = files.read().decode("utf-8")
                     csv_data = io.StringIO(content)
                     df = pd.read_csv(csv_data)
