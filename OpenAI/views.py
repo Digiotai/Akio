@@ -432,13 +432,15 @@ def upload_and_store_data(request):
             try:
                 # Process the uploaded file based on its extension
                 if file_extension == ".csv":
-                    content = files.read().decode("utf-8-sig")
+                    content = files.read().decode("utf-8")
                     csv_data = io.StringIO(content)
                     df = pd.read_csv(csv_data)
                 elif file_extension in [".xls", ".xlsx"]:
                     df = pd.read_excel(files, engine="openpyxl")
                 else:
-                    raise SuspiciousOperation("Unsupported file format")
+                    content = files.read().decode("utf-8")
+                    csv_data = io.StringIO(content)
+                    df = pd.read_csv(csv_data)
 
                 # Save the uploaded file locally
                 upload_dir = "uploads"
