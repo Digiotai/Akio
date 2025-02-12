@@ -412,53 +412,165 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.core.exceptions import SuspiciousOperation
 
+
+# Helper function to store email and data locally
+def save_email_and_data_locally(email, df, upload_dir, file_extension):
+    # Save email
+    email_file_path = os.path.join(upload_dir, "email.json")
+    with open(email_file_path, "w") as email_file:
+        json.dump({"email": email}, email_file, indent=4)
+
+    # Determine the correct folder to save the file
+    if file_extension == ".csv":
+        save_folder = os.path.join(upload_dir, "csv")
+    elif file_extension in [".xls", ".xlsx"]:
+        save_folder = os.path.join(upload_dir, "excel")
+    else:
+        raise ValueError("Unsupported file format")
+
+    os.makedirs(save_folder, exist_ok=True)  # Ensure the folder exists
+
+    # Save the data in the appropriate format
+    if file_extension == ".csv":
+        file_path = os.path.join(save_folder, "data.csv")
+        df.to_csv(file_path, index=False)
+    elif file_extension in [".xls", ".xlsx"]:
+        file_path = os.path.join(save_folder, "data1.xlsx")
+        df.to_excel(file_path, index=False, engine="openpyxl")
+
+
+# Helper function to load email and data from local storage
+def load_email_and_data(upload_dir):
+    print("[DEBUG] Loading email and data from local storage...")  # Debug statement
+    email_file_path = os.path.join(upload_dir, "email.json")
+    csv_file_path = os.path.join(upload_dir, "csv", "data.csv")
+    excel_file_path = os.path.join(upload_dir, "excel", "data1.xlsx")
+
+    if not os.path.exists(email_file_path):
+        return None, None
+
+    # Load email
+    with open(email_file_path, "r") as email_file:
+        email_data = json.load(email_file)
+        email = email_data.get("email")
+
+    # Load data (check for file availability in csv or excel folder)
+    if os.path.exists(csv_file_path):
+        df = pd.read_csv(csv_file_path)
+    elif os.path.exists(excel_file_path):
+        df = pd.read_excel(excel_file_path)
+    else:
+        df = None
+
+    return email, df
+
+
 @csrf_exempt
 def upload_and_store_data(request):
     try:
+        print("[DEBUG] Received a request with method:", request.method)  # Debug statement
+
         if request.method == "POST":
             email = request.POST.get("mail")
             files = request.FILES.get("file")  # Retrieve the uploaded file
-            kpi_file = request.FILES.get("kpi_file")  # Optional KPI configuration file
-
-            if not email:
-                return JsonResponse({"error": "Email is required"}, status=400)
 
             if not files:
-                return JsonResponse({"error": "No file uploaded"}, status=400)
+                return JsonResponse({"error": "No files uploaded"}, status=400)
 
             file_name = files.name
             file_extension = os.path.splitext(file_name)[1].lower()  # Extract file extension
 
             try:
+                # Create a directory for storing uploaded files
+                upload_dir = "uploads"
+                os.makedirs(upload_dir, exist_ok=True)
+
+                # Save the uploaded file locally
+                local_file_path = os.path.join(upload_dir, file_name)
+                with open(local_file_path, "wb") as f:
+                    for chunk in files.chunks():
+                        f.write(chunk)
+
                 # Process the uploaded file based on its extension
                 if file_extension == ".csv":
+                    print("[DEBUG] Processing as CSV file...")  # Debug statement
                     content = files.read().decode("utf-8")
                     csv_data = io.StringIO(content)
                     df = pd.read_csv(csv_data)
+                    print("[DEBUG] CSV parsed successfully. DataFrame shape:", df.shape)  # Debug statement
+
                 elif file_extension in [".xls", ".xlsx"]:
-                    df = pd.read_excel(files, engine="openpyxl")
+                    print("[DEBUG] Processing as Excel file...")  # Debug statement
+                    df = pd.read_excel(local_file_path)  # Read from the saved local file
+                    print("[DEBUG] Excel parsed successfully. DataFrame shape:", df.shape)  # Debug statement
+
                 else:
                     content = files.read().decode("utf-8")
                     csv_data = io.StringIO(content)
                     df = pd.read_csv(csv_data)
 
-                # Save the uploaded file locally
-                upload_dir = "uploads"
-                os.makedirs(upload_dir, exist_ok=True)
+                # Validate the DataFrame
+                if df.empty:
+                    return JsonResponse({"error": "Uploaded file contains no data"}, status=400)
 
-                # Save the file in both CSV and Excel formats
-                csv_file_path = os.path.join(upload_dir, file_name.replace(file_extension, ".csv").lower())
-                df.to_csv(csv_file_path, index=False)
+                # Save email and data locally in the appropriate folder
+                save_email_and_data_locally(email, df, upload_dir, file_extension)
 
-                excel_file_path = os.path.join(upload_dir, file_name.replace(file_extension, ".xlsx").lower())
-                df.to_excel(excel_file_path, index=False, engine="openpyxl")
+                # Store data directly into the database
+                print("[DEBUG] Storing data into the database...")  # Debug statement
+                results = db.insert_or_update(email, df, file_name)  # Insert into MongoDB
+                print("[DEBUG] Database operation results:", results)  # Debug statement
 
-                # Save email and file metadata locally
-                with open(os.path.join(upload_dir, "email.json"), "w") as email_file:
-                    json.dump({"email": email}, email_file, indent=4)
+                # Prepare response
+                response_data = {
+                    "message": "File uploaded, stored locally, and data saved to the database successfully",
+                    "upload_status": results,
+                    "preview": df.head(10).to_dict(orient="records"),
+                }
 
-                # Save KPI configuration if provided
-                kpi_config_file_name = ""
+                return JsonResponse(response_data, safe=False)
+
+            except Exception as e:
+                print("[ERROR] Failed to process and store file:", str(e))  # Debug statement
+                return JsonResponse({"error": f"Failed to process and store file: {str(e)}"}, status=500)
+
+        elif request.method == "GET":
+            print("[DEBUG] GET method is not supported for this endpoint")  # Debug statement
+            return JsonResponse({"error": "GET method is not supported for this endpoint"}, status=405)
+
+        print("[DEBUG] Invalid request method")  # Debug statement
+        return JsonResponse({"error": "Invalid Request Method"}, status=405)
+
+    except Exception as e:
+        print("[ERROR] An error occurred:", str(e))  # Debug statement
+        return JsonResponse({"error": f"An error occurred: {str(e)}"}, status=500)
+
+
+
+
+@csrf_exempt
+def upload_and_analyze_data(request):
+    try:
+        if request.method == 'POST':
+            # Load the previously stored email and data
+            upload_dir = "uploads"
+            email, df = load_email_and_data(upload_dir)
+
+            if df is None or email is None:
+                return JsonResponse({"error": "No previously uploaded data found. Please upload a file first."},
+                                    status=400)
+
+            kpi_file = request.FILES.get("kpi_file")
+            file_name = "data.csv"  # Use the previously stored data filename
+
+            try:
+                # Analyze and process the data
+                new_df, html_df = process_missing_data(df.copy())
+
+                processed_file_path = os.path.join(upload_dir, "processed_data.csv")
+                new_df.to_csv(processed_file_path, index=False)
+
+                kpi_config_file_name = ''
                 if kpi_file:
                     kpis_dict = xmltodict.parse(kpi_file.read())
                     kpi_config_file_path = os.path.join(upload_dir, "kpi_config.json")
@@ -474,90 +586,23 @@ def upload_and_store_data(request):
                         "kpi_config_file_name": kpi_config_file_name
                     }, json_file, indent=4)
 
-                # Store raw data in session for analysis
-                request.session["uploaded_file_name"] = file_name
+                # Run data analysis
+                response_data1 = analyze_data(df)
+                response_data1['preview'] = df.head(10).to_dict(orient='records')
+                response_data1['upload_status'] = "Data reused successfully"
 
-                return JsonResponse(
-                    {
-                        "message": "File uploaded successfully.",
-                        "email": email,
-                        "data_file_name": file_name,
-                        "kpi_config_file_name": kpi_config_file_name
-                    },
-                    status=201
-                )
-
-            except Exception as e:
-                return JsonResponse({"error": f"Failed to upload file: {str(e)}"}, status=500)
-
-        return JsonResponse({"error": "Invalid Request Method"}, status=405)
-
-    except Exception as e:
-        return JsonResponse({"error": f"An error occurred: {str(e)}"}, status=500)
-
-@csrf_exempt
-def upload_and_analyze_data(request):
-    try:
-        if request.method == "POST":
-            # Check if previously uploaded data exists
-            upload_dir = "uploads"
-            email_file_path = os.path.join(upload_dir, "email.json")
-            config_file_path = os.path.join(upload_dir, "configs.json")
-            csv_file_path = os.path.join(upload_dir, "data.csv")
-            excel_file_path = os.path.join(upload_dir, "data1.xlsx")
-
-            if not os.path.exists(email_file_path) or not os.path.exists(config_file_path):
-                return JsonResponse(
-                    {"error": "No previously uploaded data found. Please upload a file first."},
-                    status=400,
-                )
-
-            # Load email
-            with open(email_file_path, "r") as email_file:
-                email_data = json.load(email_file)
-                email = email_data.get("email")
-
-            # Load file configuration
-            with open(config_file_path, "r") as config_file:
-                config_data = json.load(config_file)
-                data_file_name = config_data.get("data_file_name")
-
-            # Load the previously uploaded file for analysis
-            if os.path.exists(csv_file_path):
-                df = pd.read_csv(csv_file_path)
-            elif os.path.exists(excel_file_path):
-                df = pd.read_excel(excel_file_path, engine="openpyxl")
-            else:
-                return JsonResponse({"error": "No valid data file found for analysis"}, status=400)
-
-            try:
-                # Perform analysis
-                print("[DEBUG] Analyzing data...")  # Debug statement
-                new_df, html_df = process_missing_data(df.copy())
-                cache.set("dataframe", html_df)
-                request.session["dataframe"] = html_df
-
-                # Save processed data
-                processed_file_path = os.path.join(upload_dir, "processed_data.csv")
-                new_df.to_csv(processed_file_path, index=False)
-
-                # Run analysis and generate response
-                response_data = analyze_data(df)
-                response_data["preview"] = df.head(10).to_dict(orient="records")
-                response_data["email"] = email
-                response_data["uploaded_file_name"] = data_file_name
-
-                return JsonResponse(response_data, safe=False)
+                return JsonResponse(response_data1, safe=False)
 
             except Exception as e:
                 return JsonResponse({"error": f"Failed to analyze data: {str(e)}"}, status=500)
 
-        elif request.method == "GET":
-            # Handle GET requests to retrieve processed data
-            processed_file_path = os.path.join("uploads", "processed_data.csv")
+        elif request.method == 'GET':
+            # Load and serve processed data
+            upload_dir = "uploads"
+            processed_file_path = os.path.join(upload_dir, "processed_data.csv")
             if os.path.exists(processed_file_path):
                 processed_df = pd.read_csv(processed_file_path)
-                return JsonResponse({"df_preview": processed_df.head(10).to_dict(orient="records")})
+                return JsonResponse({"df_preview": processed_df.head(10).to_dict(orient='records')})
 
             return JsonResponse({"error": "No processed data found"}, status=400)
 
@@ -565,76 +610,7 @@ def upload_and_analyze_data(request):
 
     except Exception as e:
         return JsonResponse({"error": f"An error occurred: {str(e)}"}, status=500)
-@csrf_exempt
-def analyze_uploaded_data(request):
-    try:
-        if request.method == "POST":
-            # Check if previously uploaded data exists
-            upload_dir = "uploads"
-            email_file_path = os.path.join(upload_dir, "email.json")
-            config_file_path = os.path.join(upload_dir, "configs.json")
-            csv_file_path = os.path.join(upload_dir, "data.csv")
-            excel_file_path = os.path.join(upload_dir, "data1.xlsx")
 
-            if not os.path.exists(email_file_path) or not os.path.exists(config_file_path):
-                return JsonResponse(
-                    {"error": "No previously uploaded data found. Please upload a file first."},
-                    status=400,
-                )
-
-            # Load email
-            with open(email_file_path, "r") as email_file:
-                email_data = json.load(email_file)
-                email = email_data.get("email")
-
-            # Load file configuration
-            with open(config_file_path, "r") as config_file:
-                config_data = json.load(config_file)
-                data_file_name = config_data.get("data_file_name")
-
-            # Load the previously uploaded file for analysis
-            if os.path.exists(csv_file_path):
-                df = pd.read_csv(csv_file_path)
-            elif os.path.exists(excel_file_path):
-                df = pd.read_excel(excel_file_path, engine="openpyxl")
-            else:
-                return JsonResponse({"error": "No valid data file found for analysis"}, status=400)
-
-            try:
-                # Perform analysis
-                print("[DEBUG] Analyzing data...")  # Debug statement
-                new_df, html_df = process_missing_data(df.copy())
-                cache.set("dataframe", html_df)
-                request.session["dataframe"] = html_df
-
-                # Save processed data
-                processed_file_path = os.path.join(upload_dir, "processed_data.csv")
-                new_df.to_csv(processed_file_path, index=False)
-
-                # Run analysis and generate response
-                response_data = analyze_data(df)
-                response_data["preview"] = df.head(10).to_dict(orient="records")
-                response_data["email"] = email
-                response_data["uploaded_file_name"] = data_file_name
-
-                return JsonResponse(response_data, safe=False)
-
-            except Exception as e:
-                return JsonResponse({"error": f"Failed to analyze data: {str(e)}"}, status=500)
-
-        elif request.method == "GET":
-            # Handle GET requests to retrieve processed data
-            processed_file_path = os.path.join("uploads", "processed_data.csv")
-            if os.path.exists(processed_file_path):
-                processed_df = pd.read_csv(processed_file_path)
-                return JsonResponse({"df_preview": processed_df.head(10).to_dict(orient="records")})
-
-            return JsonResponse({"error": "No processed data found"}, status=400)
-
-        return JsonResponse({"error": "Invalid Request Method"}, status=405)
-
-    except Exception as e:
-        return JsonResponse({"error": f"An error occurred: {str(e)}"}, status=500)
 
 # Upload data to the database (CSV and Excel)
 import os
