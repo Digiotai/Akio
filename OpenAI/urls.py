@@ -62,7 +62,7 @@ urlpatterns = [
 
     # models for prediction urls
     path(r'api/models', models, name='models'),
-    path('model_predict', model_predict, name='model_predict'),
+    path('api/model_predict', model_predict, name='model_predict'),
 
     # Dashboard
     path('api/dashboard', gen_graph_plotly_response, name="plotly dashboard"),
