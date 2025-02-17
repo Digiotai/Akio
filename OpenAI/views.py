@@ -1276,6 +1276,7 @@ def gen_graph_response(request):
                 f"The graph must and should  have a white background for both the plot and paper."
                 f"The code must output a Plotly 'Figure' object stored in a variable named 'fig', and the 'data' and 'layout'  and the code generated will be compatable to React."
                 f"dictionaries required for the graph."
+                f"Also save the graph description in description.txt"
                 f"The user asks: {query}"
             )
 
@@ -3603,12 +3604,14 @@ def gen_graph_plotly_response(request):
             date_columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
             numerical_columns = df.select_dtypes(include=['number']).columns.tolist()
             non_numerical_columns = df.select_dtypes(exclude=['number']).columns.tolist()
+            print(numerical_columns)
+            print(non_numerical_columns)
 
             if not numerical_columns:
                 return JsonResponse({"error": "Dataset must contain at least one numerical column."}, status=400)
 
             correlation_matrix = df[numerical_columns].corr()
-            important_columns = correlation_matrix.columns[correlation_matrix.max() > 0.5].tolist()
+            important_columns = correlation_matrix.columns[correlation_matrix.max() > 0.65].tolist()
         except Exception as e:
             return JsonResponse({"error": f"Error detecting columns: {e}"}, status=500)
 
