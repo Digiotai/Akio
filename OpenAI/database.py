@@ -376,7 +376,10 @@ class PostgresDatabase:
 
     def get_user_tables(self, user):
         try:
+            print("Connecting to the database..........")
+            self.ensure_connection()
             df = self.read()
+            print(df)
             return list(df[df['email'] == user]['name']) if not df.empty else []
         except Exception as err:
             print(f"Error getting user tables: {err}")
