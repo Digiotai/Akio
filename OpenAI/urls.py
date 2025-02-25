@@ -70,6 +70,12 @@ urlpatterns = [
     #Sla Breach
     path('api/sla_breach', sla_breach, name="plotly dashboard"),
 
+    
+    #Visualisation_api_updated
+    path('api/ai_bot', gen_ai_bot,name="plotly_visualisation"),
+    path('api/data_process',data_processing,name="data_preprocessing_for_dashboard")
+
+
     # #Payment Gateway
     # path("api/initiate-payment", initiate_payment, name="initiate_payment"),
     # path("api/payment-callback", payment_callback, name="payment_callback"),
