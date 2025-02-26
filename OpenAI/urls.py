@@ -65,18 +65,19 @@ urlpatterns = [
     path('api/model_predict', model_predict, name='model_predict'),
 
     # Dashboard
-    path('api/dashboard', gen_graph_plotly_response, name="plotly dashboard"),
+    path('api/dashboard', gen_plotly_response, name="plotly dashboard"),
 
-    #Sla Breach
-    path('api/sla_breach', sla_breach, name="plotly dashboard"),
-
-    
-    #Visualisation_api_updated
-    path('api/ai_bot', gen_ai_bot,name="plotly_visualisation"),
-    path('api/data_process',data_processing,name="data_preprocessing_for_dashboard")
-
+    # #Sla Breach
+    # path('api/sla_breach', sla_breach, name="plotly dashboard"),
 
     # #Payment Gateway
     # path("api/initiate-payment", initiate_payment, name="initiate_payment"),
     # path("api/payment-callback", payment_callback, name="payment_callback"),
+
+    #Visualisation_api_updated
+    path('api/ai_bot', gen_ai_bot,name="plotly_visualisation"),
+    path('api/getting_column_description',col_description,name="getting_column_description"),
+
+
+
 ]
