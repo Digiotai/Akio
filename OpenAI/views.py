@@ -3692,4 +3692,4 @@ def col_description(request):
         )
         column_description = generate_code(prompt_eng)
 
-        return JsonResponse({"Column_description": column_description})
+        return JsonResponse({"Column_description": markdown_to_html(column_description)})
