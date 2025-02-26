@@ -3561,12 +3561,12 @@ def analyze_dataset1(df):
             "query": f"Generate a histogram for '{important_numerical[0]}' to analyze its distribution.",
             "analysis": f"Distribution Analysis"
         })
-        # Add Box Plot for outlier detection
-        queries.append({
-            "type": "box",
-            "query": f"Generate a box plot for '{important_numerical[1]}' to analyze outliers and data distribution.",
-            "analysis": f"Outlier Detection"
-        })
+        # # Add Box Plot for outlier detection
+        # queries.append({
+        #     "type": "box",
+        #     "query": f"Generate a box plot for '{important_numerical[1]}' to analyze outliers and data distribution.",
+        #     "analysis": f"Outlier Detection"
+        # })
 
     # Debug: Print generated queries
     print("Generated Queries:", queries)
@@ -3615,7 +3615,7 @@ def gen_plotly_response(request):
                     f"The graph must have a white background for both the plot and paper."
                     f"The code must output a Plotly 'Figure' object stored in a variable named 'fig'."
                     f"The user asks: {query}"
-                    f"Ensure that this prompt is executed for all the {query} in {queries} and give the code for all the queries."
+
                 )
 
                 # Call AI to generate the code
@@ -3651,9 +3651,7 @@ def gen_plotly_response(request):
                             chart_data_serializable = make_serializable(chart_data)
 
                             # Append the graph data to the list
-                            all_charts.append({
-                                "chartData": chart_data_serializable
-                            })
+                            all_charts.append(chart_data_serializable)
                         else:
                             print(f"No valid Plotly figure found for query: {query}")
                     except Exception as e:
