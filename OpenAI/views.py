@@ -3380,244 +3380,11 @@ def model_predict(request):
         })
 
 
-# Dashboard.
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-import pandas as pd
-import plotly.express as px
-import json
-from plotly.utils import PlotlyJSONEncoder
-
-
-@csrf_exempt
-def gen_graph_plotly_response(request):
-    if request.method == "POST":
-        try:
-            df = pd.read_csv('data.csv')
-        except Exception as e:
-            return JsonResponse({"error": f"Error loading CSV: {e}"}, status=500)
-
-        try:
-            possible_date_columns = ['Date', 'Hour']
-            for col in possible_date_columns:
-                if col in df.columns and df[col].dtype == 'object':
-                    df[col] = pd.to_datetime(df[col], errors='coerce')
-
-            date_columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
-            numerical_columns = df.select_dtypes(include=['number']).columns.tolist()
-            non_numerical_columns = df.select_dtypes(exclude=['number']).columns.tolist()
-            print(numerical_columns)
-            print(non_numerical_columns)
-
-            if not numerical_columns:
-                return JsonResponse({"error": "Dataset must contain at least one numerical column."}, status=400)
-
-            correlation_matrix = df[numerical_columns].corr()
-            important_columns = correlation_matrix.columns[correlation_matrix.max() > 0.65].tolist()
-        except Exception as e:
-            return JsonResponse({"error": f"Error detecting columns: {e}"}, status=500)
-
-        try:
-            line_graph_df = pd.DataFrame()
-            bar_graph_df = pd.DataFrame()
-            scatter_graph_df = pd.DataFrame()
-            pie_graph_df = pd.DataFrame()
-            x_label = ""
-
-            if date_columns:
-                date_col = date_columns[0]
-                df['Year'] = df[date_col].dt.year
-
-                if df['Year'].nunique() == 1:
-                    df['Month'] = df[date_col].dt.month
-                    x_label = 'Month'
-                    line_graph_df = df.groupby('Month')[important_columns].mean().reset_index()
-                else:
-                    x_label = 'Year'
-                    line_graph_df = df.groupby('Year')[important_columns].mean().reset_index()
-
-                bar_graph_df = line_graph_df.copy()
-                scatter_graph_df = line_graph_df.copy()
-                pie_graph_df = line_graph_df.copy()
-            else:
-                for non_num_col in non_numerical_columns:
-                    if non_num_col != 'Date':
-                        x_label = non_num_col
-                        line_graph_df = df.groupby(non_num_col)[important_columns].mean().reset_index()
-                        bar_graph_df = line_graph_df.copy()
-                        scatter_graph_df = line_graph_df.copy()
-                        pie_graph_df = line_graph_df.copy()
-                        break
-
-            fig_line = px.line(line_graph_df, x=x_label, y=important_columns,
-                               title=f"<b>Trend Analysis of {', '.join(important_columns)}</b>",
-                               markers=True, color_discrete_sequence=px.colors.qualitative.Set1)
-            fig_bar = px.bar(bar_graph_df, x=x_label, y=important_columns,
-                             title=f"<b>Summary of {', '.join(important_columns)}</b>",
-                             color_discrete_sequence=px.colors.qualitative.Set2)
-            fig_scatter = px.scatter(scatter_graph_df, x=x_label, y=important_columns,
-                                     title=f"<b>Scatter Plot of {', '.join(important_columns)}</b>",
-                                     color_discrete_sequence=px.colors.qualitative.Set3)
-            fig_pie = px.pie(pie_graph_df, names=x_label, values=important_columns[0] if important_columns else None,
-                             title=f"<b>Pie Chart of {important_columns[0] if important_columns else 'Data'}</b>")
-
-            for fig in [fig_line, fig_bar, fig_scatter, fig_pie]:
-                fig.update_layout(plot_bgcolor="white", paper_bgcolor="white",
-                                  xaxis=dict(showgrid=False), yaxis=dict(showgrid=False),
-                                  width=1200)
-
-            charts_json = [json.loads(json.dumps(fig, cls=PlotlyJSONEncoder)) for fig in
-                           [fig_line, fig_bar, fig_scatter, fig_pie]]
-            print(charts_json)
-            return JsonResponse({"charts": charts_json}, status=200)
-        except Exception as e:
-            return JsonResponse({"error": f"Error generating graphs: {e}"}, status=500)
-
-    return JsonResponse({"error": "Invalid request method."}, status=400)
-
-
-# File: sla_breach_app/views.py(Actually implemented in flask)
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from langchain_openai import ChatOpenAI
-from langchain.prompts import PromptTemplate
-import pandas as pd
-import json
-
-
-@csrf_exempt
-def sla_breach(request):
-    """
-    Function-based view to handle query-specific preprocessing and generate a report.
-    """
-    if request.method != 'POST':
-        return JsonResponse({"error": "Invalid request method. Only POST is allowed."}, status=405)
-
-    try:
-        # Check if a file is uploaded
-        if 'file' not in request.FILES:
-            return JsonResponse({"error": "No file uploaded"}, status=400)
-
-        file = request.FILES['file']
-        if not file.name.endswith('.csv'):
-            return JsonResponse({"error": "Invalid file format. Please upload a CSV file."}, status=400)
-
-        # Read the content of the uploaded file
-        csv_data = pd.read_csv(file)
-        csv_data_str = csv_data.to_csv(index=False)
-
-        # Get the user query
-        query = request.POST.get("query")
-        if not query:
-            return JsonResponse({"error": "Query is required"}, status=400)
-
-        # Initialize the OpenAI Chat Model with LangChain
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.5, api_key=OPENAI_API_KEY)
-
-        # Updated prompt template
-        prompt_template = PromptTemplate(
-            input_variables=["csv_data", "query"],
-
-            template="""
-                   You are an expert data scientist who gives very accurate answers. Preprocess the provided CSV data based on the specified date columns. Perform the following tasks:
-                   1. Identify and adjust timestamps in the date columns by subtracting 6 hours.
-                   2. Reformat valid date entries to the format: MM/DD/YYYY, HH:MM AM/PM.
-                   3. For time entries in HH:MM:SS AM/PM format:
-                   - Convert them to 24-hour format.
-                   - Subtract 6 hours.
-                   - Convert back to 12-hour format.
-                   4. Ignore entries that cannot be parsed as valid dates or times.
-
-                   Then, analyze the data to generate a report based on the following requirements:
-                   1. Group all the transitions based on the 'Request_ID' column.
-                   2. Identify the following transitions:
-                   - 'Work in progress' → 'Suspended'
-                   - 'Suspended' → 'Solved'
-                   - 'Solved' → 'Closed'
-                   3. For each transition:
-                   - Extract the 'Change' column (time duration in HH:MM:SS format) for these transitions.
-                   - Calculate the following:
-                       a. **Total Elapsed Time**:
-                           - Sum the 'Change' values for:
-                           - 'Work in progress' → 'Suspended'
-                           - 'Suspended' → 'Solved'
-                           - 'Solved' → 'Closed'
-                           - If any 'Change' value is invalid or missing, treat it as 00:00:00.
-                   4.Add a **Status** column:
-                       - The status is the last valid transition in the ticket.
-                       - If transitions are missing, assume `Zero hours` for the elapsed time.
-                       - If no transitions are found, set the status to `Unknown`.
-                   5.Add the **Breached** column:
-                       - If the total elapsed time exceeds the allowed duration of 40 hours, set the value to `Yes`; otherwise, set it to `No`.
-                   5. Provide the report with the following columns in this exact order:
-                   - Ticket: The ticket ID.
-                   - Priority: The priority of the ticket.
-                   - Allowed Duration: A fixed value (40 hours).
-                   - Total Elapsed Time: Total elapsed time in hours.
-                   - Status: The status of the ticket.
-                   - Breached: Whether the ticket breached the allowed duration.
-
-                   Input Data:
-                   {csv_data}
-
-                   Query:
-                   {query}
-
-                   Provide the resulting report as valid JSON with the following structure:
-                   {{
-                       "Ticket": <ticket>,
-                       "Priority": <priority>,
-                       "Allowed Duration": <allowed_duration>,
-                       "Total Elapsed Time": <total_elapsed_time_in_hours>,
-                       "Status": <status>
-                       "Breached": <breached>
-                   }}
-
-                   If any words like breach,violated,exceeded,overdue,late,missed,unmet,unfulfilled are found in the query, then also provide the report.
-                   If the query related to the particular ticket, then provide the report of that ticket only.
-                   For any query,the answer should be in report format only.
-                   Must calculate the total elapsed time for each ticket and provide the status and breached column.
-
-                   """
-        )
-
-        # Use LangChain to dynamically preprocess and analyze the data
-        formatted_prompt = prompt_template.format(query=query, csv_data=csv_data_str)
-        response = llm.invoke(formatted_prompt)
-        response_text = response.content  # Extract text content from AIMessage
-        print(response_text)
-
-        if '```json' in response_text:
-            # Generate the code dynamically
-            code = generate_coding(response_text)
-            response_json = json.loads(code)  # Safely parse the JSON string
-            print("----------------------------------------------------------")
-            print(code)
-
-            return JsonResponse(response_json, safe=False, status=200)
-        else:
-            return JsonResponse({"message": "Not found."}, status=200)
-
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
-
-
-def generate_coding(response):
-    """
-    Extract JSON code block from the response text.
-    """
-    if "```json" in response:
-        code_start = response.find("```json") + 7
-        code_end = response.find("```", code_start)
-        code = response[code_start:code_end].strip()  # Strip whitespace/newlines
-    else:
-        raise ValueError("No JSON block found in the response")
-    return code
-
-
 ##Visualisation updated for both text and graph responses:
 from rest_framework.response import Response
 from rest_framework import status
+
+
 @csrf_exempt
 def gen_ai_bot(request):
     if request.method == "POST":
@@ -3730,246 +3497,193 @@ def make_serializable(obj):
     return obj
 
 
+# Dashboard with AI
+from django.http import JsonResponse, HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+from plotly.graph_objects import Figure
 
-## Dashboard code from Datapx1(Preprocess)
-import plotly.graph_objects as go
-from wordcloud import WordCloud
+
+def analyze_dataset1(df):
+    global important_numerical, important_categorical
+    queries = []
+
+    # Get metadata about the dataset
+    numerical_columns = df.select_dtypes(include=['number']).columns.tolist()
+    categorical_columns = df.select_dtypes(exclude=['number']).columns.tolist()
+    date_columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
+
+    # Debug: Print dataset metadata
+    print("Numerical Columns:", numerical_columns)
+    print("Categorical Columns:", categorical_columns)
+    print("Date Columns:", date_columns)
+
+    # Select top 3-4 important numerical columns (based on correlation or variance)
+    if numerical_columns:
+        # Calculate correlation to find relationships
+        correlation_matrix = df[numerical_columns].corr().abs()
+        important_numerical = correlation_matrix.mean().nlargest(3).index.tolist()  # Top 3 numerical columns
+        print("Important Numerical Columns:", important_numerical)
+
+    # Select the most important categorical column (based on unique values)
+    if categorical_columns:
+        important_categorical = max(categorical_columns, key=lambda col: df[col].nunique())
+        print("Important Categorical Column:", important_categorical)
+
+    # Generate unique graphs with distinct analysis
+    # 1. Line Graph: Trends over time (if date column exists)
+    if date_columns and important_numerical:
+        queries.append({
+            "type": "line",
+            "query": f"Generate a line graph showing trends of {', '.join(important_numerical[:2])} over time using '{date_columns[0]}'.",
+            "analysis": f"Trend Analysis"
+        })
+
+    # 2. Bar Graph: Comparison across categories
+    if categorical_columns and important_numerical:
+        queries.append({
+            "type": "bar",
+            "query": f"Generate a bar graph comparing {', '.join(important_numerical)} across '{important_categorical}' categories.",
+            "analysis": f"Category Comparison"
+        })
+
+    # 3. Scatter Plot: Relationship between two numerical variables
+    if len(important_numerical) >= 2:
+        queries.append({
+            "type": "scatter",
+            "query": f"Generate a scatter plot analyzing the relationship between '{important_numerical[0]}' and '{important_numerical[1]}'.",
+            "analysis": f"Correlation Analysis"
+        })
+
+    # Ensure at least 3 graphs are generated
+    if len(queries) <= 3 and important_numerical:
+        queries.append({
+            "type": "histogram",
+            "query": f"Generate a histogram for '{important_numerical[0]}' to analyze its distribution.",
+            "analysis": f"Distribution Analysis"
+        })
+        # Add Box Plot for outlier detection
+        queries.append({
+            "type": "box",
+            "query": f"Generate a box plot for '{important_numerical[1]}' to analyze outliers and data distribution.",
+            "analysis": f"Outlier Detection"
+        })
+
+    # Debug: Print generated queries
+    print("Generated Queries:", queries)
+    return queries
+
+
 @csrf_exempt
-def data_processing(request):
-    if request.method == 'GET':
+def gen_plotly_response(request):
+    if request.method == "POST":
+        try:
+            # Load CSV
+            csv_file_path = 'data.csv'
+            df = pd.read_csv(csv_file_path)
+
+            # Convert date columns to datetime if applicable
+            date_columns = [col for col in df.columns if 'date' in col.lower() or 'time' in col.lower()]
+            for col in date_columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+
+
+            # Analyze the dataset and generate meaningful queries
+            queries = analyze_dataset1(df)
+            print("Queries are.............................................", queries)
+            if not queries:
+                return JsonResponse({"message": "No meaningful queries could be generated for the dataset."},
+                                    status=400)
+
+            # Generate CSV metadata
+            csv_metadata = {"columns": df.columns.tolist()}
+            metadata_str = ", ".join(csv_metadata["columns"])
+
+            # List to store all generated graphs
+            all_charts = []
+
+            for query in queries:
+                # Prompt engineering for AI
+                print(query)
+                prompt_eng = (
+                    f"You are an AI specialized in data analytics and visualization."
+                    f"Data used for analysis is stored in a CSV file named 'data.csv'."
+                    f"Attributes of the data are: {metadata_str}."
+                    f"Consider 'data.csv' as the data source for any analysis."
+                    f"Based on the user's query, generate Python code using Plotly to create the requested type of graph."
+                    f"Every graph must include a title, axis labels (if applicable), and appropriate colors for better visualization."
+                    f"Ensure the graph is visually appealing and provides sufficient context for understanding."
+                    f"The graph must have a white background for both the plot and paper."
+                    f"The code must output a Plotly 'Figure' object stored in a variable named 'fig'."
+                    f"The user asks: {query}"
+                    f"Ensure that this prompt is executed for all the {query} in {queries} and give the code for all the queries."
+                )
+
+                # Call AI to generate the code
+                chat = generate_code(prompt_eng)
+                print(f"Generated code for query '{query}':")
+                print(chat)
+
+                # Check for valid Plotly code in the AI response
+                if 'import' in chat:
+                    namespace = {}
+                    try:
+                        # Execute the generated code
+                        exec(chat, namespace)
+
+                        # Retrieve the Plotly figure from the namespace
+                        fig = namespace.get("fig")
+
+                        if fig and isinstance(fig, Figure):
+                            # Convert the Plotly figure to JSON
+                            chart_data = fig.to_plotly_json()
+
+                            # Ensure JSON serialization by converting NumPy arrays to lists
+                            def make_serializable(obj):
+                                if isinstance(obj, np.ndarray):
+                                    return obj.tolist()
+                                elif isinstance(obj, dict):
+                                    return {k: make_serializable(v) for k, v in obj.items()}
+                                elif isinstance(obj, list):
+                                    return [make_serializable(v) for v in obj]
+                                return obj
+
+                            # Recursively process the chart_data
+                            chart_data_serializable = make_serializable(chart_data)
+
+                            # Append the graph data to the list
+                            all_charts.append({
+                                "chartData": chart_data_serializable
+                            })
+                        else:
+                            print(f"No valid Plotly figure found for query: {query}")
+                    except Exception as e:
+                        error_message = f"There was an error while executing the code for query '{query}': {str(e)}"
+                        print(error_message)
+                else:
+                    print(f"Invalid AI response for query: {query}")
+
+            # Return all generated graphs to the frontend
+            return JsonResponse({"charts": all_charts}, status=200)
+        except Exception as e:
+            # Handle general exceptions
+            error_message = f"An unexpected error occurred: {str(e)}"
+            print(error_message)
+            return JsonResponse({"message": error_message}, status=500)
+
+    # Return a fallback HttpResponse for invalid request methods
+    return HttpResponse("Invalid request method", status=405)
+
+
+# Column_description for the  Discover in UI
+@csrf_exempt
+def col_description(request):
+    if request.method == "POST":
         csv_file_path = 'data.csv'
         df = pd.read_csv(csv_file_path)
-        df = updatedtypes1(df)
-        if df.shape[0] > 0:
-            nullvalues = df.isnull().sum().to_dict()
-            parameters = list(nullvalues.keys())
-            Count = list(nullvalues.values())
-            total_missing = df.isnull().sum().sum()
-            # df, html_df = process_missing_data(df)
-            # cache.set('dataframe', html_df)
-            # df.to_csv(os.path.join('uploads', 'processed_data.csv'), index=False)
-            nor = df.shape[0]
-            nof = df.shape[1]
-            timestamp = 'N'
-            boolean = 'N'
-            categorical_vars = []
-            boolean_vars = []
-            numeric_vars = {}
-            datetime_vars = []
-            text_data = []
-            td = None
-            stationary = "NA"
-            numfilter = ['25%', '50%', '75%']
-            single_value_columns = [col for col in df.columns if df[col].nunique() == 1]
-            df.drop(single_value_columns, axis=1, inplace=True)
-            for i, j in df.dtypes.items():
-                if str(j) in ["float64", "int64"]:
-                    data = df[i].describe().to_dict()
-                    temp = [data.pop(key) for key in numfilter]
-                    numeric_vars[i] = data
-                elif str(j) in ["object"] and i not in ['Remark']:
-                    categorical_vars.append({i: df[i].nunique()})
-                elif str(j) in ["datetime64[ns]"]:
-                    if i.upper() in ['DATE', "TIME", "DATE_TIME"]:
-                        td = i
-                    datetime_vars.append(i)
-                elif str(j) in ["bool"]:
-                    boolean_vars.append(i)
-            request.session['TimeSeriesColumns'] = datetime_vars
-            if 'Remark' in df.columns:
-                text_data.append('Remark')
-            istextdata = 'Y' if len(text_data) > 0 else 'N'
-            if len(datetime_vars) > 0:
-                timestamp = 'Y'
-            if td:
-                stationary = adf_test(df, td)
-            catvalues = [{'Parameter': list(data.keys())[0], 'Count': list(data.values())[0]} for data in
-                         categorical_vars]
-            sentiment = checkSentiment(df, categorical_vars)
-            if len(catvalues) > 0:
-                catdf = pd.DataFrame(catvalues)
-            else:
-                catdf = pd.DataFrame()  # Assign an empty DataFrame instead of a string
-            if len(numeric_vars) > 0:
-                numdf = pd.DataFrame(numeric_vars).T
-                numdf.columns = ['Count', 'Mean', 'Std', 'Min', 'Max']
-                numdf = numdf
-            else:
-                numdf = pd.DataFrame()
-            if len(boolean_vars) > 0:
-                boolean = 'Y'
 
-            missingvalue = pd.DataFrame({"Parameters": parameters, 'Missing Value Count': Count})
-
-            duplicate_records = df[df.duplicated(keep='first')].shape[0]
-            for d in ['bar', 'pie', 'wordCloud']:
-                if os.path.exists(os.path.join(os.getcwd(), f'static/plots/{d}/')):
-                    for f in os.listdir(os.path.join(os.getcwd(), f'static/plots/{d}/')):
-                        os.remove(os.path.join(os.path.join(os.getcwd(), f'static/plots/{d}/'), f))
-                else:
-                    os.makedirs(os.path.join(os.getcwd(), f'static/plots/{d}/'), exist_ok=True)
-
-            barplots = plot_numeric(numeric_vars, df)
-
-            pieplots = plot_categorical(categorical_vars, df)
-
-            wordColudPlots = plot_wordCloud(text_data, df)
-
-            return JsonResponse(
-                {'nof_rows': str(nor), 'nof_columns': str(nof), 'timestamp': timestamp,
-                 "single_value_columns": ",".join(single_value_columns) if len(
-                     single_value_columns) > 0 else "NA",
-                 "sentiment": sentiment,
-                 "stationary": stationary,
-                 'catdf': catdf.to_json(orient='records'),
-                 'missing_data': str(total_missing),
-                 'numdf': numdf.to_json(orient='records') if numdf.shape[0] > 0 else "No data", 'boolean': boolean,
-                 'missingvalue': missingvalue.to_json(orient='records'),
-                 'textdata': istextdata, 'duplicate_records': str(duplicate_records),
-                 'barplots': barplots,
-                 'pieplots': pieplots,
-                 'wordCloudPlots': wordColudPlots,
-                 })
-
-        else:
-            return HttpResponse("No data")
-    else:
-        return HttpResponse(json.dumps(
-            {'msg': 'Please upload file'}))
-
-def updatedtypes1(df):
-    datatypes = df.dtypes
-    for col in df.columns:
-        if datatypes[col] == 'object':
-            try:
-                df[col] = pd.to_datetime(df[col])
-            except Exception as e:
-                pass
-    return df
-
-def adf_test(df, kpi):
-    df_t = df.set_index(kpi)
-    for col in df_t.columns:
-        # Check if the column name is not in the specified list and is numeric
-        if col.upper() not in ['DATE', 'TIME', 'DATE_TIME'] and pd.api.types.is_numeric_dtype(df_t[col]):
-            if df_t[col].nunique() > 1:
-                dftest = adfuller(df_t[col], autolag='AIC')
-                statistic_value = dftest[0]
-                p_value = dftest[1]
-                if (p_value > 0.5) and all([statistic_value > j for j in dftest[4].values()]):
-                    return "Y"
-            else:
-                break
-    return "N"
-
-def checkSentiment(df, categorical):
-    sentiment = 'N'
-    for i in categorical:
-        # print([j for j in df[i]])
-        data = ' '.join([str(j) for j in df[list(i.keys())[0]]]).upper()
-        if ('GOOD' in data) | ('BAD' in data) | ('Better' in data):
-            sentiment = "Y"
-    return sentiment
-
-def plot_numeric(numeric_vars, dataframe):
-    df = dataframe
-    plots = {}
-
-    for i in list(numeric_vars.keys()):
-        # Create traces
-        fig = go.Figure()
-
-        # Add bar plot
-        fig.add_trace(go.Bar(x=np.arange(len(df[i])), y=df[i], name=i, marker_color='blue'))
-
-        # Add min, max, and median reference lines
-        fig.add_hline(y=df[i].min(), line=dict(color='blue', dash='dash'), annotation_text='Min',
-                      annotation_position="top left")
-        fig.add_hline(y=df[i].max(), line=dict(color='red', dash='dash'), annotation_text='Max',
-                      annotation_position="top left")
-        fig.add_hline(y=df[i].median(), line=dict(color='green', dash='dash'), annotation_text='Median',
-                      annotation_position="top left")
-
-        # Customize layout
-        fig.update_layout(
-            title=i,
-            xaxis_title="Index",
-            yaxis_title=i,
-            template="plotly_white",
-            width=1000,  # Equivalent to figsize=(20, 10)
-            height=500
+        prompt_eng = (
+            f"You are analytics_bot. Analyse the data: {df.head()} and give description of the columns"
         )
+        column_description = generate_code(prompt_eng)
 
-        # Convert figure to JSON for rendering in web applications
-        plots[i] = make_serializable(fig.to_json())
-
-    return plots
-
-
-def plot_categorical(categorical_vars, dataframe):
-    df = dataframe
-    plots = {}
-
-    for i in categorical_vars:
-        name = [k[0] for k in df[list(i)].value_counts().index.tolist()]
-        count = df[list(i)].value_counts().values.tolist()
-
-        # Create a pie chart using Plotly
-        fig = px.pie(
-            names=name,
-            values=count,
-            title=list(i)[0],
-            color_discrete_sequence=px.colors.qualitative.Bold,
-            hole=0.3  # Adjust to create a donut chart if needed
-        )
-
-        # Convert figure to JSON for web rendering
-        plots[list(i)[0]] = fig.to_json()
-
-    return plots
-
-
-def plot_wordCloud(text_data, dataframe):
-    df = dataframe
-    plots = {}
-
-    for i in text_data:
-        # Generate word cloud
-        text = " ".join(cat for cat in df[i])
-        wordcloud = WordCloud(collocations=False, background_color='white').generate(text)
-
-        # Convert to an image
-        img = io.BytesIO()
-        wordcloud.to_image().save(img, format="PNG")
-        img_base64 = base64.b64encode(img.getvalue()).decode("utf-8")
-
-        # Create a Plotly figure with the word cloud image
-        fig = go.Figure()
-        fig.add_layout_image(
-            dict(
-                source=f"data:image/png;base64,{img_base64}",
-                x=0.5,
-                y=0.5,
-                xref="paper",
-                yref="paper",
-                sizex=1,
-                sizey=1,
-                xanchor="center",
-                yanchor="middle",
-                layer="below"
-            )
-        )
-
-        # Layout settings
-        fig.update_layout(
-            title=i,
-            xaxis=dict(visible=False),
-            yaxis=dict(visible=False),
-            width=800, height=500,
-        )
-
-        # Convert figure to JSON for web rendering
-        plots[i] = fig.to_json()
-
-    return plots
-
+        return JsonResponse({"Column_description": column_description})
