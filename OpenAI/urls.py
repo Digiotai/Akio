@@ -78,6 +78,9 @@ urlpatterns = [
     path('api/ai_bot', gen_ai_bot,name="plotly_visualisation"),
     path('api/getting_column_description',col_description,name="getting_column_description"),
 
+    #Hanabot
+    path('api/process_doc', hana_bot_api, name='hana_bot_api'),
+
 
 
 ]
