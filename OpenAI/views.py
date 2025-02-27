@@ -3693,3 +3693,54 @@ def col_description(request):
         column_description = generate_code(prompt_eng)
 
         return JsonResponse({"Column_description": markdown_to_html(column_description)})
+
+
+#HANA_BOT(doc to text)
+import os
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+from .Hana_bot import HanaBOT
+
+@csrf_exempt
+def hana_bot_api(request):
+    if request.method == 'POST':
+        # Check if a file is uploaded
+        if 'file' not in request.FILES:
+            return JsonResponse({"error": "No file uploaded"}, status=400)
+
+        uploaded_file = request.FILES['file']
+        query = request.POST.get('query', '')
+
+        # Save the uploaded file temporarily
+        temp_file_path = f"temp_{uploaded_file.name}"
+        with open(temp_file_path, 'wb+') as temp_file:
+            for chunk in uploaded_file.chunks():
+                temp_file.write(chunk)
+
+        # Initialize HanaBOT
+        bot = HanaBOT(index_path="faiss_index")
+
+        # Process the file
+        file_extension = uploaded_file.name.split(".")[-1].lower()
+        try:
+            texts = bot.load_file(temp_file_path, file_extension)
+            bot.process_and_store(texts)
+
+            if query:
+                relevant_docs = bot.retrieve_relevant_docs(query, k=5)
+                answer = bot.generate_answer(query, relevant_docs)
+                os.remove(temp_file_path)
+                return JsonResponse({
+                    # "relevant_docs": relevant_docs,
+                    "answer": markdown_to_html(answer)
+                }, status=200)
+            else:
+                os.remove(temp_file_path)
+                return JsonResponse({"message": "File processed successfully!"}, status=200)
+        except Exception as e:
+            os.remove(temp_file_path)
+            return JsonResponse({"error": str(e)}, status=400)
+    else:
+        return JsonResponse({"error": "Only POST requests are allowed"}, status=405)
