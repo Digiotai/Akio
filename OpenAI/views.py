@@ -3546,13 +3546,13 @@ def analyze_dataset1(df):
             "analysis": f"Category Comparison"
         })
 
-    # # 3. Scatter Plot: Relationship between two numerical variables
-    # if len(important_numerical) >= 2:
-    #     queries.append({
-    #         "type": "scatter",
-    #         "query": f"Generate a scatter plot analyzing the relationship between '{important_numerical[0]}' and '{important_numerical[1]}'.",
-    #         "analysis": f"Correlation Analysis"
-    #     })
+    # 3. Scatter Plot: Relationship between two numerical variables
+    if len(important_numerical) >= 2:
+        queries.append({
+            "type": "scatter",
+            "query": f"Generate a scatter plot analyzing the relationship between '{important_numerical[0]}' and '{important_numerical[1]}'.",
+            "analysis": f"Correlation Analysis"
+        })
 
     # 3. Pie Chart: Distribution of a categorical variable
     if len(important_categorical) >= 1:
@@ -3569,12 +3569,11 @@ def analyze_dataset1(df):
             "query": f"Generate a histogram for '{important_numerical[1]}' to analyze its distribution.",
             "analysis": f"Distribution Analysis"
         })
-        # # Add Box Plot for outlier detection
-        # queries.append({
-        #     "type": "box",
-        #     "query": f"Generate a box plot for '{important_numerical[1]}' to analyze outliers and data distribution.",
-        #     "analysis": f"Outlier Detection"
-        # })
+        queries.append({
+            "type": "scatter",
+            "query": f"Generate a scatter plot analyzing the relationship between '{important_numerical[0]}' and '{important_numerical[1]}'.",
+            "analysis": f"Correlation Analysis"
+        })
 
     # Debug: Print generated queries
     print("Generated Queries:", queries)
