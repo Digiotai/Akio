@@ -3523,11 +3523,11 @@ def analyze_dataset1(df):
         important_numerical = correlation_matrix.mean().nlargest(3).index.tolist()  # Top 3 numerical columns
         print("Important Numerical Columns:", important_numerical)
 
-    # Select the most important categorical column (based on ANOVA with numerical columns)
+    # Select the most important categorical column (based on unique values)
     important_categorical = None
-    if categorical_columns and numerical_columns:
-        important_categorical = select_important_categorical_anova(df, categorical_columns, numerical_columns)
-        print("Important Categorical Column (Based on ANOVA):", important_categorical)
+    if categorical_columns:
+        important_categorical = max(categorical_columns, key=lambda col: df[col].nunique())
+        print("Important Categorical Column:", important_categorical)
 
     # Generate unique graphs with distinct analysis
     # 1. Line Graph: Trends over time (if date column exists)
@@ -3555,13 +3555,13 @@ def analyze_dataset1(df):
         })
 
 
-    # 4. Pie Chart: Distribution of a categorical variable
-    if important_categorical:
-        queries.append({
-            "type": "pie",
-            "query": f"Generate a pie chart showing the distribution of '{important_categorical}'.",
-            "analysis": f"Distribution Analysis"
-        })
+    # # 4. Pie Chart: Distribution of a categorical variable
+    # if important_categorical:
+    #     queries.append({
+    #         "type": "pie",
+    #         "query": f"Generate a pie chart showing the distribution of '{important_categorical}'.",
+    #         "analysis": f"Distribution Analysis"
+    #     })
 
     # 5. Histogram: Distribution of a numerical variable
     if important_numerical:
@@ -3575,19 +3575,7 @@ def analyze_dataset1(df):
     print("Generated Queries:", queries)
     return queries
 
-from scipy.stats import f_oneway
-def select_important_categorical_anova(df, categorical_columns, numerical_columns):
-    anova_scores = {}
-    for col in categorical_columns:
-        # Group numerical data by categorical column
-        groups = [df[df[col] == category][numerical_columns[0]] for category in df[col].unique()]
-        # Perform ANOVA test
-        f_statistic, _ = f_oneway(*groups)
-        anova_scores[col] = f_statistic
 
-    # Select the column with the highest F-statistic
-    important_categorical = max(anova_scores, key=anova_scores.get)
-    return important_categorical
 
 
 @csrf_exempt
