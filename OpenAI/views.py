@@ -3504,7 +3504,6 @@ from plotly.graph_objects import Figure
 
 
 def analyze_dataset1(df):
-    global important_numerical, important_categorical
     queries = []
 
     # Get metadata about the dataset
@@ -3517,17 +3516,18 @@ def analyze_dataset1(df):
     print("Categorical Columns:", categorical_columns)
     print("Date Columns:", date_columns)
 
-    # Select top 3-4 important numerical columns (based on correlation or variance)
+    # Select important numerical columns (based on correlation or variance)
+    important_numerical = []
     if numerical_columns:
-        # Calculate correlation to find relationships
         correlation_matrix = df[numerical_columns].corr().abs()
         important_numerical = correlation_matrix.mean().nlargest(3).index.tolist()  # Top 3 numerical columns
         print("Important Numerical Columns:", important_numerical)
 
-    # Select the most important categorical column (based on unique values)
-    if categorical_columns:
-        important_categorical = max(categorical_columns, key=lambda col: df[col].nunique())
-        print("Important Categorical Column:", important_categorical)
+    # Select the most important categorical column (based on ANOVA with numerical columns)
+    important_categorical = None
+    if categorical_columns and numerical_columns:
+        important_categorical = select_important_categorical_anova(df, categorical_columns, numerical_columns)
+        print("Important Categorical Column (Based on ANOVA):", important_categorical)
 
     # Generate unique graphs with distinct analysis
     # 1. Line Graph: Trends over time (if date column exists)
@@ -3539,7 +3539,7 @@ def analyze_dataset1(df):
         })
 
     # 2. Bar Graph: Comparison across categories
-    if categorical_columns and important_numerical:
+    if important_categorical and important_numerical:
         queries.append({
             "type": "bar",
             "query": f"Generate a bar graph comparing {', '.join(important_numerical)} across '{important_categorical}' categories.",
@@ -3554,30 +3554,40 @@ def analyze_dataset1(df):
             "analysis": f"Correlation Analysis"
         })
 
-    # 3. Pie Chart: Distribution of a categorical variable
-    if len(important_categorical) >= 1:
+
+    # 4. Pie Chart: Distribution of a categorical variable
+    if important_categorical:
         queries.append({
             "type": "pie",
-            "query": f"Generate a pie chart showing the distribution of '{important_categorical[0]}'.",
+            "query": f"Generate a pie chart showing the distribution of '{important_categorical}'.",
             "analysis": f"Distribution Analysis"
         })
 
-    # Ensure at least 3 graphs are generated
-    if len(queries) <= 3 and important_numerical:
+    # 5. Histogram: Distribution of a numerical variable
+    if important_numerical:
         queries.append({
             "type": "histogram",
-            "query": f"Generate a histogram for '{important_numerical[1]}' to analyze its distribution.",
+            "query": f"Generate a histogram for '{important_numerical[0]}' to analyze its distribution.",
             "analysis": f"Distribution Analysis"
-        })
-        queries.append({
-            "type": "scatter",
-            "query": f"Generate a scatter plot analyzing the relationship between '{important_numerical[0]}' and '{important_numerical[1]}'.",
-            "analysis": f"Correlation Analysis"
         })
 
     # Debug: Print generated queries
     print("Generated Queries:", queries)
     return queries
+
+from scipy.stats import f_oneway
+def select_important_categorical_anova(df, categorical_columns, numerical_columns):
+    anova_scores = {}
+    for col in categorical_columns:
+        # Group numerical data by categorical column
+        groups = [df[df[col] == category][numerical_columns[0]] for category in df[col].unique()]
+        # Perform ANOVA test
+        f_statistic, _ = f_oneway(*groups)
+        anova_scores[col] = f_statistic
+
+    # Select the column with the highest F-statistic
+    important_categorical = max(anova_scores, key=anova_scores.get)
+    return important_categorical
 
 
 @csrf_exempt
