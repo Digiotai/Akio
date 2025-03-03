@@ -3734,21 +3734,36 @@ def upload_and_process_file(request):
 def query_data(request):
     if request.method == 'POST':
         query = request.POST.get('query', '')
+        greetings = {"hi", "hello", "hey", "greetings"}
 
-        if not query:
-            return JsonResponse({"error": "No query provided"}, status=400)
+        if query in greetings:
+            greeting_prompt = "Respond to the user greeting in a friendly and engaging manner."
+            greeting_response = generate_coding_hi(greeting_prompt)
+            return JsonResponse({"answer": markdown_to_html(greeting_response)})
 
-        # Initialize HanaBOT
-        bot = HanaBOT(index_path="faiss_index")
+        else:
+            # Initialize HanaBOT
+            bot = HanaBOT(index_path="faiss_index")
 
-        try:
-            relevant_docs = bot.retrieve_relevant_docs(query, k=5)
-            answer = bot.generate_answer(query, relevant_docs)
-            return JsonResponse({
-                # "relevant_docs": relevant_docs,
-                "answer": markdown_to_html(answer)
-            }, status=200)
-        except Exception as e:
-            return JsonResponse({"error": str(e)}, status=400)
+            try:
+                relevant_docs = bot.retrieve_relevant_docs(query, k=5)
+                answer = bot.generate_answer(query, relevant_docs)
+                return JsonResponse({
+                    # "relevant_docs": relevant_docs,
+                    "answer": markdown_to_html(answer)
+                }, status=200)
+            except Exception as e:
+                return JsonResponse({"error": str(e)}, status=400)
     else:
         return JsonResponse({"error": "Only POST requests are allowed"}, status=405)
+
+
+def generate_coding_hi(prompt_eng):
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant providing actionable insights."},
+            {"role": "user", "content": prompt_eng}
+        ]
+    )
+    return response.choices[0].message.content.strip()
