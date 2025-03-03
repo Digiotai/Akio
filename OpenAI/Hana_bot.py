@@ -43,6 +43,7 @@ class HanaBOT:
 
         # Save temp processed image
         temp_processed_path = "processed_temp.png"
+        print(os.path.abspath(temp_processed_path))
         cv2.imwrite(temp_processed_path, processed_image)
 
         return temp_processed_path
@@ -50,6 +51,7 @@ class HanaBOT:
     def extract_text_from_image(self, image_path: str) -> str:
         """Extracts text from both printed and handwritten images using OCR."""
         processed_image_path = self.preprocess_image(image_path)
+        print(processed_image_path)
         extracted_text = pytesseract.image_to_string(
             Image.open(processed_image_path),
             config="--oem 1 --psm 6"  # LSTM OCR with automatic segmentation
@@ -113,6 +115,8 @@ class HanaBOT:
           If the answer is not available in the context, please respond with "I couldn't find relevant information about that in the provided documents."
 
           You have to give the information whatever present in the document,pdf and image without any additional information or summarising the information.
+          If the user's query is asking for 'Lupin',Ignore the word Lupin from the query and give the result for the remaining query.
+          For Example:Scope3 emissions at Lupin == Scope3 emissions.
 
         ### Context:
         {context_text}
