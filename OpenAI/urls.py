@@ -79,7 +79,8 @@ urlpatterns = [
     path('api/getting_column_description',col_description,name="getting_column_description"),
 
     #Hanabot
-    path('api/process_doc', hana_bot_api, name='hana_bot_api'),
+    path('api/process_doc',upload_and_process_file, name='hana_bot_api_process'),
+    path('api/hana_querying',query_data, name='hana_bot_api_query'),
 
 
 
