@@ -3498,12 +3498,14 @@ def make_serializable(obj):
 
 
 # Dashboard with AI
+# Dashboard with AI
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from plotly.graph_objects import Figure
 
 
 def analyze_dataset1(df):
+    global important_numerical, important_categorical
     queries = []
 
     # Get metadata about the dataset
@@ -3516,15 +3518,14 @@ def analyze_dataset1(df):
     print("Categorical Columns:", categorical_columns)
     print("Date Columns:", date_columns)
 
-    # Select important numerical columns (based on correlation or variance)
-    important_numerical = []
+    # Select top 3-4 important numerical columns (based on correlation or variance)
     if numerical_columns:
+        # Calculate correlation to find relationships
         correlation_matrix = df[numerical_columns].corr().abs()
         important_numerical = correlation_matrix.mean().nlargest(3).index.tolist()  # Top 3 numerical columns
         print("Important Numerical Columns:", important_numerical)
 
     # Select the most important categorical column (based on unique values)
-    important_categorical = None
     if categorical_columns:
         important_categorical = max(categorical_columns, key=lambda col: df[col].nunique())
         print("Important Categorical Column:", important_categorical)
@@ -3539,7 +3540,7 @@ def analyze_dataset1(df):
         })
 
     # 2. Bar Graph: Comparison across categories
-    if important_categorical and important_numerical:
+    if categorical_columns and important_numerical:
         queries.append({
             "type": "bar",
             "query": f"Generate a bar graph comparing {', '.join(important_numerical)} across '{important_categorical}' categories.",
@@ -3554,28 +3555,23 @@ def analyze_dataset1(df):
             "analysis": f"Correlation Analysis"
         })
 
-
-    # # 4. Pie Chart: Distribution of a categorical variable
-    # if important_categorical:
-    #     queries.append({
-    #         "type": "pie",
-    #         "query": f"Generate a pie chart showing the distribution of '{important_categorical}'.",
-    #         "analysis": f"Distribution Analysis"
-    #     })
-
-    # 5. Histogram: Distribution of a numerical variable
-    if important_numerical:
+    # Ensure at least 3 graphs are generated
+    if len(queries) <= 3 and important_numerical:
         queries.append({
             "type": "histogram",
             "query": f"Generate a histogram for '{important_numerical[0]}' to analyze its distribution.",
             "analysis": f"Distribution Analysis"
         })
+        # Add Box Plot for outlier detection
+        queries.append({
+            "type": "box",
+            "query": f"Generate a box plot for '{important_numerical[1]}' to analyze outliers and data distribution.",
+            "analysis": f"Outlier Detection"
+        })
 
     # Debug: Print generated queries
     print("Generated Queries:", queries)
     return queries
-
-
 
 
 @csrf_exempt
@@ -3692,23 +3688,21 @@ def col_description(request):
         return JsonResponse({"Column_description": markdown_to_html(column_description)})
 
 
-#HANA_BOT(doc to text)
+
+#Hana bot File uploading:
 import os
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.core.files.storage import default_storage
-from django.core.files.base import ContentFile
 from .Hana_bot import HanaBOT
 
 @csrf_exempt
-def hana_bot_api(request):
+def upload_and_process_file(request):
     if request.method == 'POST':
         # Check if a file is uploaded
         if 'file' not in request.FILES:
             return JsonResponse({"error": "No file uploaded"}, status=400)
 
         uploaded_file = request.FILES['file']
-        query = request.POST.get('query', '')
 
         # Save the uploaded file temporarily
         temp_file_path = f"temp_{uploaded_file.name}"
@@ -3725,19 +3719,36 @@ def hana_bot_api(request):
             texts = bot.load_file(temp_file_path, file_extension)
             bot.process_and_store(texts)
 
-            if query:
-                relevant_docs = bot.retrieve_relevant_docs(query, k=5)
-                answer = bot.generate_answer(query, relevant_docs)
-                os.remove(temp_file_path)
-                return JsonResponse({
-                    # "relevant_docs": relevant_docs,
-                    "answer": markdown_to_html(answer)
-                }, status=200)
-            else:
-                os.remove(temp_file_path)
-                return JsonResponse({"message": "File processed successfully!"}, status=200)
+            os.remove(temp_file_path)
+            return JsonResponse({"message": "File processed successfully!"}, status=200)
         except Exception as e:
             os.remove(temp_file_path)
+            return JsonResponse({"error": str(e)}, status=400)
+    else:
+        return JsonResponse({"error": "Only POST requests are allowed"}, status=405)
+
+
+
+#Hana File querying based on the above data
+@csrf_exempt
+def query_data(request):
+    if request.method == 'POST':
+        query = request.POST.get('query', '')
+
+        if not query:
+            return JsonResponse({"error": "No query provided"}, status=400)
+
+        # Initialize HanaBOT
+        bot = HanaBOT(index_path="faiss_index")
+
+        try:
+            relevant_docs = bot.retrieve_relevant_docs(query, k=5)
+            answer = bot.generate_answer(query, relevant_docs)
+            return JsonResponse({
+                # "relevant_docs": relevant_docs,
+                "answer": markdown_to_html(answer)
+            }, status=200)
+        except Exception as e:
             return JsonResponse({"error": str(e)}, status=400)
     else:
         return JsonResponse({"error": "Only POST requests are allowed"}, status=405)
