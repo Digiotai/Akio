@@ -112,7 +112,7 @@ class HanaBOT:
         """Uses retrieved context to generate an answer."""
         context_text = "\n".join(context)
         prompt = f"""
-          Use the provided {context_text} to answer the user questions. The entire context may not be related to user question, so answer wisely from the context.
+          Use the provided context to answer the user questions. The entire context may not be related to user question, so answer wisely from the context.
           If the answer is not available in the context, please respond with "I couldn't find relevant information about that in the provided documents."
 
           You have to give the information whatever present in the document,pdf and image without any additional information or summarising the information.
