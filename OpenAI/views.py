@@ -3682,7 +3682,9 @@ def col_description(request):
         print(df.head(5))
 
         prompt_eng = (
-            f"You are Data Descriptor. Analyse the data: {df.head()} and give description of the columns accurately based on the {df.columns}"
+            f"You are analytics_bot. Analyse the data: {df.head()} and give description of the columns"
+            f"Just provide the column name and the description regarding the column name in the next line."
+            
         )
         column_description = generate_code(prompt_eng)
 
