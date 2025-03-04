@@ -3679,9 +3679,10 @@ def col_description(request):
     if request.method == "POST":
         csv_file_path = 'data.csv'
         df = pd.read_csv(csv_file_path)
+        print(df.head(5))
 
         prompt_eng = (
-            f"You are analytics_bot. Analyse the data: {df.head()} and give description of the columns"
+            f"You are Data Descriptor. Analyse the data: {df.head()} and give description of the columns accurately based on the {df.columns}"
         )
         column_description = generate_code(prompt_eng)
 
@@ -3747,6 +3748,7 @@ def query_data(request):
 
             try:
                 relevant_docs = bot.retrieve_relevant_docs(query, k=5)
+                print(relevant_docs)
                 answer = bot.generate_answer(query, relevant_docs)
                 return JsonResponse({
                     # "relevant_docs": relevant_docs,
