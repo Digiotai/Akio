@@ -78,25 +78,33 @@ class HanaBOT:
         return texts
 
     def process_and_store(self, texts: List[LangChainDocument]):
-        """Creates FAISS index only once and stores embeddings."""
+        """Create and store FAISS index."""
+        if not texts:
+            print("No text provided for processing.")
+            return
+
         if not os.path.exists(self.index_path):
-            print("Creating new index...............")
-            # Create new embeddings if they don't exist
+            print("Creating new FAISS index...")
             self.vectorstore = FAISS.from_documents(texts, self.embeddings)
             self.vectorstore.save_local(self.index_path)
+            print(f"Index saved at {self.index_path}")
         else:
-            # Load existing embeddings
-            print("Load existing indexes..............")
+            print("Loading existing FAISS index...")
             self.load_existing_index()
 
+        if self.vectorstore:
+            print(f"Total documents stored: {len(texts)}")
+        else:
+            print("Error: FAISS index creation failed.")
+
     def load_existing_index(self):
-        """Loads existing FAISS index if available."""
+        """Load FAISS index if it exists."""
         if os.path.exists(self.index_path):
-            self.vectorstore = FAISS.load_local(
-                self.index_path,
-                self.embeddings,
-                allow_dangerous_deserialization=True
-            )
+            print("Loading FAISS index from disk...")
+            self.vectorstore = FAISS.load_local(self.index_path, self.embeddings, allow_dangerous_deserialization=True)
+            print("FAISS index loaded successfully.")
+        else:
+            print("No FAISS index found. Please process and store documents first.")
 
     def retrieve_relevant_docs(self, query: str, k: int = 5) -> List[str]:
         """Retrieves the most relevant documents based on the query."""
