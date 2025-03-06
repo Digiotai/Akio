@@ -3727,11 +3727,10 @@ def upload_and_process_file(request):
         file_extension = uploaded_file.name.split(".")[-1].lower()
         try:
             texts = bot.load_file(file_path, file_extension)
-            bot.process_and_store(texts)
-
+            storing = bot.process_and_store(texts)
+            print("Text and storing,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,",storing)
             # Optionally, you can remove the file after processing if it's no longer needed
             # os.remove(file_path)
-
             return JsonResponse({"message": "File processed successfully!"}, status=200)
         except Exception as e:
             # Optionally, you can remove the file if an error occurs
@@ -3756,7 +3755,6 @@ def query_data(request):
         else:
             # Initialize HanaBOT
             bot = HanaBOT(index_path="faiss_index")
-
             try:
                 relevant_docs = bot.retrieve_relevant_docs(query, k=5)
                 print(relevant_docs)
