@@ -3684,7 +3684,7 @@ def col_description(request):
         prompt_eng = (
             f"You are analytics_bot. Analyse the data: {df.head()} and give description of the columns"
             f"Just provide the column name and the description regarding the column name in the next line."
-            
+
         )
         column_description = generate_code(prompt_eng)
 
@@ -3698,6 +3698,13 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from .Hana_bot import HanaBOT
 
+# Define the directory where uploaded files will be stored
+UPLOAD_DIR = "chat_to_doc"
+
+# Ensure the upload directory exists
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
+
 @csrf_exempt
 def upload_and_process_file(request):
     if request.method == 'POST':
@@ -3707,11 +3714,11 @@ def upload_and_process_file(request):
 
         uploaded_file = request.FILES['file']
 
-        # Save the uploaded file temporarily
-        temp_file_path = f"temp_{uploaded_file.name}"
-        with open(temp_file_path, 'wb+') as temp_file:
+        # Save the uploaded file locally
+        file_path = os.path.join(UPLOAD_DIR, uploaded_file.name)
+        with open(file_path, 'wb+') as destination:
             for chunk in uploaded_file.chunks():
-                temp_file.write(chunk)
+                destination.write(chunk)
 
         # Initialize HanaBOT
         bot = HanaBOT(index_path="faiss_index")
@@ -3719,17 +3726,19 @@ def upload_and_process_file(request):
         # Process the file
         file_extension = uploaded_file.name.split(".")[-1].lower()
         try:
-            texts = bot.load_file(temp_file_path, file_extension)
+            texts = bot.load_file(file_path, file_extension)
             bot.process_and_store(texts)
 
-            os.remove(temp_file_path)
+            # Optionally, you can remove the file after processing if it's no longer needed
+            # os.remove(file_path)
+
             return JsonResponse({"message": "File processed successfully!"}, status=200)
         except Exception as e:
-            os.remove(temp_file_path)
+            # Optionally, you can remove the file if an error occurs
+            # os.remove(file_path)
             return JsonResponse({"error": str(e)}, status=400)
     else:
         return JsonResponse({"error": "Only POST requests are allowed"}, status=405)
-
 
 
 #Hana File querying based on the above data
