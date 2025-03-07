@@ -86,7 +86,7 @@ class HanaBOT:
         # if not os.path.exists(self.index_path):
         #     print("Creating new FAISS index...")
         self.vectorstore = FAISS.from_documents(texts, self.embeddings)
-        self.vectorstore.save_local(self.index_path)
+        #self.vectorstore.save_local(self.index_path)
         print(f"Index saved at {self.index_path}")
         # else:
         #     print("Loading existing FAISS index...")
