@@ -2926,15 +2926,23 @@ def models(request):
         # Read CSV file
         df = pd.read_csv(processed_data_path)
         print(df.head(5))
+        single_value_columns = [col for col in df.columns if df[col].nunique() == 1]
+        df.drop(single_value_columns, axis=1, inplace=True)
+        numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
+        if len(numeric_cols) < 1:
+            return JsonResponse(
+                {
+                    "msg": "This dataset doesn't meet the modeling requirement "}
+            )
 
         if request.method == 'POST':
             model_type = request.POST.get('model')
             col = request.POST.get('col')
+            request.session['col_predict'] = col
 
             if model_type == 'RandomForest':
                 stat, cols = random_forest(df, col)
                 return JsonResponse({
-                    'form1': True,
                     'columns': list(df.columns),
                     'rf': True,
                     'status': stat,
@@ -2944,28 +2952,24 @@ def models(request):
             elif model_type == 'K-Means':
                 stat, clustered_data = kmeans_train(df)
                 return JsonResponse({
-                    'form1': True,
                     'columns': list(df.columns),
                     'cluster': True,
                     'status': stat,
-                    'clustered_data': clustered_data
+                    'clustered_data': clustered_data.to_json()
                 })
 
             elif model_type == 'Arima':
-                stat = arima_train(df, col)
-                path = f"../models/arima/{col}/actual_vs_forecast.png"
+                stat ,img_data= arima_train(df, col)
                 return JsonResponse({
-                    'form1': True,
                     'columns': list(df.columns),
                     'status': stat['plot'],
                     'arima': True,
-                    'path': path
+                    'path': img_data
                 })
 
             elif model_type == 'OutlierDetection':
-                res = detect_outliers_zscore(df, col)
+                res = outlier_check(df, col)
                 return JsonResponse({
-                    'form1': True,
                     'columns': list(df.columns),
                     'status': True,
                     'processed_data': markdown_to_html(res),
@@ -2974,7 +2978,6 @@ def models(request):
 
         # Default GET response
         return JsonResponse({
-            'form1': True,
             'columns': list(df.columns)
         })
 
@@ -2987,7 +2990,7 @@ def models(request):
         }, status=500)
 
 
-def outliercheck(df, column):
+def outlier_check(df, column):
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
@@ -3007,28 +3010,6 @@ def outliercheck(df, column):
     return all_text
 
 
-def detect_outliers_zscore(df, column, threshold=3):
-    try:
-
-        res = outliercheck(df, column)
-
-        # # Select numeric columns only
-        # numeric_cols = df.select_dtypes(include=np.number)
-        #
-        # # Calculate Z-Scores for each numeric column
-        # z_scores = (numeric_cols - numeric_cols.mean()) / numeric_cols.std()
-        #
-        # # Calculate an aggregate Z-Score for each row (e.g., max absolute Z-Score)
-        # df['Row_Z-Score'] = z_scores.abs().max(axis=1)
-        #
-        # # Flag rows where the aggregate Z-Score exceeds the threshold
-        # df['Outlier'] = df['Row_Z-Score'].apply(lambda x: 'Yes' if x > threshold else 'No')
-        # df.drop('Row_Z-Score', axis=1,inplace=True)
-        return res
-    except Exception as e:
-        print(e)
-
-
 def find_elbow_point(inertia_values):
     # Calculate the rate of change between successive inertia values
     changes = np.diff(inertia_values)
@@ -3041,148 +3022,156 @@ def arima_train(data, target_col):
     try:
         # Identify date column by checking for datetime type
         date_column = None
-        print(f"Starting ARIMA training for target column: {target_col}")
-
         if not os.path.exists(os.path.join("models", 'arima', target_col)):
             os.makedirs(os.path.join("models", 'arima', target_col), exist_ok=True)
-            print(f"Directory for {target_col} created.")
-
-        # Identify the date column explicitly (or make it more robust)
-        for col in data.columns:
-            print(f"Checking column: {col}")
-            if data.dtypes[col] == 'object':
-                try:
-                    parsed_dates = pd.to_datetime(data[col], errors='coerce')
-                    if parsed_dates.notnull().sum() > 0.9 * len(data):  # If at least 90% of the column can be converted
+            for col in data.columns:
+                if data.dtypes[col] == 'object':
+                    try:
+                        # Attempt to convert column to datetime
+                        pd.to_datetime(data[col])
                         date_column = col
-                        print(f"Identified datetime column: {date_column}")
                         break
-                except (ValueError, TypeError):
-                    continue
+                    except (ValueError, TypeError):
+                        continue
+            if not date_column:
+                raise ValueError("No datetime column found in the dataset.")
+            print(date_column)
+            # Set the date column as index
+            data[date_column] = pd.to_datetime(data[date_column])
+            data.set_index(date_column, inplace=True)
+            # Identify forecast columns (numeric columns)
+            forecast_columns = data.select_dtypes(include=[np.number]).columns.tolist()
+            if not forecast_columns:
+                raise ValueError("No numeric columns found for forecasting in the dataset.")
 
-        if not date_column:
-            raise ValueError("No datetime column found in the dataset.")
-        print(f"Setting {date_column} as index.")
+            # Infer frequency of datetime index
+            freq = pd.infer_freq(data.index)
+            print(date_column, freq)
+            if freq:
+                # Determine m based on inferred frequency
+                if freq == '15T':  # Quarter-hourly data (every 15 minutes)
+                    m = 96  # Daily seasonality (96 intervals in a day)
+                elif freq == '30T':  # Half-hourly data (every 30 minutes)
+                    m = 48  # Daily seasonality (48 intervals in a day)
+                elif freq == 'H':  # Hourly data
+                    m = 24  # Daily seasonality (24 intervals in a day)
+                elif freq == 'D':  # Daily data
+                    m = 7  # Weekly seasonality (7 days in a week)
+                elif freq == 'W':  # Weekly data
+                    m = 52  # Yearly seasonality (52 weeks in a year)
+                elif freq == 'M':  # Monthly data
+                    m = 12  # Yearly seasonality (12 months in a year)
+                elif freq == 'Q':  # Quarterly data
+                    m = 4  # Yearly seasonality (4 quarters in a year)
+                elif freq == 'A' or (freq and freq.startswith('A-')):  # Annual data (any month-end)
+                    m = 1  # No further seasonality within a year
+                else:
+                    raise ValueError(f"Unsupported frequency '{freq}'. Ensure data is in a common time interval.")
+                results = {}
+                try:
+                    data_actual = data[target_col].dropna()  # Remove NaNs if any
 
-        data[date_column] = pd.to_datetime(data[date_column], errors='coerce')
-        data.set_index(date_column, inplace=True)
-        print(f"Data after setting date index:\n{data.head(5)}")
+                    # Split data into train and test sets
+                    train = data_actual.iloc[:-m]
+                    test = data_actual.iloc[-m:]
 
-        # Handle missing dates and ensure a continuous date range
-        data = data.asfreq('D', method='pad')
-        print(f"Data after reindexing to daily frequency:\n{data.head(5)}")
+                    # Auto ARIMA model selection
+                    model = pm.auto_arima(train,
+                                          m=m,  # frequency of seasonality
+                                          seasonal=True,  # Enable seasonal ARIMA
+                                          d=None,  # determine differencing
+                                          test='adf',  # adf test for differencing
+                                          start_p=0, start_q=0,
+                                          max_p=12, max_q=12,
+                                          D=None,  # let model determine seasonal differencing
+                                          trace=True,
+                                          error_action='ignore',
+                                          suppress_warnings=True,
+                                          stepwise=True)
+                    # Forecast and calculate errors
+                    fc, confint = model.predict(n_periods=m, return_conf_int=True)
+                    # Save results to dictionary
+                    results = {
+                        "actual": {
+                            "date": list(test.index.astype(str)),
+                            "values": [float(val) if isinstance(val, np.float_) else int(val) for val in
+                                       test.values]
+                        },
+                        "forecast": {
+                            "date": list(test.index.astype(str)),
+                            "values": [float(val) if isinstance(val, np.float_) else int(val) for val in fc]
+                        }
+                    }
+                    if not os.path.exists(os.path.join("models", 'arima', target_col)):
+                        os.makedirs(os.path.join("models", 'arima', target_col), exist_ok=True)
+                    with open(os.path.join("models", 'arima', target_col, target_col + '_results.json'), 'w') as fp:
+                        json.dump(results, fp)
+                    result_graph = plot_graph(results, os.path.join('models', 'arima', target_col))
 
-        forecast_columns = data.select_dtypes(include=[np.number]).columns.tolist()
-        if not forecast_columns:
-            raise ValueError("No numeric columns found for forecasting in the dataset.")
-        print(f"Forecast columns identified: {forecast_columns}")
+                    print(
+                        f"Results saved to {os.path.join('models', 'arima', target_col, target_col + '_results.json')}")
+                    return True, result_graph
+                except Exception as e:
+                    print(e)
+                    return False, str(e)
+            else:
+                return False, "Data does not exhibit trends, seasonality, or shifts in variance"
+        else:
+            with open(os.path.join("models", 'arima', target_col, target_col + '_results.json'), 'r') as fp:
+                results = json.load(fp)
+            result_graph = plot_graph(results, os.path.join('models', 'arima', target_col))
 
-        freq = pd.infer_freq(data.index)
-        print(f"Inferred frequency: {freq}")
-
-        if not freq:
-            print(f"Frequency could not be inferred. Defaulting to 'D' (Daily).")
-            freq = 'D'
-
-        frequency_map = {
-            '15T': 96, '30T': 48, 'H': 24, 'D': 7, 'W': 52, 'M': 12, 'Q': 4, 'A': 1
-        }
-        m = frequency_map.get(freq, None)
-        if m is None:
-            raise ValueError(f"Unsupported frequency '{freq}'. Ensure data is in a common time interval.")
-        print(f"Frequency m determined as: {m}")
-
-        results = {}
-        try:
-            data_actual = data[target_col].dropna()
-            print(f"Data for {target_col} after removing NaNs:\n{data_actual.head(5)}")
-
-            train = data_actual.iloc[:-m]
-            test = data_actual.iloc[-m:]
-            print(f"Train data:\n{train.head(5)}")
-            print(f"Test data:\n{test.head(5)}")
-
-            print("Fitting Auto ARIMA model...")
-            model = pm.auto_arima(train,
-                                  m=m,
-                                  seasonal=True,
-                                  d=None,
-                                  test='adf',
-                                  start_p=0, start_q=0,
-                                  max_p=12, max_q=12,
-                                  D=None,
-                                  trace=True,
-                                  error_action='ignore',
-                                  suppress_warnings=True,
-                                  stepwise=True)
-            print(f"ARIMA model fitted: {model.summary()}")
-
-            fc, confint = model.predict(n_periods=m, return_conf_int=True)
-            print(f"Forecast values:\n{fc}")
-
-            results = {
-                "actual": {"date": list(test.index.astype(str)), "values": test.values.tolist()},
-                "forecast": {"date": list(test.index.astype(str)), "values": fc.tolist()}
-            }
-
-            with open(os.path.join("models", 'arima', target_col, target_col + '_results.json'), 'w') as fp:
-                json.dump(results, fp)
-            print("Plot results will be calling here........")
-            base64_image = plot_graph(results, os.path.join('models', 'arima', target_col))
-            results['plot'] = base64_image
-            print("Plot results will end here.......")
             print(f"Results saved to {os.path.join('models', 'arima', target_col, target_col + '_results.json')}")
+            return True, result_graph
 
-        except Exception as e:
-            print(f"Error during ARIMA model training: {e}")
-            return False
-
-        return results
     except Exception as e:
-        print(f"Error in arima_train: {e}")
+        print(e)
         return False
 
-
+import plotly.graph_objects as go
 def plot_graph(data, file_path):
     try:
         col = file_path.split('\\')[-1]
         actual_dates = [datetime.strptime(date, "%Y-%m-%d") for date in data["actual"]["date"]]
         forecast_dates = [datetime.strptime(date, "%Y-%m-%d") for date in data["forecast"]["date"]]
 
+        # Extract values
         actual_values = data["actual"]["values"]
         forecast_values = data["forecast"]["values"]
 
-        plt.figure(figsize=(10, 6))
-        plt.plot(actual_dates, actual_values, label='Actual', color='blue', marker='o')
-        plt.plot(forecast_dates, forecast_values, label='Forecast', color='orange', linestyle='--', marker='x')
+        # Create Plotly figure
+        fig = go.Figure()
 
-        plt.title('Actual vs Forecast Values')
-        plt.xlabel('Date')
-        plt.ylabel('Values')
-        plt.xticks(rotation=45)
-        plt.legend()
-        plt.tight_layout()
+        # Actual Data Line
+        fig.add_trace(go.Scatter(
+            x=actual_dates, y=actual_values,
+            mode='lines+markers', name='Actual',
+            line=dict(color='blue'), marker=dict(symbol='circle')
+        ))
 
-        # Save the plot as a PNG image
-        plt.savefig(os.path.join(file_path, "actual_vs_forecast.png"), format="png", dpi=300)
+        # Forecast Data Line
+        fig.add_trace(go.Scatter(
+            x=forecast_dates, y=forecast_values,
+            mode='lines+markers', name='Forecast',
+            line=dict(color='orange', dash='dash'), marker=dict(symbol='x')
+        ))
 
-        # Save plot to in-memory BytesIO buffer
-        buffer = io.BytesIO()
-        plt.savefig(buffer, format="png", dpi=300)
-        buffer.seek(0)  # Move to the beginning of the buffer
+        # Layout Settings
+        fig.update_layout(
+            title=f'{col} Actual vs Forecast Values Over Time',
+            xaxis_title='Date',
+            yaxis_title='Values',
+            xaxis=dict(tickangle=-45),
+            template="plotly_white",
+            width=1000, height=600
+        )
 
-        # Convert buffer content to base64 string
-        base64_image = base64.b64encode(buffer.read()).decode('utf-8')
-
-        # Close plot and buffer to release memory
-        plt.close()
-        buffer.close()
-
-        return base64_image
+        # Convert figure to Base64 Image
+        return fig.to_json()
 
     except Exception as e:
-        print(f"Error in plot_graph: {e}")
-        return None
+        print(e)
+        return str(e)
 
 
 def kmeans_train(data):
@@ -3231,15 +3220,10 @@ def kmeans_train(data):
 
         # Add cluster labels to the original data
         data['Cluster'] = kmeans.labels_
-
-        # Convert DataFrame to JSON serializable format
-        data_json = data.to_json(orient='records')  # Convert DataFrame to a JSON string (list of records)
-
-        # Optionally, you could return the JSON data or a response with it
-        return True, data_json  # Now returning a JSON-serializable string
+        return True, data
     except Exception as e:
         print(e)
-        return False, str(e)  # Returning error as a string instead of DataFrame
+        return False, data
 
 
 def load_pipeline(save_path="model_pipeline.pkl"):
@@ -3330,55 +3314,36 @@ from django.views.decorators.csrf import csrf_exempt
 
 @csrf_exempt
 def model_predict(request):
+    global target_col
     try:
-        # Check if the form_name is 'rf'
-        if request.POST.get('form_name') != 'rf':
-            return JsonResponse({"status": "failure", "message": "Invalid form name."}, status=400)
-
-        # Prepare the input data
-        res = {}
-        for col in request.POST:
-            res.update({col: request.POST[col]})
-
-        # Remove the 'form_name' key from the input data
-        if 'form_name' in res:
+        if request.POST.get('form_name') == 'rf':
+            res = {}
+            for col in request.POST:
+                if col == "targetColumn":
+                    target_col = request.POST[col]
+                    continue
+                res.update({col: request.POST[col]})
             del res['form_name']
-
-        # Convert input data to DataFrame
-        df = pd.DataFrame([res])
-
-        # Path to the pipeline file
-        col_predict = request.POST.get('col_predict')  # Retrieve `col_predict` from POST data
-        pipeline_path = os.path.join("models", "rf", col_predict, "pipeline.pkl")
-        print(pipeline_path)
-
-        # Check if the pipeline file exists
-        if not os.path.exists(pipeline_path):
-            return JsonResponse({
-                "status": "failure",
-                "message": f"Pipeline not found at {pipeline_path}."
-            }, status=404)
-
-        # Load the pipeline
-        loaded_pipeline = load(pipeline_path)
-
-        # Make the prediction
-        predictions = loaded_pipeline.predict(df)
-        print(predictions[0])
-
-        # Return a success response with the prediction
-        return JsonResponse({
-            "status": "success",
-            "prediction": predictions[0]  # Return the first prediction
-        })
+            df = pd.DataFrame([res])
+            loaded_pipeline = load_pipeline(
+                os.path.join("models", "rf", target_col, "pipeline.pkl"))
+            predictions = loaded_pipeline.predict(df)
+            print(predictions)
+            return JsonResponse(
+                {
+                    'columns': list(df.columns),
+                    'rf_result': f"Predicted {target_col} value is {round(predictions[0], 2)}"
+                }
+            )
 
     except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        return JsonResponse({
-            "status": "failure",
-            "message": f"An error occurred: {str(e)}"
-        })
-
+        print(e)
+        return JsonResponse(
+            {
+                'columns': [],
+                'rf_result': "NA"
+            }
+        )
 
 ##Visualisation updated for both text and graph responses:
 from rest_framework.response import Response
