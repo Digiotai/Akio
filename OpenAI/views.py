@@ -2959,10 +2959,10 @@ def models(request):
                 })
 
             elif model_type == 'Arima':
-                stat ,img_data= arima_train(df, col)
+                stat, img_data = arima_train(df, col)
                 return JsonResponse({
                     'columns': list(df.columns),
-                    'status': stat['plot'],
+                    'status': stat,
                     'arima': True,
                     'path': img_data
                 })
@@ -3019,114 +3019,113 @@ def find_elbow_point(inertia_values):
 
 
 def arima_train(data, target_col):
-    try:
-        # Identify date column by checking for datetime type
-        date_column = None
-        if not os.path.exists(os.path.join("models", 'arima', target_col)):
-            os.makedirs(os.path.join("models", 'arima', target_col), exist_ok=True)
-            for col in data.columns:
-                if data.dtypes[col] == 'object':
-                    try:
-                        # Attempt to convert column to datetime
-                        pd.to_datetime(data[col])
-                        date_column = col
-                        break
-                    except (ValueError, TypeError):
-                        continue
-            if not date_column:
-                raise ValueError("No datetime column found in the dataset.")
-            print(date_column)
-            # Set the date column as index
-            data[date_column] = pd.to_datetime(data[date_column])
-            data.set_index(date_column, inplace=True)
-            # Identify forecast columns (numeric columns)
-            forecast_columns = data.select_dtypes(include=[np.number]).columns.tolist()
-            if not forecast_columns:
-                raise ValueError("No numeric columns found for forecasting in the dataset.")
-
-            # Infer frequency of datetime index
-            freq = pd.infer_freq(data.index)
-            print(date_column, freq)
-            if freq:
-                # Determine m based on inferred frequency
-                if freq == '15T':  # Quarter-hourly data (every 15 minutes)
-                    m = 96  # Daily seasonality (96 intervals in a day)
-                elif freq == '30T':  # Half-hourly data (every 30 minutes)
-                    m = 48  # Daily seasonality (48 intervals in a day)
-                elif freq == 'H':  # Hourly data
-                    m = 24  # Daily seasonality (24 intervals in a day)
-                elif freq == 'D':  # Daily data
-                    m = 7  # Weekly seasonality (7 days in a week)
-                elif freq == 'W':  # Weekly data
-                    m = 52  # Yearly seasonality (52 weeks in a year)
-                elif freq == 'M':  # Monthly data
-                    m = 12  # Yearly seasonality (12 months in a year)
-                elif freq == 'Q':  # Quarterly data
-                    m = 4  # Yearly seasonality (4 quarters in a year)
-                elif freq == 'A' or (freq and freq.startswith('A-')):  # Annual data (any month-end)
-                    m = 1  # No further seasonality within a year
-                else:
-                    raise ValueError(f"Unsupported frequency '{freq}'. Ensure data is in a common time interval.")
-                results = {}
+   # Identify date column by checking for datetime type
+    date_column = None
+    if not os.path.exists(os.path.join("models", 'arima', target_col)):
+        os.makedirs(os.path.join("models", 'arima', target_col), exist_ok=True)
+        for col in data.columns:
+            if data.dtypes[col] == 'object':
                 try:
-                    data_actual = data[target_col].dropna()  # Remove NaNs if any
+                    # Attempt to convert column to datetime
+                    pd.to_datetime(data[col])
+                    date_column = col
+                    break
+                except (ValueError, TypeError):
+                    continue
+        if not date_column:
+            raise ValueError("No datetime column found in the dataset.")
+        print(date_column)
+        # Set the date column as index
+        data[date_column] = pd.to_datetime(data[date_column])
+        data.set_index(date_column, inplace=True)
+        # Identify forecast columns (numeric columns)
+        forecast_columns = data.select_dtypes(include=[np.number]).columns.tolist()
+        if not forecast_columns:
+            raise ValueError("No numeric columns found for forecasting in the dataset.")
 
-                    # Split data into train and test sets
-                    train = data_actual.iloc[:-m]
-                    test = data_actual.iloc[-m:]
-
-                    # Auto ARIMA model selection
-                    model = pm.auto_arima(train,
-                                          m=m,  # frequency of seasonality
-                                          seasonal=True,  # Enable seasonal ARIMA
-                                          d=None,  # determine differencing
-                                          test='adf',  # adf test for differencing
-                                          start_p=0, start_q=0,
-                                          max_p=12, max_q=12,
-                                          D=None,  # let model determine seasonal differencing
-                                          trace=True,
-                                          error_action='ignore',
-                                          suppress_warnings=True,
-                                          stepwise=True)
-                    # Forecast and calculate errors
-                    fc, confint = model.predict(n_periods=m, return_conf_int=True)
-                    # Save results to dictionary
-                    results = {
-                        "actual": {
-                            "date": list(test.index.astype(str)),
-                            "values": [float(val) if isinstance(val, np.float_) else int(val) for val in
-                                       test.values]
-                        },
-                        "forecast": {
-                            "date": list(test.index.astype(str)),
-                            "values": [float(val) if isinstance(val, np.float_) else int(val) for val in fc]
-                        }
-                    }
-                    if not os.path.exists(os.path.join("models", 'arima', target_col)):
-                        os.makedirs(os.path.join("models", 'arima', target_col), exist_ok=True)
-                    with open(os.path.join("models", 'arima', target_col, target_col + '_results.json'), 'w') as fp:
-                        json.dump(results, fp)
-                    result_graph = plot_graph(results, os.path.join('models', 'arima', target_col))
-
-                    print(
-                        f"Results saved to {os.path.join('models', 'arima', target_col, target_col + '_results.json')}")
-                    return True, result_graph
-                except Exception as e:
-                    print(e)
-                    return False, str(e)
+        # Infer frequency of datetime index
+        freq = pd.infer_freq(data.index)
+        print(date_column, freq)
+        if freq:
+            # Determine m based on inferred frequency
+            if freq == '15T':  # Quarter-hourly data (every 15 minutes)
+                m = 96  # Daily seasonality (96 intervals in a day)
+            elif freq == '30T':  # Half-hourly data (every 30 minutes)
+                m = 48  # Daily seasonality (48 intervals in a day)
+            elif freq == 'H':  # Hourly data
+                m = 24  # Daily seasonality (24 intervals in a day)
+            elif freq == 'D':  # Daily data
+                m = 7  # Weekly seasonality (7 days in a week)
+            elif freq == 'W':  # Weekly data
+                m = 52  # Yearly seasonality (52 weeks in a year)
+            elif freq == 'M':  # Monthly data
+                m = 12  # Yearly seasonality (12 months in a year)
+            elif freq == 'Q':  # Quarterly data
+                m = 4  # Yearly seasonality (4 quarters in a year)
+            elif freq == 'A' or (freq and freq.startswith('A-')):  # Annual data (any month-end)
+                m = 1  # No further seasonality within a year
             else:
-                return False, "Data does not exhibit trends, seasonality, or shifts in variance"
+                raise ValueError(f"Unsupported frequency '{freq}'. Ensure data is in a common time interval.")
+            results = {}
+            try:
+                data_actual = data[target_col].dropna()  # Remove NaNs if any
+
+                # Split data into train and test sets
+                train = data_actual.iloc[:-m]
+                test = data_actual.iloc[-m:]
+
+                # Auto ARIMA model selection
+                model = pm.auto_arima(train,
+                                      m=m,  # frequency of seasonality
+                                      seasonal=True,  # Enable seasonal ARIMA
+                                      d=None,  # determine differencing
+                                      test='adf',  # adf test for differencing
+                                      start_p=0, start_q=0,
+                                      max_p=12, max_q=12,
+                                      D=None,  # let model determine seasonal differencing
+                                      trace=True,
+                                      error_action='ignore',
+                                      suppress_warnings=True,
+                                      stepwise=True)
+                # Forecast and calculate errors
+                fc, confint = model.predict(n_periods=m, return_conf_int=True)
+                # Save results to dictionary
+                results = {
+                    "actual": {
+                        "date": list(test.index.astype(str)),
+                        "values": [float(val) if isinstance(val, np.float_) else int(val) for val in
+                                   test.values]
+                    },
+                    "forecast": {
+                        "date": list(test.index.astype(str)),
+                        "values": [float(val) if isinstance(val, np.float_) else int(val) for val in fc]
+                    }
+                }
+                if not os.path.exists(os.path.join("models", 'arima', target_col)):
+                    os.makedirs(os.path.join("models", 'arima', target_col), exist_ok=True)
+                with open(os.path.join("models", 'arima', target_col, target_col + '_results.json'), 'w') as fp:
+                    json.dump(results, fp)
+                result_graph = plot_graph(results, os.path.join('models', 'arima', target_col))
+                print(result_graph)
+                print("------------------------------------------------------------")
+                print(
+                    f"Results saved to {os.path.join('models', 'arima', target_col, target_col + '_results.json')}")
+                return True, result_graph
+            except Exception as e:
+                print(e)
+                return False,str(e)
         else:
-            with open(os.path.join("models", 'arima', target_col, target_col + '_results.json'), 'r') as fp:
-                results = json.load(fp)
-            result_graph = plot_graph(results, os.path.join('models', 'arima', target_col))
+            return False, "Data does not exhibit trends, seasonality, or shifts in variance"
+    else:
+        with open(os.path.join("models", 'arima', target_col, target_col + '_results.json'), 'r') as fp:
+            results = json.load(fp)
+        result_graph = plot_graph(results, os.path.join('models', 'arima', target_col))
+        print(result_graph)
+        print("-------------")
+        print(f"Results saved to {os.path.join('models', 'arima', target_col, target_col + '_results.json')}")
+        return True, result_graph
 
-            print(f"Results saved to {os.path.join('models', 'arima', target_col, target_col + '_results.json')}")
-            return True, result_graph
 
-    except Exception as e:
-        print(e)
-        return False
 
 import plotly.graph_objects as go
 def plot_graph(data, file_path):
@@ -3314,25 +3313,24 @@ from django.views.decorators.csrf import csrf_exempt
 
 @csrf_exempt
 def model_predict(request):
-    global target_col
     try:
         if request.POST.get('form_name') == 'rf':
             res = {}
             for col in request.POST:
                 if col == "targetColumn":
-                    target_col = request.POST[col]
+                    targetcol = request.POST[col]
                     continue
                 res.update({col: request.POST[col]})
             del res['form_name']
             df = pd.DataFrame([res])
             loaded_pipeline = load_pipeline(
-                os.path.join("models", "rf", target_col, "pipeline.pkl"))
+                os.path.join("models", "rf", targetcol, "pipeline.pkl"))
             predictions = loaded_pipeline.predict(df)
             print(predictions)
             return JsonResponse(
                 {
                     'columns': list(df.columns),
-                    'rf_result': f"Predicted {target_col} value is {round(predictions[0], 2)}"
+                    'rf_result': f"Predicted {targetcol} value is {round(predictions[0], 2)}"
                 }
             )
 
@@ -3344,6 +3342,7 @@ def model_predict(request):
                 'rf_result': "NA"
             }
         )
+
 
 ##Visualisation updated for both text and graph responses:
 from rest_framework.response import Response
@@ -3539,6 +3538,77 @@ def analyze_dataset1(df):
     return queries
 
 
+# dynamic selection of Columns
+# import pandas as pd
+# import random
+#
+# def analyze_dataset1(df):
+#     queries = []
+#
+#     # Get metadata about the dataset
+#     numerical_columns = df.select_dtypes(include=['number']).columns.tolist()
+#     categorical_columns = df.select_dtypes(exclude=['number']).columns.tolist()
+#     date_columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
+#
+#     print("Numerical Columns:", numerical_columns)
+#     print("Categorical Columns:", categorical_columns)
+#     print("Date Columns:", date_columns)
+#
+#     # Ensure we have numerical and categorical columns
+#     if not numerical_columns or not categorical_columns:
+#         print("Insufficient numerical or categorical columns for analysis.")
+#         return []
+#
+#     # Dynamically pick numerical and categorical columns for analysis
+#     selected_numerical = random.sample(numerical_columns, min(len(numerical_columns), 3))
+#     selected_categorical = random.choice(categorical_columns) if categorical_columns else None
+#
+#     print("Selected Numerical Columns:", selected_numerical)
+#     print("Selected Categorical Column:", selected_categorical)
+#
+#     # 1. Line Graph: Trends over time
+#     if date_columns:
+#         queries.append({
+#             "type": "line",
+#             "query": f"Generate a line graph showing trends of {', '.join(selected_numerical[:2])} over time using '{random.choice(date_columns)}'.",
+#             "analysis": "Trend Analysis"
+#         })
+#
+#     # 2. Bar Graph: Comparison across categories
+#     if selected_categorical:
+#         queries.append({
+#             "type": "bar",
+#             "query": f"Generate a bar graph comparing {', '.join(selected_numerical)} across '{selected_categorical}' categories.",
+#             "analysis": "Category Comparison"
+#         })
+#
+#     # 3. Scatter Plot: Relationship between two numerical variables
+#     if len(selected_numerical) >= 2:
+#         queries.append({
+#             "type": "scatter",
+#             "query": f"Generate a scatter plot analyzing the relationship between '{selected_numerical[0]}' and '{selected_numerical[1]}'.",
+#             "analysis": "Correlation Analysis"
+#         })
+#
+#     # 4. Histogram: Distribution of a single numerical variable
+#     queries.append({
+#         "type": "histogram",
+#         "query": f"Generate a histogram for '{random.choice(selected_numerical)}' to analyze its distribution.",
+#         "analysis": "Distribution Analysis"
+#     })
+#
+#     # 5. Box Plot: Outlier Detection
+#     if len(selected_numerical) > 1:
+#         queries.append({
+#             "type": "box",
+#             "query": f"Generate a box plot for '{random.choice(selected_numerical)}' to analyze outliers and data distribution.",
+#             "analysis": "Outlier Detection"
+#         })
+#
+#     print("Generated Queries:", queries)
+#     return queries
+
+
 @csrf_exempt
 def gen_plotly_response(request):
     if request.method == "POST":
@@ -3551,7 +3621,6 @@ def gen_plotly_response(request):
             date_columns = [col for col in df.columns if 'date' in col.lower() or 'time' in col.lower()]
             for col in date_columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
-
 
             # Analyze the dataset and generate meaningful queries
             queries = analyze_dataset1(df)
@@ -3656,8 +3725,7 @@ def col_description(request):
         return JsonResponse({"Column_description": markdown_to_html(column_description)})
 
 
-
-#Hana bot File uploading:
+# Hana bot File uploading:
 import os
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -3669,6 +3737,7 @@ UPLOAD_DIR = "chat_to_doc"
 # Ensure the upload directory exists
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
+
 
 @csrf_exempt
 def upload_and_process_file(request):
@@ -3693,7 +3762,7 @@ def upload_and_process_file(request):
         try:
             texts = bot.load_file(file_path, file_extension)
             storing = bot.process_and_store(texts)
-            print("Text and storing,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,",storing)
+            print("Text and storing,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,", storing)
             # Optionally, you can remove the file after processing if it's no longer needed
             # os.remove(file_path)
             return JsonResponse({"message": "File processed successfully!"}, status=200)
@@ -3705,7 +3774,7 @@ def upload_and_process_file(request):
         return JsonResponse({"error": "Only POST requests are allowed"}, status=405)
 
 
-#Hana File querying based on the above data
+# Hana File querying based on the above data
 @csrf_exempt
 def query_data(request):
     if request.method == 'POST':
