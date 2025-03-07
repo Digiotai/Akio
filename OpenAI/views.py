@@ -2918,13 +2918,13 @@ import matplotlib.pyplot as plt
 @csrf_exempt
 def models(request):
     try:
-        # Check if the processed data file exists
-        processed_data_path = os.path.join("uploads", 'processed_data.csv')
-        if not os.path.exists(processed_data_path):
-            return JsonResponse({"msg": "Please upload file to continue."}, status=404)
+        # # Check if the processed data file exists
+        # processed_data_path = os.path.join("uploads", 'processed_data.csv')
+        # if not os.path.exists(processed_data_path):
+        #     return JsonResponse({"msg": "Please upload file to continue."}, status=404)
 
         # Read CSV file
-        df = pd.read_csv(processed_data_path)
+        df = pd.read_csv('data.csv')
         print(df.head(5))
         single_value_columns = [col for col in df.columns if df[col].nunique() == 1]
         df.drop(single_value_columns, axis=1, inplace=True)
