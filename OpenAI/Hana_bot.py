@@ -83,14 +83,14 @@ class HanaBOT:
             print("No text provided for processing.")
             return
 
-        if not os.path.exists(self.index_path):
-            print("Creating new FAISS index...")
-            self.vectorstore = FAISS.from_documents(texts, self.embeddings)
-            self.vectorstore.save_local(self.index_path)
-            print(f"Index saved at {self.index_path}")
-        else:
-            print("Loading existing FAISS index...")
-            self.load_existing_index()
+        # if not os.path.exists(self.index_path):
+        #     print("Creating new FAISS index...")
+        self.vectorstore = FAISS.from_documents(texts, self.embeddings)
+        self.vectorstore.save_local(self.index_path)
+        print(f"Index saved at {self.index_path}")
+        # else:
+        #     print("Loading existing FAISS index...")
+        #     self.load_existing_index()
 
         if self.vectorstore:
             print(f"Total documents stored: {len(texts)}")
