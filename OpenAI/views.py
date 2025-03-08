@@ -3463,9 +3463,9 @@ def make_serializable(obj):
 
 # Dashboard with AI
 # Dashboard with AI
-from django.http import JsonResponse, HttpResponse
-from django.views.decorators.csrf import csrf_exempt
+
 from plotly.graph_objects import Figure
+import pandas as pd
 
 
 def analyze_dataset1(df):
@@ -3494,49 +3494,58 @@ def analyze_dataset1(df):
         important_categorical = max(categorical_columns, key=lambda col: df[col].nunique())
         print("Important Categorical Column:", important_categorical)
 
-    # Generate unique graphs with distinct analysis
-    # 1. Line Graph: Trends over time (if date column exists)
-    if date_columns and important_numerical:
+    # Generate advanced charts
+    # 1. Box Plot: Outlier detection and distribution analysis
+    if important_numerical:
         queries.append({
-            "type": "line",
-            "query": f"Generate a line graph showing trends of {', '.join(important_numerical[:2])} over time using '{date_columns[0]}'.",
-            "analysis": f"Trend Analysis"
+            "type": "box",
+            "query": f"Generate a box plot for '{important_numerical[0]}' to analyze outliers and data distribution.",
+            "analysis": f"Outlier Detection and Distribution Analysis"
         })
 
-    # 2. Bar Graph: Comparison across categories
-    if categorical_columns and important_numerical:
-        queries.append({
-            "type": "bar",
-            "query": f"Generate a bar graph comparing {', '.join(important_numerical)} across '{important_categorical}' categories.",
-            "analysis": f"Category Comparison"
-        })
-
-    # 3. Scatter Plot: Relationship between two numerical variables
+    # 2. Heatmap: Correlation between numerical columns
     if len(important_numerical) >= 2:
         queries.append({
-            "type": "scatter",
-            "query": f"Generate a scatter plot analyzing the relationship between '{important_numerical[0]}' and '{important_numerical[1]}'.",
+            "type": "heatmap",
+            "query": f"Generate a heatmap showing the correlation between numerical columns: {', '.join(important_numerical)}.",
             "analysis": f"Correlation Analysis"
         })
 
-    # Ensure at least 3 graphs are generated
-    if len(queries) <= 3 and important_numerical:
+    # 3. Violin Plot: Distribution of numerical data across categories
+    if important_numerical and important_categorical:
         queries.append({
-            "type": "histogram",
-            "query": f"Generate a histogram for '{important_numerical[0]}' to analyze its distribution.",
-            "analysis": f"Distribution Analysis"
+            "type": "violin",
+            "query": f"Generate a violin plot showing the distribution of '{important_numerical[0]}' across '{important_categorical}' categories.",
+            "analysis": f"Distribution Analysis Across Categories"
         })
-        # Add Box Plot for outlier detection
+
+    # 4. Bubble Chart: Relationship between three numerical columns (with size as a variable)
+    if len(important_numerical) >= 3:
         queries.append({
-            "type": "box",
-            "query": f"Generate a box plot for '{important_numerical[1]}' to analyze outliers and data distribution.",
-            "analysis": f"Outlier Detection"
+            "type": "bubble",
+            "query": f"Generate a bubble chart analyzing the relationship between '{important_numerical[0]}', '{important_numerical[1]}', and '{important_numerical[2]}'.",
+            "analysis": f"Multivariate Relationship Analysis"
         })
+
+    # # 7. 3D Line Plot: Trends in three numerical variables
+    # if len(important_numerical) >= 3:
+    #     queries.append({
+    #         "type": "3d_line",
+    #         "query": f"Generate a 3D line plot showing trends for '{important_numerical[0]}', '{important_numerical[1]}', and '{important_numerical[2]}'.",
+    #         "analysis": f"3D Trend Analysis",
+    #          })
+
+    # 8. 3D Mesh Plot: Surface plot for three numerical variables
+    if len(important_numerical) >= 3:
+        queries.append({
+            "type": "3d_mesh",
+            "query": f"Generate a 3D mesh plot showing the surface for '{important_numerical[0]}', '{important_numerical[1]}', and '{important_numerical[2]}'.",
+            "analysis": f"3D Surface Analysis",
+         })
 
     # Debug: Print generated queries
     print("Generated Queries:", queries)
     return queries
-
 
 # dynamic selection of Columns
 # import pandas as pd
@@ -3812,3 +3821,141 @@ def generate_coding_hi(prompt_eng):
         ]
     )
     return response.choices[0].message.content.strip()
+
+
+#Filling missed data api
+@csrf_exempt
+def missing_data(request):
+    if request.method == 'POST':
+        csv_file_path = 'data.csv'
+        df = pd.read_csv(csv_file_path)
+        print(df.head(5))
+
+        new_df, html_df = process_missing_data(df.copy())
+        new_df.to_csv(os.path.join('uploads', 'processed_data.csv'), index=False)
+        new_df.to_csv("data.csv", index=False)
+        with open(os.path.join('mvt_data.json'), 'w') as fp:
+            json.dump({'data': html_df}, fp, indent=4)
+
+        return JsonResponse({"df": html_df})
+
+
+def process_missing_data(df):
+    df = convert_to_datetime(df)
+    df, html_df = handle_missing_data(df)
+    return df, html_df
+
+
+def convert_to_datetime(df):
+    """
+    Converts object (string) columns containing dates to datetime format.
+    """
+    for col in df.columns:
+        if df[col].dtype == "object":  # Process only string columns
+            if df[col].str.contains(r"\d{1,4}[-/]\d{1,2}[-/]\d{1,4}", na=False).any():
+                df[col] = df[col].apply(detect_and_parse_date)
+
+    return df
+
+
+import dateutil.parser
+def detect_and_parse_date(value):
+    """
+    Detects and converts dates in multiple formats, including:
+    - MM-DD-YYYY
+    - DD-MM-YYYY
+    - MM/DD/YYYY
+    - DD/MM/YYYY
+    - YYYY-MM-DD
+    """
+    if pd.isna(value) or not isinstance(value, str) or value.strip() == "":
+        return pd.NaT  # Handle missing values safely
+
+    try:
+        # Check if it's a date with hyphens or slashes
+        if re.match(r"^\d{1,2}[-/]\d{1,2}[-/]\d{4}$", value):
+            day_first = False  # Assume MM-DD-YYYY first
+
+            # Check for an ambiguous case (day > 12) → Must be DD-MM-YYYY
+            parts = re.split(r"[-/]", value)
+            month, day, year = int(parts[0]), int(parts[1]), int(parts[2])
+            if day > 12:
+                day_first = True  # Switch to DD-MM-YYYY
+
+            # Parse with detected format
+            return dateutil.parser.parse(value, dayfirst=day_first)
+
+        # Otherwise, use default dateutil parsing
+        return dateutil.parser.parse(value)
+
+    except ValueError:
+        return pd.NaT  # Return NaT if parsing fails
+
+
+
+def handle_missing_data(df):
+    try:
+        # Identify numeric and datetime columns
+        numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
+        date_time_cols = df.select_dtypes(include=['datetime64']).columns
+
+        # Impute numeric columns and track which cells were imputed
+        imputer = KNNImputer(n_neighbors=5)
+        imputed_numeric = imputer.fit_transform(df[numeric_cols])
+        imputed_numeric_df = pd.DataFrame(imputed_numeric, columns=numeric_cols).round(2)
+
+        # Mark imputed cells (True if the original cell was NaN)
+        imputed_flags = df[numeric_cols].isnull()
+        imputed_flags = imputed_flags.applymap(lambda x: x if x else False)
+
+        # Update DataFrame with imputed values
+        df[numeric_cols] = imputed_numeric_df
+
+        # Handle datetime columns by forward filling missing values
+        for col in date_time_cols:
+            df[col] = pd.to_datetime(df[col])
+            time_diffs = df[col].diff().dropna()
+            avg_diff_sec = time_diffs.mean().total_seconds()
+            minute_sec = 60
+            hour_sec = 3600
+            day_sec = 86400
+            month_sec = day_sec * 30.44
+            year_sec = day_sec * 365.25
+
+            if avg_diff_sec < hour_sec:
+                time_unit = "minutes"
+                avg_diff = pd.Timedelta(minutes=avg_diff_sec / minute_sec)
+            elif avg_diff_sec < day_sec:
+                time_unit = "hours"
+                avg_diff = pd.Timedelta(hours=avg_diff_sec / hour_sec)
+            elif avg_diff_sec < month_sec:
+                time_unit = "days"
+                avg_diff = pd.Timedelta(days=avg_diff_sec / day_sec)
+            elif avg_diff_sec < year_sec:
+                time_unit = "months"
+                avg_diff = pd.DateOffset(months=round(avg_diff_sec / month_sec))
+            else:
+                time_unit = "years"
+                avg_diff = pd.DateOffset(years=round(avg_diff_sec / year_sec))
+
+            for i in range(1, len(df)):
+                if pd.isnull(df[col].iloc[i]):
+                    df.loc[i, col]   = df[col].iloc[i - 1] + avg_diff
+                    imputed_flags.loc[i, col] = True
+
+            imputed_flags.fillna(False, inplace=True)
+
+        # Convert the DataFrame into a JSON-serializable format with flags
+        data = []
+        for _, row in df.iterrows():
+            row_data = {}
+            for col in df.columns:
+                row_data[col] = {
+                    "value": row[col].strftime('%Y-%m-%d %H:%M:%S') if isinstance(row[col], pd.Timestamp) else row[col],
+                    "is_imputed": str(imputed_flags[col].get(_, False)) if col in imputed_flags else str(False)
+                    # Check if cell was imputed
+                }
+            data.append(row_data)
+        return df, data
+    except Exception as e:
+        print(e)
