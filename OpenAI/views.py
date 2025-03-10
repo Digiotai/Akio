@@ -3019,13 +3019,13 @@ def find_elbow_point(inertia_values):
 
 
 def arima_train(data, target_col):
-    # Ensure required directories exist
-    model_dir = os.path.abspath(os.path.join("models", "arima", target_col))
+    """
+    Trains an ARIMA model on the given dataset and forecasts future values.
+    Saves results in the 'models/arima/{target_col}/' directory.
+    """
+    # Ensure directory exists
+    model_dir = os.path.join("models", 'arima', target_col)
     os.makedirs(model_dir, exist_ok=True)
-
-    print(f"Model directory: {model_dir}")  # Debugging output
-    print(data.columns)
-    print(data.dtypes)
 
     # Standardize column names (remove leading/trailing spaces)
     data.columns = data.columns.str.strip()
@@ -3051,88 +3051,57 @@ def arima_train(data, target_col):
     # Set Date as index
     data.set_index(date_column, inplace=True)
 
-    # Identify forecast columns (numeric columns)
+    # Identify numeric forecast columns
     forecast_columns = data.select_dtypes(include=[np.number]).columns.tolist()
     if not forecast_columns:
-        raise ValueError("No numeric columns found for forecasting in the dataset.")
+        raise ValueError("No numeric columns found for forecasting.")
 
-    # Infer frequency of datetime index
+    # Infer frequency
     freq = pd.infer_freq(data.index)
-    print(f"Data frequency inferred: {freq}")  # Debugging output
-
     if not freq:
-        return False, "Data does not exhibit trends, seasonality, or shifts in variance"
+        return False, "Could not infer time series frequency. Ensure consistent datetime intervals."
 
-    # Determine seasonality `m`
-    freq_map = {
-        '15T': 96,  # 15-minute intervals -> daily seasonality
-        '30T': 48,  # 30-minute intervals -> daily seasonality
-        'H': 24,  # Hourly data -> daily seasonality
-        'D': 7,  # Daily data -> weekly seasonality
-        'W': 52,  # Weekly data -> yearly seasonality
-        'M': 12,  # Monthly data -> yearly seasonality
-        'Q': 4,  # Quarterly data -> yearly seasonality
-        'A': 1  # Annual data -> no seasonality within a year
+    print(f"Detected frequency: {freq}")
+
+    # Define seasonal periods based on frequency
+    seasonal_map = {
+        '15T': 96, '30T': 48, 'H': 24, 'D': 7, 'W': 52, 'M': 12, 'Q': 4, 'A': 1
     }
-
-    m = freq_map.get(freq)
+    m = seasonal_map.get(freq, None)
     if not m:
-        raise ValueError(f"Unsupported frequency '{freq}'. Ensure data is in a common time interval.")
-
-    # Check if the results file already exists
-    results_path = os.path.join(model_dir, f"{target_col}_results.json")
-
-    if os.path.exists(results_path):
-        # Load and plot existing results
-        print(f"Loading existing results from {results_path}")  # Debugging output
-        with open(results_path, 'r') as fp:
-            results = json.load(fp)
-        result_graph = plot_graph(results, model_dir)
-        return True, result_graph
+        return False, f"Unsupported frequency '{freq}'"
 
     try:
-        # Prepare data for ARIMA
         data_actual = data[target_col].dropna()
-        train = data_actual.iloc[:-m]  # Train set
-        test = data_actual.iloc[-m:]  # Test set
+        train, test = data_actual.iloc[:-m], data_actual.iloc[-m:]
 
-        # Fit Auto ARIMA model
-        model = pm.auto_arima(
-            train, m=m, seasonal=True, d=None, test='adf',
-            start_p=0, start_q=0, max_p=12, max_q=12,
-            D=None, trace=True, error_action='ignore',
-            suppress_warnings=True, stepwise=True
-        )
+        # Auto ARIMA model selection
+        model = pm.auto_arima(train, m=m, seasonal=True, d=None, test='adf',
+                              start_p=0, start_q=0, max_p=12, max_q=12,
+                              D=None, trace=True, error_action='ignore',
+                              suppress_warnings=True, stepwise=True)
 
         # Forecast
         fc, confint = model.predict(n_periods=m, return_conf_int=True)
 
         # Save results
         results = {
-            "actual": {
-                "date": list(test.index.astype(str)),
-                "values": [float(val) if isinstance(val, np.float_) else int(val) for val in test.values]
-            },
-            "forecast": {
-                "date": list(test.index.astype(str)),
-                "values": [float(val) if isinstance(val, np.float_) else int(val) for val in fc]
-            }
+            "actual": {"date": list(test.index.astype(str)), "values": test.tolist()},
+            "forecast": {"date": list(test.index.astype(str)), "values": fc.tolist()}
         }
 
-        # Ensure directory exists before saving results
-        os.makedirs(model_dir, exist_ok=True)
-
-        with open(results_path, 'w') as fp:
+        # Save to JSON
+        results_file = os.path.join(model_dir, f"{target_col}_results.json")
+        with open(results_file, 'w') as fp:
             json.dump(results, fp)
 
         result_graph = plot_graph(results, model_dir)
-        print(f"Results saved to {results_path}")  # Debugging output
+        print(f"Results saved to {results_file}")
         return True, result_graph
 
     except Exception as e:
-        print(f"An error occurred: {e}")  # Debugging output
+        print(f"Error: {e}")
         return False, str(e)
-
 
 import plotly.graph_objects as go
 def plot_graph(data, file_path):
