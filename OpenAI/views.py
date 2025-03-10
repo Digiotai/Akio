@@ -3024,6 +3024,8 @@ def arima_train(data, target_col):
     os.makedirs(model_dir, exist_ok=True)
 
     print(f"Model directory: {model_dir}")  # Debugging output
+    print(data.columns)
+    print(data.dtypes)
 
     # Identify date column
     date_column = None
