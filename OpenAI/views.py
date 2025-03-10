@@ -3519,13 +3519,6 @@ def analyze_dataset1(df):
             "analysis": f"Distribution Analysis",
         })
 
-    if date_columns:
-        queries.append({
-            "type": "timeseries",
-            "query": f"Generate a time series chart to analyze trends over time using '{date_columns[0]}'.",
-            "analysis": "Trend Analysis Over Time"
-        })
-
     if categorical_columns:
         queries.append({
             "type": "sunburst",
@@ -3533,8 +3526,13 @@ def analyze_dataset1(df):
             "analysis": "Hierarchical Category Analysis"
         })
 
-
-
+    # 6. 3D Scatter Plot: Multivariate analysis
+    if len(important_numerical) >= 3:
+        queries.append({
+            "type": "3d_scatter",
+            "query": f"Generate a 3D scatter plot to analyze relationships between '{important_numerical[0]}', '{important_numerical[1]}', and '{important_numerical[2]}'.",
+            "analysis": "Multivariate Analysis"
+        })
 
     # Debug: Print generated queries
     print("Generated Queries:", queries)
