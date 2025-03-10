@@ -3027,24 +3027,28 @@ def arima_train(data, target_col):
     print(data.columns)
     print(data.dtypes)
 
-    # Identify date column
+    # Standardize column names (remove leading/trailing spaces)
+    data.columns = data.columns.str.strip()
+
+    # Normalize date column format
     date_column = None
     for col in data.columns:
-        if data.dtypes[col] == 'object':
-            try:
-                pd.to_datetime(data[col])
+        try:
+            data[col] = pd.to_datetime(data[col], errors='coerce')
+            if pd.api.types.is_datetime64_any_dtype(data[col]):
                 date_column = col
                 break
-            except (ValueError, TypeError):
-                continue
+        except Exception as e:
+            print(f"Skipping column {col}: {e}")
 
+    # Ensure a valid date column is found
     if not date_column:
-        raise ValueError("No datetime column found in the dataset.")
+        print("Available columns:", data.columns.tolist())
+        raise ValueError("No valid datetime column found in the dataset.")
 
-    print(f"Identified date column: {date_column}")  # Debugging output
+    print(f"Identified date column: {date_column}")
 
-    # Set the date column as index
-    data[date_column] = pd.to_datetime(data[date_column])
+    # Set Date as index
     data.set_index(date_column, inplace=True)
 
     # Identify forecast columns (numeric columns)
