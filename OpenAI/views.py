@@ -3642,7 +3642,7 @@ def gen_plotly_response(request):
                 # Prompt engineering for AI
                 print(query)
                 prompt_eng = (
-                    f"You are an AI specialized in data analytics and visualization.You must draw the plots for any type of query given by the user."
+                    f"You are an AI specialized in data analytics and visualization."
                     f"Data used for analysis is stored in a CSV file named 'data.csv'."
                     f"Attributes of the data are: {metadata_str}."
                     f"Consider 'data.csv' as the data source for any analysis."
