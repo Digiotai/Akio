@@ -3019,91 +3019,108 @@ def find_elbow_point(inertia_values):
 
 
 def arima_train(data, target_col):
-    """
-    Trains an ARIMA model on the given dataset and forecasts future values.
-    Saves results in the 'models/arima/{target_col}/' directory.
-    """
-    # Ensure directory exists
-    model_dir = os.path.join("models", 'arima', target_col)
-    os.makedirs(model_dir, exist_ok=True)
+    print("Starting ARIMA training...")
 
-    # Standardize column names (remove leading/trailing spaces)
-    data.columns = data.columns.str.strip()
-
-    # Normalize date column format
     date_column = None
-    for col in data.columns:
-        try:
-            data[col] = pd.to_datetime(data[col], errors='coerce')
-            if pd.api.types.is_datetime64_any_dtype(data[col]):
-                date_column = col
-                break
-        except Exception as e:
-            print(f"Skipping column {col}: {e}")
+    model_path = os.path.join("models", 'arima', target_col)
 
-    # Ensure a valid date column is found
-    if not date_column:
-        print("Available columns:", data.columns.tolist())
-        raise ValueError("No valid datetime column found in the dataset.")
+    if not os.path.exists(model_path):
+        os.makedirs(model_path, exist_ok=True)
+        print(f"Created directory: {model_path}")
 
-    print(f"Identified date column: {date_column}")
+        for col in data.columns:
+            if data.dtypes[col] == 'object':
+                try:
+                    pd.to_datetime(data[col])
+                    date_column = col
+                    break
+                except (ValueError, TypeError):
+                    continue
 
-    # Set Date as index
-    data.set_index(date_column, inplace=True)
+        if not date_column:
+            raise ValueError("No datetime column found in the dataset.")
 
-    # Identify numeric forecast columns
-    forecast_columns = data.select_dtypes(include=[np.number]).columns.tolist()
-    if not forecast_columns:
-        raise ValueError("No numeric columns found for forecasting.")
+        print(f"Identified date column: {date_column}")
 
-    # Infer frequency
-    freq = pd.infer_freq(data.index)
-    if not freq:
-        return False, "Could not infer time series frequency. Ensure consistent datetime intervals."
+        data[date_column] = pd.to_datetime(data[date_column])
+        data.set_index(date_column, inplace=True)
 
-    print(f"Detected frequency: {freq}")
+        forecast_columns = data.select_dtypes(include=[np.number]).columns.tolist()
+        print(f"Numeric columns identified for forecasting: {forecast_columns}")
 
-    # Define seasonal periods based on frequency
-    seasonal_map = {
-        '15T': 96, '30T': 48, 'H': 24, 'D': 7, 'W': 52, 'M': 12, 'Q': 4, 'A': 1
-    }
-    m = seasonal_map.get(freq, None)
-    if not m:
-        return False, f"Unsupported frequency '{freq}'"
+        if not forecast_columns:
+            raise ValueError("No numeric columns found for forecasting in the dataset.")
 
-    try:
-        data_actual = data[target_col].dropna()
-        train, test = data_actual.iloc[:-m], data_actual.iloc[-m:]
+        freq = pd.infer_freq(data.index)
+        print(f"Inferred frequency: {freq}")
 
-        # Auto ARIMA model selection
-        model = pm.auto_arima(train, m=m, seasonal=True, d=None, test='adf',
-                              start_p=0, start_q=0, max_p=12, max_q=12,
-                              D=None, trace=True, error_action='ignore',
-                              suppress_warnings=True, stepwise=True)
+        if freq:
+            freq_dict = {'15T': 96, '30T': 48, 'H': 24, 'D': 7, 'W': 52, 'M': 12, 'Q': 4, 'A': 1}
+            m = freq_dict.get(freq, None)
 
-        # Forecast
-        fc, confint = model.predict(n_periods=m, return_conf_int=True)
+            if m is None:
+                raise ValueError(f"Unsupported frequency '{freq}'. Ensure data is in a common time interval.")
 
-        # Save results
-        results = {
-            "actual": {"date": list(test.index.astype(str)), "values": test.tolist()},
-            "forecast": {"date": list(test.index.astype(str)), "values": fc.tolist()}
-        }
+            print(f"Using seasonality m={m}")
 
-        # Save to JSON
-        results_file = os.path.join(model_dir, f"{target_col}_results.json")
-        with open(results_file, 'w') as fp:
-            json.dump(results, fp)
+            results = {}
+            try:
+                data_actual = data[target_col].dropna()
+                print(f"Total data points: {len(data_actual)}")
 
-        result_graph = plot_graph(results, model_dir)
-        print(f"Results saved to {results_file}")
+                train = data_actual.iloc[:-m]
+                test = data_actual.iloc[-m:]
+                print(f"Train size: {len(train)}, Test size: {len(test)}")
+
+                model = pm.auto_arima(train, m=m, seasonal=True, d=None, test='adf',
+                                      start_p=0, start_q=0, max_p=12, max_q=12,
+                                      D=None, trace=True, error_action='ignore',
+                                      suppress_warnings=True, stepwise=True)
+                print("ARIMA model training completed.")
+
+                fc, confint = model.predict(n_periods=m, return_conf_int=True)
+                print(f"Forecasted {m} future values.")
+
+                results = {
+                    "actual": {
+                        "date": list(test.index.astype(str)),
+                        "values": [float(val) if isinstance(val, np.float_) else int(val) for val in test.values]
+                    },
+                    "forecast": {
+                        "date": list(test.index.astype(str)),
+                        "values": [float(val) if isinstance(val, np.float_) else int(val) for val in fc]
+                    }
+                }
+
+                with open(os.path.join(model_path, target_col + '_results.json'), 'w') as fp:
+                    json.dump(results, fp)
+                print(f"Results saved to {os.path.join(model_path, target_col + '_results.json')}")
+
+                result_graph = plot_graph(results, model_path)
+                print(f"Plot generated: {result_graph}")
+
+                return True, result_graph
+            except Exception as e:
+                print(f"Error in ARIMA training: {e}")
+                return False, str(e)
+        else:
+            print("Data does not exhibit trends, seasonality, or shifts in variance.")
+            return False, "Data does not exhibit trends, seasonality, or shifts in variance"
+    else:
+        print("Model already exists. Loading previous results...")
+        with open(os.path.join(model_path, target_col + '_results.json'), 'r') as fp:
+            results = json.load(fp)
+
+        result_graph = plot_graph(results, model_path)
+        print(f"Plot generated: {result_graph}")
+        print(f"Results loaded from {os.path.join(model_path, target_col + '_results.json')}")
+
         return True, result_graph
 
-    except Exception as e:
-        print(f"Error: {e}")
-        return False, str(e)
 
 import plotly.graph_objects as go
+
+
 def plot_graph(data, file_path):
     try:
         col = file_path.split('\\')[-1]
@@ -3339,21 +3356,21 @@ def gen_ai_bot(request):
 
         system_prompt = f"""
             You are an AI specialized in data analytics and visualization. The data for analysis is stored in a CSV file named data.csv, with the following attributes: {metadata_str} and sample data as {sample_data}.
-    
+
             Follow these rules while responding to user queries:
-    
+
             1. Strictly use 'data.csv' as the data source without stating any limitations or disclaimers about file access.
-    
+
             2.Data Analysis: If the query requires numerical or tabular insights, extract relevant data from data.csv, perform necessary calculations, and provide a concise summary store the result in text_output variable.
-    
+
             3. Visualization (if applicable):
             3.1 If the query requires a graph, generate Python code using Plotly to create the requested chart type (e.g., bar, pie, scatter, etc.). If no graph type is specified, intelligently choose between a line or bar chart based on the context. Ensure the graph includes:
-    
+
                 A title, axis labels (if applicable), and appropriate colors.
                 A white background for both the plot and the paper.
                 A visually appealing design that provides sufficient context for understanding.
             3.2 If a graph is generated, the code must:
-    
+
             Output a Plotly Figure object stored in a variable named fig.
             Include the data and layout dictionaries necessary for rendering the graph.
             Ensure full compatibility with React.
@@ -3437,7 +3454,6 @@ def make_serializable(obj):
     return obj
 
 
-
 # Dashboard with AI
 
 from plotly.graph_objects import Figure
@@ -3513,6 +3529,7 @@ def analyze_dataset1(df):
     # Debug: Print generated queries
     print("Generated Queries:", queries)
     return queries
+
 
 # dynamic selection of Columns
 # import pandas as pd
@@ -3790,7 +3807,7 @@ def generate_coding_hi(prompt_eng):
     return response.choices[0].message.content.strip()
 
 
-#Filling missed data api
+# Filling missed data api
 @csrf_exempt
 def missing_data(request):
     if request.method == 'POST':
@@ -3826,6 +3843,8 @@ def convert_to_datetime(df):
 
 
 import dateutil.parser
+
+
 def detect_and_parse_date(value):
     """
     Detects and converts dates in multiple formats, including:
@@ -3857,7 +3876,6 @@ def detect_and_parse_date(value):
 
     except ValueError:
         return pd.NaT  # Return NaT if parsing fails
-
 
 
 def handle_missing_data(df):
@@ -3907,7 +3925,7 @@ def handle_missing_data(df):
 
             for i in range(1, len(df)):
                 if pd.isnull(df[col].iloc[i]):
-                    df.loc[i, col]   = df[col].iloc[i - 1] + avg_diff
+                    df.loc[i, col] = df[col].iloc[i - 1] + avg_diff
                     imputed_flags.loc[i, col] = True
 
             imputed_flags.fillna(False, inplace=True)
