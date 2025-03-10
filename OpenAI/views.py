@@ -3103,12 +3103,22 @@ def arima_train(data, target_col):
         print(f"Error: {e}")
         return False, str(e)
 
+
 import plotly.graph_objects as go
+from datetime import datetime
+
 def plot_graph(data, file_path):
     try:
-        col = file_path.split('\\')[-1]
-        actual_dates = [datetime.strptime(date, "%Y-%m-%d") for date in data["actual"]["date"]]
-        forecast_dates = [datetime.strptime(date, "%Y-%m-%d") for date in data["forecast"]["date"]]
+        # Extract filename
+        col = os.path.basename(file_path)
+
+        # Convert string dates to datetime objects
+        actual_dates = [pd.to_datetime(date, errors='coerce') for date in data["actual"]["date"]]
+        forecast_dates = [pd.to_datetime(date, errors='coerce') for date in data["forecast"]["date"]]
+
+        # Ensure all dates are valid
+        actual_dates = [date for date in actual_dates if pd.notna(date)]
+        forecast_dates = [date for date in forecast_dates if pd.notna(date)]
 
         # Extract values
         actual_values = data["actual"]["values"]
@@ -3141,11 +3151,11 @@ def plot_graph(data, file_path):
             width=1000, height=600
         )
 
-        # Convert figure to Base64 Image
+        # Convert figure to JSON (for API response)
         return fig.to_json()
 
     except Exception as e:
-        print(e)
+        print(f"Error in plot_graph: {e}")
         return str(e)
 
 
