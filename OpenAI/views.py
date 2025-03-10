@@ -3461,7 +3461,7 @@ def make_serializable(obj):
     return obj
 
 
-# Dashboard with AI
+
 # Dashboard with AI
 
 from plotly.graph_objects import Figure
@@ -3511,37 +3511,30 @@ def analyze_dataset1(df):
             "analysis": f"Correlation Analysis"
         })
 
-    # 3. Violin Plot: Distribution of numerical data across categories
-    if important_numerical and important_categorical:
+    # 9. Distplot: Distribution of a numerical variable
+    if important_numerical:
         queries.append({
-            "type": "violin",
-            "query": f"Generate a violin plot showing the distribution of '{important_numerical[0]}' across '{important_categorical}' categories.",
-            "analysis": f"Distribution Analysis Across Categories"
+            "type": "distplot",
+            "query": f"Generate a distplot showing the distribution of '{important_numerical[0]}'.",
+            "analysis": f"Distribution Analysis",
         })
 
-    # 4. Bubble Chart: Relationship between three numerical columns (with size as a variable)
-    if len(important_numerical) >= 3:
+    if date_columns:
         queries.append({
-            "type": "bubble",
-            "query": f"Generate a bubble chart analyzing the relationship between '{important_numerical[0]}', '{important_numerical[1]}', and '{important_numerical[2]}'.",
-            "analysis": f"Multivariate Relationship Analysis"
+            "type": "timeseries",
+            "query": f"Generate a time series chart to analyze trends over time using '{date_columns[0]}'.",
+            "analysis": "Trend Analysis Over Time"
         })
 
-    # # 7. 3D Line Plot: Trends in three numerical variables
-    # if len(important_numerical) >= 3:
-    #     queries.append({
-    #         "type": "3d_line",
-    #         "query": f"Generate a 3D line plot showing trends for '{important_numerical[0]}', '{important_numerical[1]}', and '{important_numerical[2]}'.",
-    #         "analysis": f"3D Trend Analysis",
-    #          })
-
-    # 8. 3D Mesh Plot: Surface plot for three numerical variables
-    if len(important_numerical) >= 3:
+    if categorical_columns:
         queries.append({
-            "type": "3d_mesh",
-            "query": f"Generate a 3D mesh plot showing the surface for '{important_numerical[0]}', '{important_numerical[1]}', and '{important_numerical[2]}'.",
-            "analysis": f"3D Surface Analysis",
-         })
+            "type": "sunburst",
+            "query": f"Generate a Sunburst chart for '{important_categorical}' to visualize category hierarchy.",
+            "analysis": "Hierarchical Category Analysis"
+        })
+
+
+
 
     # Debug: Print generated queries
     print("Generated Queries:", queries)
@@ -3649,7 +3642,7 @@ def gen_plotly_response(request):
                 # Prompt engineering for AI
                 print(query)
                 prompt_eng = (
-                    f"You are an AI specialized in data analytics and visualization."
+                    f"You are an AI specialized in data analytics and visualization.You must draw the plots for any type of query given by the user."
                     f"Data used for analysis is stored in a CSV file named 'data.csv'."
                     f"Attributes of the data are: {metadata_str}."
                     f"Consider 'data.csv' as the data source for any analysis."
