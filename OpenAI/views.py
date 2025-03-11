@@ -26,11 +26,27 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from .database import PostgresDatabase, HanaDBManager
 
 global connection_obj
-# db = MongoDBDatabase()
+
+
+# Fetch API key from Node.js API
+def get_api_key():
+    url = "https://otamat.com/api/get-token"  # Replace with actual API URL
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("key")  # Extract the API key
+        else:
+            print("Error: Failed to fetch API key")
+            return None
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching API key: {e}")
+        return None
+
 
 # Configure OpenAI
 load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = get_api_key()
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 expertise = "Interior Designer"
@@ -1783,7 +1799,7 @@ def forecast_sales(request):
             print(f"[DEBUG] DataFrame loaded successfully in {time.time() - df_load_start:.2f} seconds")
 
             # Retrieve the user prompt and OpenAI API key
-            openai_api_key = os.getenv("OPENAI_API_KEY")
+            openai_api_key = get_api_key()
             print(f"[DEBUG] Retrieved OpenAI API key: {openai_api_key}")
             user_prompt = request.POST.get('user_prompt')
             if not user_prompt:
@@ -1892,7 +1908,7 @@ def handle_synthetic_data_api(request):
         try:
             # Extract user prompt and OpenAI API key from the request
             user_prompt = request.POST.get('user_prompt')
-            openai_api_key = os.getenv('OPENAI_API_KEY')
+            openai_api_key = get_api_key()
 
             # Validate user prompt
             if not user_prompt or not openai_api_key:
@@ -1953,7 +1969,7 @@ def handle_synthetic_data_extended(request):
             # Extract uploaded file, user prompt, and API key from the request
             uploaded_file = request.FILES.get('file')
             user_prompt = request.POST.get('user_prompt')
-            openai_api_key = os.getenv('OPENAI_API_KEY')
+            openai_api_key = get_api_key()
 
             print(f"[DEBUG] Uploaded file: {uploaded_file}")
             print(f"[DEBUG] User prompt: {user_prompt}")
