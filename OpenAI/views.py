@@ -3038,7 +3038,7 @@ def arima_train(data, target_col):
     print("Starting ARIMA training...")
 
     date_column = None
-    model_path = os.path.join("models", 'arima', target_col)
+    model_path = os.path.abspath(os.path.join("models", "arima", target_col))
 
     if not os.path.exists(model_path):
         os.makedirs(model_path, exist_ok=True)
