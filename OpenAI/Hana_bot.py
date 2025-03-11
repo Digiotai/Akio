@@ -11,11 +11,27 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
+import requests
+
+
+# Fetch API key from Node.js API
+def get_api_key():
+    url = "https://otamat.com/api/get-token"  # Replace with actual API URL
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("key")  # Extract the API key
+        else:
+            print("Error: Failed to fetch API key")
+            return None
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching API key: {e}")
+        return None
 
 # Load environment variables
 load_dotenv()
-openai_api_key = os.getenv('OPENAI_API_KEY')
-os.environ["OPENAI_API_KEY"] = openai_api_key
+openai_api_key = get_api_key()
 
 
 class HanaBOT:
