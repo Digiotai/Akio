@@ -3037,101 +3037,108 @@ def find_elbow_point(inertia_values):
 def arima_train(data, target_col):
     print("Starting ARIMA training...")
 
-    date_column = None
-    model_path = os.path.abspath(os.path.join("models", "arima", target_col))
+    # Ensure target_col has no spaces to prevent path issues
+    safe_target_col = target_col.replace(" ", "_")
 
+    # Use absolute path to avoid working directory issues
+    base_path = os.path.abspath("models/arima")
+    model_path = os.path.join(base_path, safe_target_col)
+
+    # Ensure model directory exists
     if not os.path.exists(model_path):
         os.makedirs(model_path, exist_ok=True)
         print(f"Created directory: {model_path}")
 
-        for col in data.columns:
-            if data.dtypes[col] == 'object':
-                try:
-                    pd.to_datetime(data[col])
-                    date_column = col
-                    break
-                except (ValueError, TypeError):
-                    continue
+    date_column = None
 
-        if not date_column:
-            raise ValueError("No datetime column found in the dataset.")
-
-        print(f"Identified date column: {date_column}")
-
-        data[date_column] = pd.to_datetime(data[date_column])
-        data.set_index(date_column, inplace=True)
-
-        forecast_columns = data.select_dtypes(include=[np.number]).columns.tolist()
-        print(f"Numeric columns identified for forecasting: {forecast_columns}")
-
-        if not forecast_columns:
-            raise ValueError("No numeric columns found for forecasting in the dataset.")
-
-        freq = pd.infer_freq(data.index)
-        print(f"Inferred frequency: {freq}")
-
-        if freq:
-            freq_dict = {'15T': 96, '30T': 48, 'H': 24, 'D': 7, 'W': 52, 'M': 12, 'Q': 4, 'A': 1}
-            m = freq_dict.get(freq, None)
-
-            if m is None:
-                raise ValueError(f"Unsupported frequency '{freq}'. Ensure data is in a common time interval.")
-
-            print(f"Using seasonality m={m}")
-
-            results = {}
+    # Identify date column
+    for col in data.columns:
+        if data.dtypes[col] == 'object':
             try:
-                data_actual = data[target_col].dropna()
-                print(f"Total data points: {len(data_actual)}")
+                pd.to_datetime(data[col])
+                date_column = col
+                break
+            except (ValueError, TypeError):
+                continue
 
-                train = data_actual.iloc[:-m]
-                test = data_actual.iloc[-m:]
-                print(f"Train size: {len(train)}, Test size: {len(test)}")
+    if not date_column:
+        raise ValueError("No datetime column found in the dataset.")
 
-                model = pm.auto_arima(train, m=m, seasonal=True, d=None, test='adf',
-                                      start_p=0, start_q=0, max_p=12, max_q=12,
-                                      D=None, trace=True, error_action='ignore',
-                                      suppress_warnings=True, stepwise=True)
-                print("ARIMA model training completed.")
+    print(f"Identified date column: {date_column}")
 
-                fc, confint = model.predict(n_periods=m, return_conf_int=True)
-                print(f"Forecasted {m} future values.")
+    # Convert date column to datetime and set as index
+    data[date_column] = pd.to_datetime(data[date_column])
+    data.set_index(date_column, inplace=True)
 
-                results = {
-                    "actual": {
-                        "date": list(test.index.astype(str)),
-                        "values": [float(val) if isinstance(val, np.float_) else int(val) for val in test.values]
-                    },
-                    "forecast": {
-                        "date": list(test.index.astype(str)),
-                        "values": [float(val) if isinstance(val, np.float_) else int(val) for val in fc]
-                    }
-                }
+    # Identify numeric columns
+    forecast_columns = data.select_dtypes(include=[np.number]).columns.tolist()
+    print(f"Numeric columns identified for forecasting: {forecast_columns}")
 
-                with open(os.path.join(model_path, target_col + '_results.json'), 'w') as fp:
-                    json.dump(results, fp)
-                print(f"Results saved to {os.path.join(model_path, target_col + '_results.json')}")
+    if not forecast_columns:
+        raise ValueError("No numeric columns found for forecasting in the dataset.")
 
-                result_graph = plot_graph(results, model_path)
-                print(f"Plot generated: {result_graph}")
+    # Infer frequency
+    freq = pd.infer_freq(data.index)
+    print(f"Inferred frequency: {freq}")
 
-                return True, result_graph
-            except Exception as e:
-                print(f"Error in ARIMA training: {e}")
-                return False, str(e)
-        else:
-            print("Data does not exhibit trends, seasonality, or shifts in variance.")
-            return False, "Data does not exhibit trends, seasonality, or shifts in variance"
-    else:
-        print("Model already exists. Loading previous results...")
-        with open(os.path.join(model_path, target_col + '_results.json'), 'r') as fp:
-            results = json.load(fp)
+    if not freq:
+        print("Data does not exhibit trends, seasonality, or shifts in variance.")
+        return False, "Data does not exhibit trends, seasonality, or shifts in variance"
+
+    freq_dict = {'15T': 96, '30T': 48, 'H': 24, 'D': 7, 'W': 52, 'M': 12, 'Q': 4, 'A': 1}
+    m = freq_dict.get(freq, None)
+
+    if m is None:
+        raise ValueError(f"Unsupported frequency '{freq}'. Ensure data is in a common time interval.")
+
+    print(f"Using seasonality m={m}")
+
+    results = {}
+
+    try:
+        data_actual = data[target_col].dropna()
+        print(f"Total data points: {len(data_actual)}")
+
+        train = data_actual.iloc[:-m]
+        test = data_actual.iloc[-m:]
+        print(f"Train size: {len(train)}, Test size: {len(test)}")
+
+        model = pm.auto_arima(train, m=m, seasonal=True, d=None, test='adf',
+                              start_p=0, start_q=0, max_p=12, max_q=12,
+                              D=None, trace=True, error_action='ignore',
+                              suppress_warnings=True, stepwise=True)
+        print("ARIMA model training completed.")
+
+        fc, confint = model.predict(n_periods=m, return_conf_int=True)
+        print(f"Forecasted {m} future values.")
+
+        results = {
+            "actual": {
+                "date": list(test.index.astype(str)),
+                "values": [float(val) if isinstance(val, np.float_) else int(val) for val in test.values]
+            },
+            "forecast": {
+                "date": list(test.index.astype(str)),
+                "values": [float(val) if isinstance(val, np.float_) else int(val) for val in fc]
+            }
+        }
+
+        # Ensure the results file path exists
+        results_file = os.path.join(model_path, f"{safe_target_col}_results.json")
+        with open(results_file, 'w') as fp:
+            json.dump(results, fp)
+
+        print(f"Results saved to {results_file}")
 
         result_graph = plot_graph(results, model_path)
         print(f"Plot generated: {result_graph}")
-        print(f"Results loaded from {os.path.join(model_path, target_col + '_results.json')}")
 
         return True, result_graph
+
+    except Exception as e:
+        print(f"Error in ARIMA training: {e}")
+        return False, str(e)
+
 
 
 import plotly.graph_objects as go
