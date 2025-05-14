@@ -19,6 +19,8 @@ from dotenv import load_dotenv
 from keras.models import load_model
 from openai import OpenAI
 from plotly.graph_objs import Figure
+from prophet import Prophet
+from xgboost import XGBRegressor
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
@@ -2974,14 +2976,19 @@ def models(request):
                     'clustered_data': clustered_data.to_json()
                 })
 
-            elif model_type == 'Arima':
-                stat, img_data = arima_train(df, col)
-                return JsonResponse({
-                    'columns': list(df.columns),
-                    'status': stat,
-                    'arima': True,
-                    'path': img_data
-                })
+            elif model_type == "Arima":
+                print("arima model")
+                frequency = request.POST.get('frequency')
+                tenure = request.POST.get('tenure')
+                stat, data, img_data = arima_train(df, col, {'time_unit': frequency, 'forecast_horizon': int(tenure)})
+                return JsonResponse(
+                    {
+                        'columns': list(df.columns),
+                        "status": stat,
+                        "arima": True,
+                        "path": img_data,
+                        'data': data.to_json()
+                    })
 
             elif model_type == 'OutlierDetection':
                 res = outlier_check(df, col)
@@ -3034,154 +3041,333 @@ def find_elbow_point(inertia_values):
     return elbow_point
 
 
-def arima_train(data, target_col):
-    print("Starting ARIMA training...")
-
-    # Ensure target_col has no spaces to prevent path issues
-    safe_target_col = target_col.replace(" ", "_")
-
-    # Use absolute path to avoid working directory issues
-    base_path = os.path.abspath("models/arima")
-    model_path = os.path.join(base_path, safe_target_col)
-
-    # Ensure model directory exists
-    if not os.path.exists(model_path):
-        os.makedirs(model_path, exist_ok=True)
-        print(f"Created directory: {model_path}")
-
-    date_column = None
-
-    # Identify date column
-    for col in data.columns:
-        if data.dtypes[col] == 'object':
-            try:
-                pd.to_datetime(data[col])
-                date_column = col
-                break
-            except (ValueError, TypeError):
-                continue
-
-    if not date_column:
-        raise ValueError("No datetime column found in the dataset.")
-
-    print(f"Identified date column: {date_column}")
-
-    # Convert date column to datetime and set as index
-    data[date_column] = pd.to_datetime(data[date_column])
-    data.set_index(date_column, inplace=True)
-
-    # Identify numeric columns
-    forecast_columns = data.select_dtypes(include=[np.number]).columns.tolist()
-    print(f"Numeric columns identified for forecasting: {forecast_columns}")
-
-    if not forecast_columns:
-        raise ValueError("No numeric columns found for forecasting in the dataset.")
-
-    # Infer frequency
-    freq = pd.infer_freq(data.index)
-    print(f"Inferred frequency: {freq}")
-
-    if not freq:
-        print("Data does not exhibit trends, seasonality, or shifts in variance.")
-        return False, "Data does not exhibit trends, seasonality, or shifts in variance"
-
-    freq_dict = {'15T': 96, '30T': 48, 'H': 24, 'D': 7, 'W': 52, 'M': 12, 'Q': 4, 'A': 1}
-    m = freq_dict.get(freq, None)
-
-    if m is None:
-        raise ValueError(f"Unsupported frequency '{freq}'. Ensure data is in a common time interval.")
-
-    print(f"Using seasonality m={m}")
-
-    results = {}
-
+def arima_train(data, target_col, bot_query=None):
     try:
-        data_actual = data[target_col].dropna()
-        print(f"Total data points: {len(data_actual)}")
+        print('ArimaTrain')
+        # Identify date column by checking for datetime type
+        date_column = None
+        results = {}
+        if not os.path.exists(os.path.join("models", 'Arima', target_col)):
+            for col in data.columns:
+                if data.dtypes[col] == 'object':
+                    try:
+                        # Attempt to convert column to datetime
+                        pd.to_datetime(data[col])
+                        date_column = col
+                        break
+                    except (ValueError, TypeError):
+                        continue
+            if not date_column:
+                raise ValueError("No datetime column found in the dataset.")
+            print(date_column)
+            # Set the date column as index
+            data[date_column] = pd.to_datetime(data[date_column])
+            data.set_index(date_column, inplace=True)
 
-        train = data_actual.iloc[:-m]
-        test = data_actual.iloc[-m:]
-        print(f"Train size: {len(train)}, Test size: {len(test)}")
+            try:
+                data_actual = data[[target_col]]
+                data_actual.reset_index(inplace=True)
+                data_actual.columns = ["datetime", 'value']
+                data_actual.set_index("datetime", inplace=True)
+                train_frequency = check_data_frequency(data_actual)
 
-        model = pm.auto_arima(train, m=m, seasonal=True, d=None, test='adf',
-                              start_p=0, start_q=0, max_p=12, max_q=12,
-                              D=None, trace=True, error_action='ignore',
-                              suppress_warnings=True, stepwise=True)
-        print("ARIMA model training completed.")
+                train_models(data_actual, target_col)
 
-        fc, confint = model.predict(n_periods=m, return_conf_int=True)
-        print(f"Forecasted {m} future values.")
+                with open(os.path.join("models", 'Arima', target_col, target_col + '_results.json'), 'w') as fp:
+                    json.dump({'data_freq': train_frequency}, fp, indent=4)
+                # result_graph = plot_graph(results, os.path.join('models', 'arima', target_col))
+            except Exception as e:
+                print(e)
 
-        results = {
-            "actual": {
-                "date": list(test.index.astype(str)),
-                "values": [float(val) if isinstance(val, np.float_) else int(val) for val in test.values]
-            },
-            "forecast": {
-                "date": list(test.index.astype(str)),
-                "values": [float(val) if isinstance(val, np.float_) else int(val) for val in fc]
-            }
+        frequency = bot_query['time_unit']
+        periods = bot_query['forecast_horizon']
+        model_path = os.path.join(os.getcwd(), 'models', 'Arima', target_col, frequency, "best_model.pkl")
+        print("model_path", model_path)
+        loaded_model = load_forecast_model(model_path)
+        freq_map = {
+            'hours': 'H',
+            'days': 'D',
+            'weeks': 'W',
+            'months': 'MS',
+            'quarters': 'QS',
+            'years': 'YS'
         }
 
-        # Ensure the results file path exists
-        results_file = os.path.join(model_path, f"{safe_target_col}_results.json")
-        with open(results_file, 'w') as fp:
-            json.dump(results, fp)
+        forecasted_data = forecast(loaded_model, periods, freq_map[frequency])
+        print(forecasted_data)
 
-        print(f"Results saved to {results_file}")
+        result_graph = plot_graph(forecasted_data)
 
-        result_graph = plot_graph(results, model_path)
-        print(f"Plot generated: {result_graph}")
-
-        return True, result_graph
+        print(f"Results saved to {os.path.join('models', 'arima', target_col, target_col + '_results.json')}")
+        return True, forecasted_data, result_graph
 
     except Exception as e:
-        print(f"Error in ARIMA training: {e}")
-        return False, str(e)
+        print(e)
+        return False
+
+def check_data_frequency(train):
+    data_freq = {'D': 'Days', 'W': 'Weeks', "H": "Hours", "Q": "Quarters", 'A': 'Years'}
+    m = pd.infer_freq(train.index)
+    if m in ['15T', '30T', "H", "D", "W", "M", "Q", "A"]:
+        return data_freq[m]
+    else:
+        print('Unsupported frequency')
+
+
+# Forecast
+def forecast(model, periods, freq):
+    future = pd.date_range(start=pd.Timestamp.now(), periods=periods, freq=freq)
+    future = future.to_series().dt.date.tolist()
+
+    model_type = str(type(model))
+    print(f"Detected model type: {model_type}")
+
+    try:
+        if 'Prophet' in model_type:
+            future_df = pd.DataFrame({'ds': future})
+            # Prophet expects 'ds' column and returns 'yhat'
+            forecast = model.predict(future_df)
+            if 'yhat' in forecast.columns:
+                forecast = forecast[['ds', 'yhat']]
+                forecast['yhat'] = forecast['yhat'].round(2)
+                forecast.columns = ['date', 'forecasted_value']
+                return forecast
+            else:
+                raise ValueError("Prophet output missing 'yhat' column.")
+
+        else:
+            # ARIMA, XGBoost, RandomForest — Expect direct prediction
+            future_df = pd.DataFrame({'date': future})  # Rename here
+            if 'ARIMA' in model_type:
+                forecast = model.forecast(steps=future_df.shape[0])
+                future_df['forecasted_value'] = np.round(forecast.values, 2)
+            else:
+                start_idx = model.last_index_ + 1  # get from model
+                end_idx = start_idx + len(future_df)
+                X_future = np.arange(start_idx, end_idx).reshape(-1, 1)
+                print(X_future)
+                forecast = model.predict(X_future)
+                future_df['forecasted_value'] = np.round(forecast, 2)
+
+            return future_df[['date', 'forecasted_value']]
+
+    except Exception as e:
+        print(f"Prediction Error: {e}")
+
+
+def train_models(df, target_col):
+    frequencies = ['hours', 'days', 'weeks', 'months', 'years']
+    for freq in frequencies:
+        print(f"\nTraining {freq} models...")
+
+        # Resample the data for each frequency
+        resampled_df = resample_data(df, freq)
+        train, test = train_test_split(resampled_df, test_size=0.2, shuffle=False)
+
+        trend = detect_trend(train)
+        seasonality = detect_seasonality(train)
+
+        best_model = None
+        best_error = float('inf')
+        best_model_name = ""
+        scenario = ""
+
+        # Scenario 1: Trend only
+        if trend and not seasonality:
+            scenario = "Trend only"
+            arima_model, arima_error = train_arima(train, test)
+            xgb_model, xgb_error = train_xgboost(train, test)
+
+            if arima_error < xgb_error:
+                best_model, best_error = arima_model, arima_error
+                best_model_name = "ARIMA"
+            else:
+                best_model, best_error = xgb_model, xgb_error
+                best_model_name = "XGBoost"
+
+        # Scenario 2: Seasonality only
+        if seasonality and not trend:
+            scenario = "Seasonality only"
+            prophet_model, prophet_error = train_prophet(train, test)
+            arima_model, arima_error = train_arima(train, test)
+
+            if prophet_error < arima_error:
+                best_model, best_error = prophet_model, prophet_error
+                best_model_name = "Prophet"
+            else:
+                best_model, best_error = arima_model, arima_error
+                best_model_name = "ARIMA"
+
+        # Scenario 3: Trend + Seasonality
+        if trend and seasonality:
+            scenario = "Trend + Seasonality"
+            prophet_model, prophet_error = train_prophet(train, test)
+            arima_model, arima_error = train_arima(train, test)
+
+            min_error = min(prophet_error, arima_error)
+            if min_error == prophet_error:
+                best_model, best_error = prophet_model, prophet_error
+                best_model_name = "Prophet"
+            elif min_error == arima_error:
+                best_model, best_error = arima_model, arima_error
+                best_model_name = "ARIMA"
+
+        # Scenario 4: No Trend or Seasonality
+        if not trend and not seasonality:
+            scenario = "No trend or seasonality"
+            xgb_model, xgb_error = train_xgboost(train, test)
+            rf_model, rf_error = train_randomforest(train, test)
+
+            if xgb_error < rf_error:
+                best_model, best_error = xgb_model, xgb_error
+                best_model_name = "XGBoost"
+            else:
+                best_model, best_error = rf_model, rf_error
+                best_model_name = "RandomForest"
+
+        # Save the best model
+        if best_model:
+            model_dir = f'models/Arima/{target_col}/{freq}'
+            os.makedirs(model_dir, exist_ok=True)
+            model_path = os.path.join(model_dir, 'best_model.pkl')
+            save_best_model(best_model, model_path)
+
+            # Save Scenario with Model Name
+            with open(f'scenario_{freq}.json', 'w') as f:
+                json.dump({"scenario": scenario, "model_name": best_model_name}, f)
+
+            print(f"\n{freq.capitalize()} Training complete. Scenario: {scenario}, Model: {best_model_name}")
+
+def load_forecast_model(model_path):
+    if os.path.exists(model_path):
+        print(f"Loading model from: {model_path}")
+        return joblib.load(model_path)
+    else:
+        print(f"No model found at {model_path}")
+        return None
+
+
+def resample_data(df, freq):
+    print(f"Resampling data to {freq} frequency")
+    if freq == 'hours':
+        return df.resample('H').mean().ffill()
+    elif freq == 'days':
+        return df.resample('D').mean().ffill()
+    elif freq == 'weeks':
+        return df.resample('W').mean().ffill()
+    elif freq == 'months':
+        return df.resample('M').mean().ffill()
+    elif freq == 'years':
+        return df.resample('A').mean().ffill()
+    else:
+        raise ValueError("Unsupported frequency")
+
+
+# Check Trend using Augmented Dickey-Fuller Test
+def detect_trend(df):
+    print('Detecting Trend...')
+    result = adfuller(df['value'])
+    p_value = result[1]
+    return p_value > 0.05  # If p-value > 0.05 → Trend exists
+
+
+# Check Seasonality using autocorrelation
+def detect_seasonality(df):
+    print('Detecting Seasonality...')
+    autocorr = df['value'].autocorr(lag=1)
+    return abs(autocorr) > 0.3  # If autocorr > 0.3 → Seasonality exists
+
+def train_arima(train, test):
+    model = ARIMA(train['value'], order=(1, 1, 1)).fit()
+    pred = model.predict(start=test.index[0], end=test.index[-1])
+    error = mean_squared_error(test['value'], pred, squared=False)
+    return model, error
+
+# Train Prophet Model
+def train_prophet(train, test):
+    print("Training Prophet...")
+    prophet_df = train.reset_index().rename(columns={'datetime': 'ds', 'value': 'y'})
+    model = Prophet()
+    model.fit(prophet_df)
+
+    future = pd.DataFrame({'ds': test.index})
+    forecast = model.predict(future)
+    error = mean_squared_error(test['value'], forecast['yhat'], squared=False)
+    return model, error
+
+
+# Train XGBoost Model
+def train_xgboost(train, test):
+    print("Training XGBoost...")
+    X_train = np.arange(len(train)).reshape(-1, 1)
+    y_train = train['value'].values
+    X_test = np.arange(len(train), len(train) + len(test)).reshape(-1, 1)
+
+    model = XGBRegressor(objective='reg:squarederror')
+    model.fit(X_train, y_train)
+    model.last_index_ = len(train) + len(test) - 1
+    pred = model.predict(X_test)
+    error = mean_squared_error(test['value'], pred, squared=False)
+    return model, error
+
+
+# Train RandomForest Model
+def train_randomforest(train, test):
+    print("Training RandomForest...")
+    X_train = np.arange(len(train)).reshape(-1, 1)
+    y_train = train['value'].values
+    X_test = np.arange(len(train), len(train) + len(test)).reshape(-1, 1)
+
+    model = RandomForestRegressor()
+    model.fit(X_train, y_train)
+    model.last_index_ = len(train) + len(test) - 1
+    pred = model.predict(X_test)
+    error = mean_squared_error(test['value'], pred, squared=False)
+    return model, error
+
+
+# Save the Best Model
+def save_best_model(model, model_path):
+    joblib.dump(model, model_path)
 
 
 
 import plotly.graph_objects as go
-
-
-def plot_graph(data, file_path):
+def plot_graph(data):
     try:
-        col = file_path.split('\\')[-1]
-        actual_dates = [datetime.strptime(date, "%Y-%m-%d") for date in data["actual"]["date"]]
-        forecast_dates = [datetime.strptime(date, "%Y-%m-%d") for date in data["forecast"]["date"]]
-
-        # Extract values
-        actual_values = data["actual"]["values"]
-        forecast_values = data["forecast"]["values"]
 
         # Create Plotly figure
         fig = go.Figure()
-
+        try:
+            data['date'] = data['date'].dt.strftime('%Y-%m-%d')
+        except Exception as e:
+            print(e)
         # Actual Data Line
         fig.add_trace(go.Scatter(
-            x=actual_dates, y=actual_values,
-            mode='lines+markers', name='Actual',
+            x=data['date'], y=data["forecasted_value"],
+            mode='lines+markers', name='Forecast',
             line=dict(color='blue'), marker=dict(symbol='circle')
         ))
 
         # Forecast Data Line
-        fig.add_trace(go.Scatter(
-            x=forecast_dates, y=forecast_values,
-            mode='lines+markers', name='Forecast',
-            line=dict(color='orange', dash='dash'), marker=dict(symbol='x')
-        ))
+        # fig.add_trace(go.Scatter(
+        #     x=forecast_dates, y=forecast_values,
+        #     mode='lines+markers', name='Forecast',
+        #     line=dict(color='orange', dash='dash'), marker=dict(symbol='x')
+        # ))
 
         # Layout Settings
         fig.update_layout(
-            title=f'{col} Actual vs Forecast Values Over Time',
+            title=f'Forecast Values Over Time',
             xaxis_title='Date',
             yaxis_title='Values',
-            xaxis=dict(tickangle=-45),
+            xaxis=dict(tickangle=-45, type='category', tickformat='%Y-%m-%d'),
             template="plotly_white",
             width=1000, height=600
         )
 
         # Convert figure to Base64 Image
+        fig.show()
         return fig.to_json()
 
     except Exception as e:
@@ -3367,85 +3553,127 @@ from rest_framework import status
 
 @csrf_exempt
 def gen_ai_bot(request):
-    if request.method == "POST":
-        csv_file_path = 'data.csv'
-        df = pd.read_csv(csv_file_path)
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Only POST requests are allowed.'}, status=405)
 
-        # Generate CSV metadata
-        csv_metadata = {"columns": df.columns.tolist()}
-        metadata_str = ", ".join(csv_metadata["columns"])
+    try:
+        df = pd.read_csv('data.csv')
 
-        sample_data = df.head(2)
+        metadata_str = ", ".join(df.columns.tolist())
+        sample_data = df.head(2).to_dict(orient='records')
 
-        system_prompt = f"""
-            You are an AI specialized in data analytics and visualization. The data for analysis is stored in a CSV file named data.csv, with the following attributes: {metadata_str} and sample data as {sample_data}.
+        # Handle both form-encoded and JSON payloads
+        try:
+            body = json.loads(request.body)
+            prompt = body.get('prompt')
+        except json.JSONDecodeError:
+            prompt = request.POST.get('prompt')
+
+        if not prompt:
+            return JsonResponse({'error': 'Prompt is required.'}, status=400)
+
+        if 'forecast' in prompt.lower():
+            data = extract_forecast_details_llm(prompt, df.columns)
+            stat, data, img_data = arima_train(df, data['target_variable'], data)
+
+            return JsonResponse({
+                'data': data.to_json(),
+                'plot': img_data
+            }, status=200)
+        else:
+            system_prompt = f"""You are an AI specialized in data analytics and visualization. The data for analysis is 
+            stored in a CSV file named data.csv, with the following attributes: {metadata_str} and sample data as 
+            {sample_data}.
 
             Follow these rules while responding to user queries:
 
             1. Strictly use 'data.csv' as the data source without stating any limitations or disclaimers about file access.
+            2. Data Analysis: If the query requires numerical or tabular insights, extract relevant data from 
+            data.csv, perform necessary calculations, and provide a concise summary. Store the result in text_output.
+            3. Visualization: If the query requires a graph, generate Python code using Plotly with fig as output.
+            4. Forecasting: Generate forecast using ARIMA and store results in text_output and plot in fig.
+            """
 
-            2.Data Analysis: If the query requires numerical or tabular insights, extract relevant data from data.csv, perform necessary calculations, and provide a concise summary store the result in text_output variable.
+            result = {}
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ]
+            )
 
-            3. Visualization (if applicable):
-            3.1 If the query requires a graph, generate Python code using Plotly to create the requested chart type (e.g., bar, pie, scatter, etc.). If no graph type is specified, intelligently choose between a line or bar chart based on the context. Ensure the graph includes:
+            pre_code_text, post_code_text, code = process_genai_response(response)
+            result.update({
+                'text_pre_code_response': pre_code_text,
+                'code': code,
+                'text_post_code_response': post_code_text
+            })
 
-                A title, axis labels (if applicable), and appropriate colors.
-                A white background for both the plot and the paper.
-                A visually appealing design that provides sufficient context for understanding.
-            3.2 If a graph is generated, the code must:
+            if 'import' in code:
+                namespace = {}
+                try:
+                    exec(code, namespace)
+                    result['text_output'] = namespace.get('text_output')
 
-            Output a Plotly Figure object stored in a variable named fig.
-            Include the data and layout dictionaries necessary for rendering the graph.
-            Ensure full compatibility with React.
-        """
-        result = {}
-        prompt = request.POST.get('prompt')
+                    fig = namespace.get('fig')
+                    if fig and isinstance(fig, Figure):
+                        result['chart_response'] = fig.to_plotly_json()
+
+                except Exception as e:
+                    return JsonResponse({'message': str(e)}, status=500)
+
+            return JsonResponse(result, status=200)
+
+    except Exception as e:
+        return JsonResponse({'message': str(e)}, status=500)
+
+
+def extract_forecast_details_llm(prompt, column_names):
+    try:
+        system_prompt = f""" You are an AI assistant that extracts forecast details from a user's prompt. Given a 
+        natural language input and the following column names from the input data, return the following in JSON format:
+
+            1. "target_variable" - The thing being forecasted (e.g., "sales", "revenue"). - If the target variable is 
+            misspelled or ambiguous, try to match it to the closest column name from the list below. 2. 
+            "forecast_horizon" - The number of time steps. 3. "time_unit" - The unit of time (days, months, years).
+
+            Available column names: {', '.join(column_names)}
+
+            Example Outputs:
+            - Input: "Forecast the sales data for 5 years."
+              Output: {{"target_variable": "sales", "forecast_horizon": 5, "time_unit": "years"}}
+
+            - Input: "Can you predict electricity demand for the next 12 months?"
+              Output: {{"target_variable": "electricity demand", "forecast_horizon": 12, "time_unit": "months"}}
+
+            - Input: "I want to predict CO2 levels for 7 days."
+              Output: {{"target_variable": "CO2 levels", "forecast_horizon": 7, "time_unit": "days"}}
+
+            Ensure that the "target_variable" matches one of the available column names, even if the user misspells it.
+            """
+        forecast_details = ''
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
-            ]
+            ],
+            temperature=0  # Make it deterministic
         )
-        pre_code_text, post_code_text, code = process_response(response)
-        result.update({
-            'text_pre_code_response': pre_code_text,
-            "code": code,
-            'text_post_code_response': post_code_text
-        })
-        if 'import' in code:
-            namespace = {}
-            try:
-                # Execute the generated code
-                exec(code, namespace)
+        for choice in response.choices:
+            message = choice.message
+            chunk_message = message.content if message else ''
+            forecast_details += chunk_message
+        print(forecast_details)
 
-                result.update({
-                    'text_output': namespace.get('text_output')
-                })
+        return eval(forecast_details)
 
-                # Retrieve the Plotly figure from the namespace
-                fig = namespace.get("fig")
-
-                if fig and isinstance(fig, Figure):
-                    # Convert the Plotly figure to JSON
-                    chart_data = fig.to_plotly_json()
-                    chart_data = make_serializable(chart_data)
-                    result.update({
-                        'chart_response': chart_data
-                    })
-
-                return JsonResponse(
-                    result, status=status.HTTP_200_OK
-                )
-            except Exception as e:
-                print(e)
-                return JsonResponse({'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        return JsonResponse(
-            result, status=status.HTTP_200_OK
-        )
+    except Exception as e:
+        print(e)
 
 
-def process_response(response):
+def process_genai_response(response):
     all_text = ""
     text_post_code = ''
     code_start = -1
