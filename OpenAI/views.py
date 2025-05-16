@@ -3041,6 +3041,7 @@ def find_elbow_point(inertia_values):
 def arima_train(data, target_col, bot_query=None):
     try:
         print('ArimaTrain')
+        print("Column dtypes:\n", data.dtypes)
         # Identify date column by checking for datetime type
         date_column = None
         results = {}
