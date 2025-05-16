@@ -2936,27 +2936,24 @@ import matplotlib.pyplot as plt
 @csrf_exempt
 def models(request):
     try:
-        # # Check if the processed data file exists
-        # processed_data_path = os.path.join("uploads", 'processed_data.csv')
-        # if not os.path.exists(processed_data_path):
-        #     return JsonResponse({"msg": "Please upload file to continue."}, status=404)
-
-        # Read CSV file
         df = pd.read_csv('data.csv')
-        print(df.head(5))
+        print("Data preview:\n", df.head(5))
+
         single_value_columns = [col for col in df.columns if df[col].nunique() == 1]
         df.drop(single_value_columns, axis=1, inplace=True)
+
         numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
         if len(numeric_cols) < 1:
-            return JsonResponse(
-                {
-                    "msg": "This dataset doesn't meet the modeling requirement "}
-            )
+            return JsonResponse({"msg": "This dataset doesn't meet the modeling requirement"}, status=400)
 
         if request.method == 'POST':
+            print("POST data:", request.POST.dict())
             model_type = request.POST.get('model')
             col = request.POST.get('col')
             request.session['col_predict'] = col
+
+            if not model_type or not col:
+                return JsonResponse({'msg': 'Missing model or column parameter'}, status=400)
 
             if model_type == 'RandomForest':
                 stat, cols = random_forest(df, col)
@@ -2977,18 +2974,23 @@ def models(request):
                 })
 
             elif model_type == "Arima":
-                print("arima model")
                 frequency = request.POST.get('frequency')
                 tenure = request.POST.get('tenure')
-                stat, data, img_data = arima_train(df, col, {'time_unit': frequency, 'forecast_horizon': int(tenure)})
-                return JsonResponse(
-                    {
-                        'columns': list(df.columns),
-                        "status": stat,
-                        "arima": True,
-                        "path": img_data,
-                        'data': data.to_json()
-                    })
+                if not frequency or not tenure:
+                    return JsonResponse({'msg': 'Missing frequency or tenure for ARIMA model'}, status=400)
+
+                stat, data, img_data = arima_train(df, col, {
+                    'time_unit': frequency,
+                    'forecast_horizon': int(tenure)
+                })
+
+                return JsonResponse({
+                    'columns': list(df.columns),
+                    'status': stat,
+                    'arima': True,
+                    'path': img_data if isinstance(img_data, str) else str(img_data),
+                    'data': data.to_json()
+                })
 
             elif model_type == 'OutlierDetection':
                 res = outlier_check(df, col)
@@ -2998,17 +3000,14 @@ def models(request):
                     'processed_data': markdown_to_html(res),
                     'OutlierDetection': True
                 })
-        else:
-            # Default GET response
-            return JsonResponse({
-            'columns': list(df.columns)
-            })
+
+            return JsonResponse({'msg': 'Unsupported model type'}, status=400)
+
+        return JsonResponse({'columns': list(df.columns)})
 
     except Exception as e:
-        print(e)  # Log the error
-        return JsonResponse({
-            'msg': str(e)
-        }, status=500)
+        print("Error:", e)
+        return JsonResponse({'msg': str(e)}, status=500)
 
 
 def outlier_check(df, column):
