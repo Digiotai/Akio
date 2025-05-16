@@ -2998,18 +2998,16 @@ def models(request):
                     'processed_data': markdown_to_html(res),
                     'OutlierDetection': True
                 })
-
-        # Default GET response
-        return JsonResponse({
+        else:
+            # Default GET response
+            return JsonResponse({
             'columns': list(df.columns)
-        })
+            })
 
     except Exception as e:
-        error_message = f"An error occurred: {str(e)}"
-        print(error_message)  # Log the error
+        print(e)  # Log the error
         return JsonResponse({
-            'form1': False,
-            'msg': error_message
+            'msg': str(e)
         }, status=500)
 
 
