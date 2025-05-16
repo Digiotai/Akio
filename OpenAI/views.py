@@ -3366,7 +3366,7 @@ def plot_graph(data):
 
         # Convert figure to Base64 Image
         fig.show()
-        return fig.to_json()
+        return make_serializable(fig.to_json())
 
     except Exception as e:
         print(e)
