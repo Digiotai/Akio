@@ -3038,44 +3038,66 @@ def find_elbow_point(inertia_values):
     return elbow_point
 
 
+def find_datetime_column(df):
+    likely_cols = []
+
+    for col in df.columns:
+        try:
+            converted = pd.to_datetime(df[col], errors='raise')
+            if converted.notnull().sum() >= len(df) * 0.9:
+                likely_cols.append((col, converted))
+        except Exception:
+            continue
+
+    for priority_name in ['date', 'datetime', 'timestamp', 'time']:
+        for col, _ in likely_cols:
+            if priority_name in col.lower():
+                return col
+    return likely_cols[0][0] if likely_cols else None
+
+
+
 def arima_train(data, target_col, bot_query=None):
     try:
         print('ArimaTrain')
         print("Column dtypes:\n", data.dtypes)
         # Identify date column by checking for datetime type
-        date_column = None
-        results = {}
-        if not os.path.exists(os.path.join("models", 'Arima', target_col)):
-            for col in data.columns:
-                if data.dtypes[col] == 'object':
-                    try:
-                        # Attempt to convert column to datetime
-                        pd.to_datetime(data[col])
-                        date_column = col
-                        break
-                    except (ValueError, TypeError):
-                        continue
-            if not date_column:
-                raise ValueError("No datetime column found in the dataset.")
-            print(date_column)
+        # date_column = None
+        # results = {}
+        # if not os.path.exists(os.path.join("models", 'Arima', target_col)):
+        #     for col in data.columns:
+        #         if data.dtypes[col] == 'object':
+        #             try:
+        #                 pd.to_datetime(data[col])
+        #                 date_column = col
+        #                 break
+        #             except (ValueError, TypeError):
+        #                 continue
+        #     if not date_column:
+        #         raise ValueError("No datetime column found in the dataset.")
+        #     print(date_column)
             # Set the date column as index
-            data[date_column] = pd.to_datetime(data[date_column])
-            data.set_index(date_column, inplace=True)
+        # Detect datetime column
+        date_column = find_datetime_column(data)
+        if not date_column:
+            raise ValueError("No datetime column found in the dataset.")
+        print(f"Using '{date_column}' as datetime column")
+        data[date_column] = pd.to_datetime(data[date_column])
+        data.set_index(date_column, inplace=True)
 
-            try:
-                data_actual = data[[target_col]]
-                data_actual.reset_index(inplace=True)
-                data_actual.columns = ["datetime", 'value']
-                data_actual.set_index("datetime", inplace=True)
-                train_frequency = check_data_frequency(data_actual)
 
-                train_models(data_actual, target_col)
+        data_actual = data[[target_col]]
+        data_actual.reset_index(inplace=True)
+        data_actual.columns = ["datetime", 'value']
+        data_actual.set_index("datetime", inplace=True)
+        train_frequency = check_data_frequency(data_actual)
 
-                with open(os.path.join("models", 'Arima', target_col, target_col + '_results.json'), 'w') as fp:
-                    json.dump({'data_freq': train_frequency}, fp, indent=4)
-                # result_graph = plot_graph(results, os.path.join('models', 'arima', target_col))
-            except Exception as e:
-                print(e)
+        train_models(data_actual, target_col)
+
+        with open(os.path.join("models", 'Arima', target_col, target_col + '_results.json'), 'w') as fp:
+            json.dump({'data_freq': train_frequency}, fp, indent=4)
+        # result_graph = plot_graph(results, os.path.join('models', 'arima', target_col))
+
 
         frequency = bot_query['time_unit']
         periods = bot_query['forecast_horizon']
@@ -3100,8 +3122,7 @@ def arima_train(data, target_col, bot_query=None):
         return True, forecasted_data, result_graph
 
     except Exception as e:
-        print("ARIMA error:", e)
-        return False, pd.DataFrame(), ""
+        print(f"Prediction Error: {e}")
 
 
 def check_data_frequency(train):
