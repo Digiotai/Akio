@@ -1588,173 +1588,173 @@ def get_deployment_txt(hex_data):
     return deployment_data[hex_data]
 
 
-# For Forecasting using module:
-from wyge.models.openai import ChatOpenAI
-from wyge.agents.react_agent import Agent
-from wyge.tools.prebuilt_tools import execute_query, execute_code, install_library
-from wyge.tools.raw_functions import file_to_sql, get_metadata
-from .system_prompt3 import forecasting_prompt
-from datetime import datetime
-from django.conf import settings
-
-
-def delete_images_in_current_directory() -> None:
-    image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp']
-
-    current_directory = os.getcwd()
-
-    for filename in os.listdir(current_directory):
-
-        _, extension = os.path.splitext(filename)
-
-        if extension.lower() in image_extensions:
-            file_path = os.path.join(current_directory, filename)
-            try:
-                os.remove(file_path)
-            except OSError as e:
-                print(f"Error: {e} - {file_path}")
-
-
-def get_images_in_directory(directory):
-    """
-    Fetches all image files from the specified directory.
-
-    Parameters:
-    - directory: Directory to search for image files.
-
-    Returns:
-    - List of image file paths.
-    """
-    image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp']
-    image_files = []
-
-    for filename in os.listdir(directory):
-        _, extension = os.path.splitext(filename)
-        if extension.lower() in image_extensions:
-            image_files.append(os.path.join(directory, filename))
-
-    return image_files
-
-
-# Shared database credentials
-USER = 'test_owner'
-PASSWORD = 'tcWI7unQ6REA'
-HOST = 'ep-yellow-recipe-a5fny139.us-east-2.aws.neon.tech:5432'
-DATABASE = 'test'
-
-import time
-
-
-def handle_forecasting(df, openai_api_key, user_prompt, table_name="default_table"):
-    """
-    Processes a DataFrame for forecasting tasks by storing it in the database,
-    converting it to SQL, and generating a forecast based on the user query.
-
-    Parameters:
-    - df: DataFrame to be processed.
-    - openai_api_key: OpenAI API key for model access.
-    - user_prompt: Query to be processed by the AI agent.
-
-    Returns:
-    - Dictionary with forecast results and optionally an image path.
-    """
-    print("[DEBUG] Entering handle_forecasting function")
-    start_time = time.time()
-
-    # Save the DataFrame to a temporary CSV file
-    try:
-        csv_file_path = os.path.join(settings.MEDIA_ROOT, f"{table_name}.csv")
-        print(f"[DEBUG] Saving DataFrame to CSV file at: {csv_file_path}")
-        csv_save_start = time.time()
-        df.to_csv(csv_file_path, index=False)
-        print(f"[DEBUG] CSV saved in {time.time() - csv_save_start:.2f} seconds")
-    except Exception as e:
-        print(f"[ERROR] Failed to save DataFrame to CSV: {e}")
-        return JsonResponse({"error": "Failed to save DataFrame to CSV file."}, status=500)
-
-    # Convert the CSV file to an SQL table
-    try:
-        print(f"[DEBUG] Converting CSV file to SQL table: {table_name}")
-        sql_conversion_start = time.time()
-        file_to_sql(csv_file_path, table_name, USER, PASSWORD, HOST, DATABASE)
-        print(f"[DEBUG] CSV converted to SQL table in {time.time() - sql_conversion_start:.2f} seconds")
-    except Exception as e:
-        print(f"[ERROR] Error converting CSV to SQL table: {e}")
-        return JsonResponse({"error": "Failed to convert CSV file to SQL table."}, status=500)
-
-    # Initialize forecasting tools and LLM
-    print("[DEBUG] Initializing forecasting tools and LLM")
-    tools = [execute_query(), execute_code(), install_library()]
-    llm = ChatOpenAI(memory=True, tools=tools, api_key=openai_api_key)
-
-    # Retrieve metadata for the database tables
-    try:
-        print(f"[DEBUG] Retrieving metadata for table: {table_name}")
-        metadata_start = time.time()
-        metadata = get_metadata(HOST, USER, PASSWORD, DATABASE, [table_name])
-        print(f"[DEBUG] Metadata retrieved in {time.time() - metadata_start:.2f} seconds")
-    except Exception as e:
-        print(f"[ERROR] Failed to retrieve metadata: {e}")
-        return JsonResponse({"error": "Failed to retrieve metadata for the database."}, status=500)
-
-    # Initialize the AI agent with the forecasting prompt
-    print("[DEBUG] Initializing AI agent with forecasting prompt")
-    agent = Agent(llm, react_prompt=forecasting_prompt)
-
-    # Clean up any previous generated images
-    print("[DEBUG] Deleting previous images from the directory")
-    image_cleanup_start = time.time()
-    delete_images_in_current_directory()
-    print(f"[DEBUG] Previous images deleted in {time.time() - image_cleanup_start:.2f} seconds")
-
-    # Prepare the forecasting command
-    command = f"""
-        Answer the user query from the database below, also use the provided tools.
-        user = '{USER}'
-        password = '{PASSWORD}'
-        host = '{HOST}'
-        database = '{DATABASE}'
-        tables related to user are: [{table_name}]
-        Metadata of the tables: {metadata}
-        User query: {user_prompt}
-    """
-    print(f"[DEBUG] Command prepared for agent: {command}")
-
-    # Execute the command and fetch the result
-    try:
-        print("[DEBUG] Executing command with AI agent")
-        ai_execution_start = time.time()
-        response = agent(command)
-        response = response.split('Answer:')[-1]
-        print(f"[DEBUG] AI response fetched in {time.time() - ai_execution_start:.2f} seconds")
-    except Exception as e:
-        print(f"[ERROR] Failed to execute forecasting command: {e}")
-        return JsonResponse({"error": "Failed to execute forecasting command."}, status=500)
-
-    # Fetch any generated plots
-    print("[DEBUG] Fetching generated images")
-    image_fetch_start = time.time()
-    images = get_images_in_directory(settings.BASE_DIR)
-    print(f"[DEBUG] Images fetched in {time.time() - image_fetch_start:.2f} seconds")
-
-    # Prepare and return the result
-    result = {"content": response}
-    if images:
-        print(f"[DEBUG] Image path retrieved: {images[0]}")
-        result["image_path"] = images[0]  # Return the first image if any
-
-    # Clean up temporary file
-    try:
-        print("[DEBUG] Removing temporary CSV file")
-        os_remove_start = time.time()
-        os.remove(csv_file_path)
-        print(f"[DEBUG] Temporary file removed in {time.time() - os_remove_start:.2f} seconds")
-    except OSError as e:
-        print(f"[ERROR] Error removing temporary file: {e}")
-
-    total_time = time.time() - start_time
-    print(f"[DEBUG] Exiting handle_forecasting function. Total execution time: {total_time:.2f} seconds")
-    return result
+# # For Forecasting using module:
+# from wyge.models.openai import ChatOpenAI
+# from wyge.agents.react_agent import Agent
+# from wyge.tools.prebuilt_tools import execute_query, execute_code, install_library
+# from wyge.tools.raw_functions import file_to_sql, get_metadata
+# from .system_prompt3 import forecasting_prompt
+# from datetime import datetime
+# from django.conf import settings
+#
+#
+# def delete_images_in_current_directory() -> None:
+#     image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp']
+#
+#     current_directory = os.getcwd()
+#
+#     for filename in os.listdir(current_directory):
+#
+#         _, extension = os.path.splitext(filename)
+#
+#         if extension.lower() in image_extensions:
+#             file_path = os.path.join(current_directory, filename)
+#             try:
+#                 os.remove(file_path)
+#             except OSError as e:
+#                 print(f"Error: {e} - {file_path}")
+#
+#
+# def get_images_in_directory(directory):
+#     """
+#     Fetches all image files from the specified directory.
+#
+#     Parameters:
+#     - directory: Directory to search for image files.
+#
+#     Returns:
+#     - List of image file paths.
+#     """
+#     image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp']
+#     image_files = []
+#
+#     for filename in os.listdir(directory):
+#         _, extension = os.path.splitext(filename)
+#         if extension.lower() in image_extensions:
+#             image_files.append(os.path.join(directory, filename))
+#
+#     return image_files
+#
+#
+# # Shared database credentials
+# USER = 'test_owner'
+# PASSWORD = 'tcWI7unQ6REA'
+# HOST = 'ep-yellow-recipe-a5fny139.us-east-2.aws.neon.tech:5432'
+# DATABASE = 'test'
+#
+# import time
+#
+#
+# def handle_forecasting(df, openai_api_key, user_prompt, table_name="default_table"):
+#     """
+#     Processes a DataFrame for forecasting tasks by storing it in the database,
+#     converting it to SQL, and generating a forecast based on the user query.
+#
+#     Parameters:
+#     - df: DataFrame to be processed.
+#     - openai_api_key: OpenAI API key for model access.
+#     - user_prompt: Query to be processed by the AI agent.
+#
+#     Returns:
+#     - Dictionary with forecast results and optionally an image path.
+#     """
+#     print("[DEBUG] Entering handle_forecasting function")
+#     start_time = time.time()
+#
+#     # Save the DataFrame to a temporary CSV file
+#     try:
+#         csv_file_path = os.path.join(settings.MEDIA_ROOT, f"{table_name}.csv")
+#         print(f"[DEBUG] Saving DataFrame to CSV file at: {csv_file_path}")
+#         csv_save_start = time.time()
+#         df.to_csv(csv_file_path, index=False)
+#         print(f"[DEBUG] CSV saved in {time.time() - csv_save_start:.2f} seconds")
+#     except Exception as e:
+#         print(f"[ERROR] Failed to save DataFrame to CSV: {e}")
+#         return JsonResponse({"error": "Failed to save DataFrame to CSV file."}, status=500)
+#
+#     # Convert the CSV file to an SQL table
+#     try:
+#         print(f"[DEBUG] Converting CSV file to SQL table: {table_name}")
+#         sql_conversion_start = time.time()
+#         file_to_sql(csv_file_path, table_name, USER, PASSWORD, HOST, DATABASE)
+#         print(f"[DEBUG] CSV converted to SQL table in {time.time() - sql_conversion_start:.2f} seconds")
+#     except Exception as e:
+#         print(f"[ERROR] Error converting CSV to SQL table: {e}")
+#         return JsonResponse({"error": "Failed to convert CSV file to SQL table."}, status=500)
+#
+#     # Initialize forecasting tools and LLM
+#     print("[DEBUG] Initializing forecasting tools and LLM")
+#     tools = [execute_query(), execute_code(), install_library()]
+#     llm = ChatOpenAI(memory=True, tools=tools, api_key=openai_api_key)
+#
+#     # Retrieve metadata for the database tables
+#     try:
+#         print(f"[DEBUG] Retrieving metadata for table: {table_name}")
+#         metadata_start = time.time()
+#         metadata = get_metadata(HOST, USER, PASSWORD, DATABASE, [table_name])
+#         print(f"[DEBUG] Metadata retrieved in {time.time() - metadata_start:.2f} seconds")
+#     except Exception as e:
+#         print(f"[ERROR] Failed to retrieve metadata: {e}")
+#         return JsonResponse({"error": "Failed to retrieve metadata for the database."}, status=500)
+#
+#     # Initialize the AI agent with the forecasting prompt
+#     print("[DEBUG] Initializing AI agent with forecasting prompt")
+#     agent = Agent(llm, react_prompt=forecasting_prompt)
+#
+#     # Clean up any previous generated images
+#     print("[DEBUG] Deleting previous images from the directory")
+#     image_cleanup_start = time.time()
+#     delete_images_in_current_directory()
+#     print(f"[DEBUG] Previous images deleted in {time.time() - image_cleanup_start:.2f} seconds")
+#
+#     # Prepare the forecasting command
+#     command = f"""
+#         Answer the user query from the database below, also use the provided tools.
+#         user = '{USER}'
+#         password = '{PASSWORD}'
+#         host = '{HOST}'
+#         database = '{DATABASE}'
+#         tables related to user are: [{table_name}]
+#         Metadata of the tables: {metadata}
+#         User query: {user_prompt}
+#     """
+#     print(f"[DEBUG] Command prepared for agent: {command}")
+#
+#     # Execute the command and fetch the result
+#     try:
+#         print("[DEBUG] Executing command with AI agent")
+#         ai_execution_start = time.time()
+#         response = agent(command)
+#         response = response.split('Answer:')[-1]
+#         print(f"[DEBUG] AI response fetched in {time.time() - ai_execution_start:.2f} seconds")
+#     except Exception as e:
+#         print(f"[ERROR] Failed to execute forecasting command: {e}")
+#         return JsonResponse({"error": "Failed to execute forecasting command."}, status=500)
+#
+#     # Fetch any generated plots
+#     print("[DEBUG] Fetching generated images")
+#     image_fetch_start = time.time()
+#     images = get_images_in_directory(settings.BASE_DIR)
+#     print(f"[DEBUG] Images fetched in {time.time() - image_fetch_start:.2f} seconds")
+#
+#     # Prepare and return the result
+#     result = {"content": response}
+#     if images:
+#         print(f"[DEBUG] Image path retrieved: {images[0]}")
+#         result["image_path"] = images[0]  # Return the first image if any
+#
+#     # Clean up temporary file
+#     try:
+#         print("[DEBUG] Removing temporary CSV file")
+#         os_remove_start = time.time()
+#         os.remove(csv_file_path)
+#         print(f"[DEBUG] Temporary file removed in {time.time() - os_remove_start:.2f} seconds")
+#     except OSError as e:
+#         print(f"[ERROR] Error removing temporary file: {e}")
+#
+#     total_time = time.time() - start_time
+#     print(f"[DEBUG] Exiting handle_forecasting function. Total execution time: {total_time:.2f} seconds")
+#     return result
 
 
 import markdown
@@ -1773,68 +1773,68 @@ def image_to_base64(image_path):
         return None  # Handle the case where the image path is invalid or the image doesn't exist
 
 
-result = None
-response_data = {}
-
-from django.views.decorators.csrf import csrf_exempt
-
-
-@csrf_exempt
-def forecast_sales(request):
-    """
-    API endpoint to handle sales forecasting requests. It expects a pre-loaded DataFrame.
-
-    Parameters:
-    - request: HTTP request object.
-
-    Returns:
-    - JSON response with the forecast results.
-    """
-    print("[DEBUG] Entering forecast_sales function")
-    start_time = time.time()
-
-    if request.method == 'POST':
-        try:
-            print("[DEBUG] Loading DataFrame from 'data1.xlsx'")
-            df_load_start = time.time()
-            df = pd.read_excel('data1.xlsx')  # Replace with your actual file path
-            print(f"[DEBUG] DataFrame loaded successfully in {time.time() - df_load_start:.2f} seconds")
-
-            # Retrieve the user prompt and OpenAI API key
-            openai_api_key = get_api_key()
-            print(f"[DEBUG] Retrieved OpenAI API key: {openai_api_key}")
-            user_prompt = request.POST.get('user_prompt')
-            if not user_prompt:
-                print("[ERROR] User prompt is missing in the request")
-                return JsonResponse({"error": "User prompt is required."}, status=400)
-
-            print(f"[DEBUG] User prompt received: {user_prompt}")
-
-            # Pass the DataFrame to `handle_forecasting`
-            print("[DEBUG] Calling handle_forecasting")
-            handle_start = time.time()
-            result = handle_forecasting(df, openai_api_key, user_prompt, table_name="forecast_table")
-            print(f"[DEBUG] handle_forecasting completed in {time.time() - handle_start:.2f} seconds")
-
-            # Prepare the response
-            response_data = {}
-            if isinstance(result, dict):
-                if 'image_path' in result:
-                    print(f"[DEBUG] Converting image to Base64: {result['image_path']}")
-                    response_data["image_base64"] = image_to_base64(result["image_path"])
-                if 'content' in result:
-                    print("[DEBUG] Converting AI content to HTML")
-                    response_data["content"] = markdown_to_html(result["content"])
-
-            print(f"[DEBUG] Returning successful response. Total time: {time.time() - start_time:.2f} seconds")
-            return JsonResponse(response_data, status=200)
-
-        except Exception as e:
-            print(f"[ERROR] Exception occurred in forecast_sales: {e}")
-            return JsonResponse({"error": "Failed to process forecasting."}, status=500)
-    else:
-        print(f"[ERROR] Invalid request method. Total time: {time.time() - start_time:.2f} seconds")
-        return JsonResponse({"error": "Invalid request method."}, status=400)
+# result = None
+# response_data = {}
+#
+# from django.views.decorators.csrf import csrf_exempt
+#
+#
+# @csrf_exempt
+# def forecast_sales(request):
+#     """
+#     API endpoint to handle sales forecasting requests. It expects a pre-loaded DataFrame.
+#
+#     Parameters:
+#     - request: HTTP request object.
+#
+#     Returns:
+#     - JSON response with the forecast results.
+#     """
+#     print("[DEBUG] Entering forecast_sales function")
+#     start_time = time.time()
+#
+#     if request.method == 'POST':
+#         try:
+#             print("[DEBUG] Loading DataFrame from 'data1.xlsx'")
+#             df_load_start = time.time()
+#             df = pd.read_excel('data1.xlsx')  # Replace with your actual file path
+#             print(f"[DEBUG] DataFrame loaded successfully in {time.time() - df_load_start:.2f} seconds")
+#
+#             # Retrieve the user prompt and OpenAI API key
+#             openai_api_key = get_api_key()
+#             print(f"[DEBUG] Retrieved OpenAI API key: {openai_api_key}")
+#             user_prompt = request.POST.get('user_prompt')
+#             if not user_prompt:
+#                 print("[ERROR] User prompt is missing in the request")
+#                 return JsonResponse({"error": "User prompt is required."}, status=400)
+#
+#             print(f"[DEBUG] User prompt received: {user_prompt}")
+#
+#             # Pass the DataFrame to `handle_forecasting`
+#             print("[DEBUG] Calling handle_forecasting")
+#             handle_start = time.time()
+#             result = handle_forecasting(df, openai_api_key, user_prompt, table_name="forecast_table")
+#             print(f"[DEBUG] handle_forecasting completed in {time.time() - handle_start:.2f} seconds")
+#
+#             # Prepare the response
+#             response_data = {}
+#             if isinstance(result, dict):
+#                 if 'image_path' in result:
+#                     print(f"[DEBUG] Converting image to Base64: {result['image_path']}")
+#                     response_data["image_base64"] = image_to_base64(result["image_path"])
+#                 if 'content' in result:
+#                     print("[DEBUG] Converting AI content to HTML")
+#                     response_data["content"] = markdown_to_html(result["content"])
+#
+#             print(f"[DEBUG] Returning successful response. Total time: {time.time() - start_time:.2f} seconds")
+#             return JsonResponse(response_data, status=200)
+#
+#         except Exception as e:
+#             print(f"[ERROR] Exception occurred in forecast_sales: {e}")
+#             return JsonResponse({"error": "Failed to process forecasting."}, status=500)
+#     else:
+#         print(f"[ERROR] Invalid request method. Total time: {time.time() - start_time:.2f} seconds")
+#         return JsonResponse({"error": "Invalid request method."}, status=400)
 
 
 # Synthetic Data Generation through wyge
@@ -3578,7 +3578,7 @@ def gen_ai_bot(request):
 
             return JsonResponse({
                 'data': data.to_json(),
-                'plot': img_data
+                'plot': make_serializable(img_data)
             }, status=200)
         else:
             system_prompt = f"""You are an AI specialized in data analytics and visualization. The data for analysis is 
@@ -3618,7 +3618,7 @@ def gen_ai_bot(request):
 
                     fig = namespace.get('fig')
                     if fig and isinstance(fig, Figure):
-                        result['chart_response'] = fig.to_plotly_json()
+                        result['chart_response'] = make_serializable(fig.to_plotly_json())
 
                 except Exception as e:
                     return JsonResponse({'message': str(e)}, status=500)
@@ -3627,6 +3627,7 @@ def gen_ai_bot(request):
 
     except Exception as e:
         return JsonResponse({'message': str(e)}, status=500)
+
 
 
 def extract_forecast_details_llm(prompt, column_names):
