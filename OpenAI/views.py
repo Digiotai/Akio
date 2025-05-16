@@ -3099,8 +3099,9 @@ def arima_train(data, target_col, bot_query=None):
         return True, forecasted_data, result_graph
 
     except Exception as e:
-        print(e)
-        return False
+        print("ARIMA error:", e)
+        return False, pd.DataFrame(), ""
+
 
 def check_data_frequency(train):
     data_freq = {'D': 'Days', 'W': 'Weeks', "H": "Hours", "Q": "Quarters", 'A': 'Years'}
