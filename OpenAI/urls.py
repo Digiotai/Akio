@@ -35,7 +35,7 @@ urlpatterns = [
     path('api/forecast/<str:data>/<str:col>', deployment_forecast, name='deployment_forecast'),
 
     # Forecast with wyge
-    path('api/forecasts', forecast_sales, name='forecasting'),
+    # path('api/forecasts', forecast_sales, name='forecasting'),
     path('api/synthetic_data', handle_synthetic_data_api, name='synthetic_data_generation'),
     path('api/synthetic_data_extended', handle_synthetic_data_extended, name='extended_synthetic_data_generation'),
 
