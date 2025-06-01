@@ -6,7 +6,7 @@ urlpatterns = [
     # path(r'api/register', register, name='register'),
     # path(r'api/login', loginpage, name='login'),
     path('api/connect', connection, name='connection'),
-    path("api/upload_only",upload_and_store_data,name="upload functionaliy only"),
+    path("api/upload_only", upload_and_store_data, name="upload functionaliy only"),
     path("api/upload", upload_and_analyze_data, name='upload_data'),
     path('api/tableinfo', get_tableinfo, name='get_table_info'),
     path("api/tabledata", read_data, name='read_table_data'),
@@ -68,7 +68,6 @@ urlpatterns = [
     path('api/dashboard', gen_plotly_response, name="plotly dashboard"),
     path('api/fill_missed_data', missing_data, name="missed_data_filling"),
 
-
     # #Sla Breach
     # path('api/sla_breach', sla_breach, name="plotly dashboard"),
 
@@ -76,14 +75,18 @@ urlpatterns = [
     # path("api/initiate-payment", initiate_payment, name="initiate_payment"),
     # path("api/payment-callback", payment_callback, name="payment_callback"),
 
-    #Visualisation_api_updated
-    path('api/ai_bot', gen_ai_bot,name="plotly_visualisation"),
-    path('api/getting_column_description',col_description,name="getting_column_description"),
+    # Visualisation_api_updated
+    path('api/ai_bot', gen_ai_bot, name="plotly_visualisation"),
+    path('api/getting_column_description', col_description, name="getting_column_description"),
 
-    #Hanabot
-    path('api/process_doc',upload_and_process_file, name='hana_bot_api_process'),
-    path('api/hana_querying',query_data, name='hana_bot_api_query'),
+    # Hanabot
+    path('api/process_doc', upload_and_process_file, name='hana_bot_api_process'),
+    path('api/hana_querying', query_data, name='hana_bot_api_query'),
 
+    # Datascout apis
+    path('api/data_scout', create_data_with_data_scout, name='creating the data with datascout agent'),
+
+    #Predictive Maintenence Apis:
 
 
 ]
