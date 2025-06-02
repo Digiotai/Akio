@@ -4199,20 +4199,12 @@ def create_data_with_data_scout(request):
 
 
 #Predictive Maintenence Apis:
-#Predictive Maintenence Apis:
 from .Predective_maintenence.anamoly_agent import AnomalyDetection_agent
 from .Predective_maintenence.schedule_agent import Scheduler_agent
 from .Predective_maintenence.alert_email import Alert_agent
 from .Predective_maintenence.alert_whatsapp import WhatsAppAgent
 
 DATA_FILE = "sensor_data_test.csv"
-TEMP_FILES = [
-    DATA_FILE,
-    "sensor_data_test_processed.csv",
-    "schedule.csv",
-    "notified_techs.log",
-    "notified_techs_wa.log",
-]
 
 @csrf_exempt
 @api_view(["POST"])
@@ -4272,16 +4264,7 @@ def predictive_maintenence(request):
         if output_df is not None:
             response["data"] = output_df.to_dict(orient="records")
 
-        # Cleanup temp files
-        for path in TEMP_FILES:
-            try:
-                if os.path.exists(path):
-                    os.remove(path)
-            except Exception as cleanup_error:
-                print(f"Warning: Failed to delete {path}: {cleanup_error}")
-
         return JsonResponse(response, safe=False)
 
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
-
