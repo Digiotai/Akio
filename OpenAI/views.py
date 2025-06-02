@@ -4173,14 +4173,7 @@ def handle_missing_data(df):
 
 
 ###Data scout Apis:
-from .data_scout import DataScout_agent, DataScout_agent_with_pdf
-from langchain_community.document_loaders import PyPDFLoader
-
-def clean_df_for_json(df):
-    # Replace inf/-inf with None and NaN with None
-    return df.replace([float('inf'), float('-inf')], None).where(pd.notnull(df), None)
-
-
+from .data_scout import DataScout_agent,DataScout_agent_with_pdf
 @csrf_exempt
 @api_view(['POST'])
 def create_data_with_data_scout(request):
@@ -4197,24 +4190,10 @@ def create_data_with_data_scout(request):
 
     try:
         result = agent1.invoke(prompt)
-        file_path = result.get('output')
-        if not file_path:
-            return Response({"error": "Failed to generate file"}, status=500)
-
-        if data_type == "Excel":
-            df = pd.read_excel(file_path)
-            df = clean_df_for_json(df)
-            data = df.to_dict(orient="records")
-            return Response({"data": data}, status=200)
-
+        if 'output' in result:
+            return Response({"file_path": result['output']})
         else:
-            loader = PyPDFLoader(file_path)
-            pages = loader.load()
-            markdown = ""
-            for i, page in enumerate(pages):
-                markdown += f"\n\n## Page {i + 1}\n\n{page.page_content.strip()}"
-            return Response({"markdown": markdown.strip()}, status=200)
-
+            return Response({"error": "Failed to generate file"}, status=500)
     except Exception as e:
         return Response({"error": str(e)}, status=500)
 
