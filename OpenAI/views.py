@@ -4199,10 +4199,87 @@ def create_data_with_data_scout(request):
 
 
 #Predictive Maintenence Apis:
-# @csrf_exempt
-# def predictive_maintenence(request):
-#     if request.method == "POST":
-#         try:
-#             # Load CSV
-#             csv_file_path = 'data.csv'
-#             df = pd.read_csv(csv_file_path)
+from .Predective_maintenence.anamoly_agent import AnomalyDetection_agent
+from .Predective_maintenence.schedule_agent import Scheduler_agent
+from .Predective_maintenence.alert_email import Alert_agent
+from .Predective_maintenence.alert_whatsapp import WhatsAppAgent
+
+DATA_FILE = "sensor_data_test.csv"
+TEMP_FILES = [
+    DATA_FILE,
+    "sensor_data_test_processed.csv",
+    "schedule.csv",
+    "notified_techs.log",
+    "notified_techs_wa.log",
+]
+
+@csrf_exempt
+@api_view(["POST"])
+def predictive_maintenence(request):
+    try:
+        prompt = request.POST.get("prompt", "").strip()
+        file = request.FILES.get("file")
+        notify_result = []
+
+        if file:
+            with open(DATA_FILE, "wb") as f:
+                for chunk in file.chunks():
+                    f.write(chunk)
+
+        if not os.path.exists(DATA_FILE):
+            return JsonResponse({"error": "No uploaded sensor data found."}, status=400)
+
+        anomaly_keywords = r"\b(anomaly|anomalies|detect|detection|abnormal|fault|irregularity)\b"
+        schedule_keywords = r"\b(schedule|assign|allocate|dispatch|technician|appointment|maintenance)\b"
+        email_keywords = r"\b(email|mail|gmail|notify|notification|send mail)\b"
+        whatsapp_keywords = r"\b(whatsapp|message|text|chat|send alert|notify)\b"
+
+        result = None
+        output_df = None
+
+        if re.search(anomaly_keywords, prompt.lower()):
+            agent = AnomalyDetection_agent()
+            result = agent.run(f"Run anomaly detection on {DATA_FILE} using sensor_anomaly_detector tool.")
+            output_file = DATA_FILE.replace(".csv", "_processed.csv")
+            if os.path.exists(output_file):
+                output_df = pd.read_csv(output_file)
+
+        if re.search(schedule_keywords, prompt.lower()):
+            agent = Scheduler_agent()
+            result = agent.run(prompt)
+            schedule_file = "schedule.csv"
+            if os.path.exists(schedule_file):
+                output_df = pd.read_csv(schedule_file)
+
+        if re.search(email_keywords, prompt.lower()):
+            email_agent = Alert_agent()
+            notify_result.append(email_agent.run("send email alerts to technicians"))
+
+        if re.search(whatsapp_keywords, prompt.lower()):
+            wa_agent = WhatsAppAgent()
+            notify_result.append(wa_agent.run("send whatsapp alert to technician"))
+
+        final_result = ""
+        if result:
+            final_result += result + "\n"
+        if notify_result:
+            final_result += "\n".join(notify_result)
+        if not final_result.strip():
+            final_result = "❓ Could not determine the intent of the prompt."
+
+        response = {"result": final_result.strip()}
+        if output_df is not None:
+            response["data"] = output_df.to_dict(orient="records")
+
+        # Cleanup temp files
+        for path in TEMP_FILES:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except Exception as cleanup_error:
+                print(f"Warning: Failed to delete {path}: {cleanup_error}")
+
+        return JsonResponse(response, safe=False)
+
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
