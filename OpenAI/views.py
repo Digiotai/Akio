@@ -4176,6 +4176,11 @@ def handle_missing_data(df):
 from .data_scout import DataScout_agent, DataScout_agent_with_pdf
 from langchain_community.document_loaders import PyPDFLoader
 
+def clean_df_for_json(df):
+    # Replace inf/-inf with None and NaN with None
+    return df.replace([float('inf'), float('-inf')], None).where(pd.notnull(df), None)
+
+
 @csrf_exempt
 @api_view(['POST'])
 def create_data_with_data_scout(request):
@@ -4198,9 +4203,10 @@ def create_data_with_data_scout(request):
 
         if data_type == "Excel":
             df = pd.read_excel(file_path)
-            df = df.replace([float('inf'), float('-inf')], None).where(pd.notnull(df), None)
+            df = clean_df_for_json(df)
             data = df.to_dict(orient="records")
             return Response({"data": data}, status=200)
+
         else:
             loader = PyPDFLoader(file_path)
             pages = loader.load()
@@ -4211,6 +4217,7 @@ def create_data_with_data_scout(request):
 
     except Exception as e:
         return Response({"error": str(e)}, status=500)
+
 
 #Predictive Maintenence Apis:
 from .Predective_maintenence.anamoly_agent import AnomalyDetection_agent
