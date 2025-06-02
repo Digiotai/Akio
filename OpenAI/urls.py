@@ -87,6 +87,7 @@ urlpatterns = [
     path('api/data_scout', create_data_with_data_scout, name='creating the data with datascout agent'),
 
     #Predictive Maintenence Apis:
-
+    #path('api/sensor_data_upload', upload_sensor_data, name='uploading the sensor data_from the user.'),
+    path('api/predictive_maintenence', predictive_maintenence, name='predcitive maintenence for the given data.'),
 
 ]
