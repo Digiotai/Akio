@@ -4199,6 +4199,7 @@ def create_data_with_data_scout(request):
 
 
 #Predictive Maintenence Apis:
+#Predictive Maintenence Apis:
 from .Predective_maintenence.anamoly_agent import AnomalyDetection_agent
 from .Predective_maintenence.schedule_agent import Scheduler_agent
 from .Predective_maintenence.alert_email import Alert_agent
@@ -4283,3 +4284,4 @@ def predictive_maintenence(request):
 
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
