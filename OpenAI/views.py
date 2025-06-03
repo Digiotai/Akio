@@ -4268,3 +4268,33 @@ def predictive_maintenence(request):
 
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
+
+#Health Care assistant apis
+from .HealthCare_Assistant.all_agents import load_faiss_index,Main_agent
+# Load FAISS index once and reuse
+faiss_index = load_faiss_index()
+@csrf_exempt
+@api_view(["POST"])
+def healthcare_assistant_api(request):
+    try:
+        query = request.POST.get("prompt", "")
+        if not query:
+            return JsonResponse({"error": "Query cannot be empty."}, status=400)
+
+        # Invoke the Main_agent
+        response = Main_agent(query, faiss_index)
+
+        return JsonResponse({
+            "query": query,
+            "response": markdown_to_html(response)
+        }, status=200)
+
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON."}, status=400)
+
+    except Exception as e:
+        return JsonResponse({
+            "error": "Something went wrong while processing the query.",
+            "details": str(e)
+        }, status=500)
