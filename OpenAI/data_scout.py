@@ -19,7 +19,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 import io
 import requests
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional,Tuple
 import re
 import json
 from PIL import Image as PILImage
@@ -63,14 +63,15 @@ def extract_columns_from_prompt(user_prompt: str) -> List[str]:
 
 
 # Synthetic Excel Data Generator
-def generate_data_from_text(text_sample: str, column_names: List[str], num_rows: int = 10, chunk_size: int = 50) -> str:
+def generate_data_from_text(text_sample: str, column_names: List[str], num_rows: int = 10, chunk_size: int = 50) -> Tuple[str, pd.DataFrame]:
     llm = initialize_llm()
 
     sysp = """You are a data generator. Follow these rules:
     1. Generate only the requested data format
     2. No additional commentary
     3. No markdown or code fences
-    4. Strictly follow the output format"""
+    4. No null values generation
+    5. Strictly follow the output format"""
 
     generated_rows = []
     rows_generated = 0
@@ -103,26 +104,23 @@ def generate_data_from_text(text_sample: str, column_names: List[str], num_rows:
             )
 
         response = llm.invoke(prompt)
-
-        # Extract content from response object
         content = response.content if hasattr(response, 'content') else str(response)
 
-        # Clean and split the response
-        rows = []
+        # Process and validate rows
+        new_rows = []
         for line in content.split('\n'):
-            line = line.strip()
-            if line and '~' in line:
-                rows.append(line.split('~'))
+            parts = [cell.strip() for cell in line.strip().split('~')]
+            if len(parts) == len(column_names) and all(parts):
+                new_rows.append(parts)
 
-        generated_rows.extend(rows[:num_rows - rows_generated])
+        generated_rows.extend(new_rows[:num_rows - rows_generated])
         rows_generated = len(generated_rows)
 
     df = pd.DataFrame(generated_rows, columns=column_names)
-    print(df.head())
-    print(f"Generated {len(generated_rows)} rows of data.")
     file_path = "data_output.xlsx"
     df.to_excel(file_path, index=False)
-    return file_path
+    return file_path, df
+
 
 
 # ----------------------------------------------------------------------------------------------------------------
