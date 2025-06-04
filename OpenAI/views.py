@@ -4191,12 +4191,15 @@ def create_data_with_data_scout(request):
     try:
         result = agent1.invoke(prompt)
         if 'output' in result:
-            return Response({"file_path": result['output']})
+            response_data = {
+                "file_path": result['output'],
+                "data": result.get('data', [])  # fallback to empty list if not provided
+            }
+            return Response(response_data)
         else:
             return Response({"error": "Failed to generate file"}, status=500)
     except Exception as e:
         return Response({"error": str(e)}, status=500)
-
 
 #Predictive Maintenence Apis:
 from .Predective_maintenence.anamoly_agent import AnomalyDetection_agent
