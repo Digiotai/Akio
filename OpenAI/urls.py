@@ -90,4 +90,7 @@ urlpatterns = [
     #path('api/sensor_data_upload', upload_sensor_data, name='uploading the sensor data_from the user.'),
     path('api/predictive_maintenence', predictive_maintenence, name='predcitive maintenence for the given data.'),
 
+    #Health Care assistant api:
+    path('api/health_care_assistant', healthcare_assistant_api, name='Healthcare assistant api.'),
+
 ]
