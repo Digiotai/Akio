@@ -66,6 +66,7 @@ urlpatterns = [
 
     # Dashboard
     path('api/dashboard', gen_plotly_response, name="plotly dashboard"),
+    path('api/talk_to_graph', graph_chat_response, name="Talking to graph."),
     path('api/fill_missed_data', missing_data, name="missed_data_filling"),
 
     # #Sla Breach
