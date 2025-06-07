@@ -3580,6 +3580,45 @@ def gen_ai_bot(request):
                 'data': data.to_json(),
                 'plot': make_serializable(img_data)
             }, status=200)
+
+        elif 'predict' in prompt.lower():
+            try:
+                data = extract_forecast_details_rf(prompt, df.columns)
+                print(data)
+
+                if len(data.get('missing_columns')) > 0:
+                    return JsonResponse({
+                        'text_pre_code_response': (
+                            f'Prediction failed due to missing fields: {data.get("missing_columns")}. '
+                            f'Please retry with all the required inputs.')
+                    }, status=200)
+
+                model_path = os.path.join("models", "rf", data['target_column'])
+                pipeline_path = os.path.join(model_path, "pipeline.pkl")
+                deployment_path = os.path.join(model_path, "deployment.json")
+
+                # Check and re-train model if deployment.json or pipeline.pkl is missing
+                if not os.path.exists(deployment_path) or not os.path.exists(pipeline_path):
+                    df = pd.read_csv('data.csv')
+                    print("Preprocessed_data is .........................")
+                    print(df.head(5))
+                    _ = random_forest(df, data.get('target_column'))
+
+                # Predict
+                df_predict = pd.DataFrame([data.get('features')])
+                print(df_predict.head())
+
+                loaded_pipeline = load_pipeline(pipeline_path)
+                predictions = loaded_pipeline.predict(df_predict)
+                print(predictions)
+
+                return JsonResponse({
+                    "text_pre_code_response": f"Predicted {data.get('target_column')} value is {round(predictions[0], 2)}"
+                })
+
+            except Exception as e:
+                return JsonResponse({"text_pre_code_response": str(e)})
+
         else:
             system_prompt = f"""You are an AI specialized in data analytics and visualization. The data for analysis is 
             stored in a CSV file named data.csv, with the following attributes: {metadata_str} and sample data as 
@@ -3602,6 +3641,7 @@ def gen_ai_bot(request):
                     {"role": "user", "content": prompt}
                 ]
             )
+
 
             pre_code_text, post_code_text, code = process_genai_response(response)
             result.update({
@@ -3669,6 +3709,84 @@ def extract_forecast_details_llm(prompt, column_names):
         print(forecast_details)
 
         return eval(forecast_details)
+
+    except Exception as e:
+        print(e)
+
+
+def extract_forecast_details_rf(prompt, column_names):
+    try:
+        system_prompt = f"""
+            You are an AI assistant that extracts machine learning input features and the target variable from a user's natural language prompt.
+
+            You are provided a list of available column names: {', '.join(column_names)}.
+
+            Your job is to:
+            1. **Correct Spelling**: If any feature or target column is misspelled, match it to the closest name from the provided column list.
+            2. **Extract Features**: Identify which features and their values are mentioned in the input.
+            3. **Detect Missing Features**: If some required features are not mentioned, list them under "missing_columns".
+            4. **Identify Target Column**: If the user specifies a column as the one to be predicted or forecasted, include it as "target_column".
+            5. **Always Return All Three Fields**: Even if one or more are empty, the response **must always** contain "features", "missing_columns", and "target_column".
+
+            ### Expected Output Formats:
+
+            #### a) All features and target column provided:
+            Input: "Predict CO2 level. The temperature is 25 and humidity is 45."
+            Output:
+            {{
+              "features": {{
+                "temperature": 25,
+                "humidity": 45
+              }},
+              "missing_columns":[],
+              "target_column": "CO2 level"
+            }}
+
+            #### b) Some features missing:
+            Input: "I want to predict pressure. Set humidity to 50."
+            Output:
+            {{
+              "features": {{
+                "humidity": 50
+              }},
+              "missing_columns": ["temperature", "CO2 level"],
+              "target_column": "pressure"
+            }}
+
+            #### c) Misspelled entries:
+            Input: "Predict temprature using humdity = 60 and presure = 1000"
+            Output:
+            {{
+              "features": {{
+                "humidity": 60,
+                "pressure": 1000
+              }},
+              "missing_columns": ["CO2 level"],
+              "target_column": "temperature"
+            }}
+
+            ### Notes:
+            - Always correct any misspelled column names to the closest match in the available list.
+            - Use numeric types for numeric values, not strings.
+            - If the target column is not explicitly provided, leave "target_column" as null or omit it.
+        """
+
+        predict_details = ''
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0  # Make it deterministic
+        )
+        for choice in response.choices:
+            message = choice.message
+            chunk_message = message.content if message else ''
+            predict_details += chunk_message
+        print(predict_details)
+
+        return eval(predict_details)
 
     except Exception as e:
         print(e)
@@ -3828,102 +3946,210 @@ def analyze_dataset1(df):
 
     return queries
 
+#Dashboard apis
+CHARTS_FILE = "generated_charts.json"
 @csrf_exempt
 def gen_plotly_response(request):
     if request.method == "POST":
         try:
-            # Load CSV
             csv_file_path = 'data.csv'
             df = pd.read_csv(csv_file_path)
 
-            # Convert date columns to datetime if applicable
             date_columns = [col for col in df.columns if 'date' in col.lower() or 'time' in col.lower()]
             for col in date_columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
 
-            # Analyze the dataset and generate meaningful queries
             queries = analyze_dataset1(df)
             print("Queries are.............................................", queries)
             if not queries:
-                return JsonResponse({"message": "No meaningful queries could be generated for the dataset."},
-                                    status=400)
+                return JsonResponse({"message": "No meaningful queries could be generated for the dataset."}, status=400)
 
-            # Generate CSV metadata
             csv_metadata = {"columns": df.columns.tolist()}
             metadata_str = ", ".join(csv_metadata["columns"])
-
-            # List to store all generated graphs
-            all_charts = []
+            all_charts = load_existing_charts()
 
             for query in queries:
-                # Prompt engineering for AI
                 print(query)
                 prompt_eng = (
                     f"You are an AI specialized in data analytics and visualization."
                     f"Data used for analysis is stored in a CSV file named 'data.csv'."
                     f"Attributes of the data are: {metadata_str}."
-                    f"Consider 'data.csv' as the data source for any analysis."
                     f"Based on the user's query, generate Python code using Plotly to create the requested type of graph."
-                    f"Every graph must include a title, axis labels (if applicable), and appropriate colors for better visualization."
-                    f"Ensure the graph is visually appealing and provides sufficient context for understanding."
-                    f"The graph must have a white background for both the plot and paper."
                     f"The code must output a Plotly 'Figure' object stored in a variable named 'fig'."
                     f"The user asks: {query}"
-
                 )
 
-                # Call AI to generate the code
                 chat = generate_code(prompt_eng)
                 print(f"Generated code for query '{query}':")
                 print(chat)
 
-                # Check for valid Plotly code in the AI response
                 if 'import' in chat:
                     namespace = {}
                     try:
-                        # Execute the generated code
                         exec(chat, namespace)
-
-                        # Retrieve the Plotly figure from the namespace
                         fig = namespace.get("fig")
 
                         if fig and isinstance(fig, Figure):
-                            # Convert the Plotly figure to JSON
                             chart_data = fig.to_plotly_json()
 
-                            # Ensure JSON serialization by converting NumPy arrays to lists
                             def make_serializable(obj):
-                                if isinstance(obj, np.ndarray):
+                                if isinstance(obj, (np.generic, np.ndarray)):
                                     return obj.tolist()
+                                elif isinstance(obj, datetime):
+                                    return obj.isoformat()
                                 elif isinstance(obj, dict):
                                     return {k: make_serializable(v) for k, v in obj.items()}
                                 elif isinstance(obj, list):
                                     return [make_serializable(v) for v in obj]
                                 return obj
 
-                            # Recursively process the chart_data
                             chart_data_serializable = make_serializable(chart_data)
 
-                            # Append the graph data to the list
-                            all_charts.append(chart_data_serializable)
+                            chart_entry = {
+                                "timestamp": datetime.now().isoformat(),
+                                "query": query["type"],
+                                "chart": chart_data_serializable
+                            }
+
+                            all_charts.append(chart_entry)
+                            save_charts_to_file(all_charts)
                         else:
                             print(f"No valid Plotly figure found for query: {query}")
                     except Exception as e:
-                        error_message = f"There was an error while executing the code for query '{query}': {str(e)}"
-                        print(error_message)
+                        print(f"Execution error for query '{query}': {str(e)}")
                 else:
                     print(f"Invalid AI response for query: {query}")
 
-            # Return all generated graphs to the frontend
             return JsonResponse({"charts": all_charts}, status=200)
-        except Exception as e:
-            # Handle general exceptions
-            error_message = f"An unexpected error occurred: {str(e)}"
-            print(error_message)
-            return JsonResponse({"message": error_message}, status=500)
 
-    # Return a fallback HttpResponse for invalid request methods
+        except Exception as e:
+            print(f"Unexpected error: {str(e)}")
+            return JsonResponse({"message": f"An unexpected error occurred: {str(e)}"}, status=500)
+
     return HttpResponse("Invalid request method", status=405)
+
+
+def load_existing_charts():
+    if os.path.exists(CHARTS_FILE):
+        try:
+            with open(CHARTS_FILE, "r") as f:
+                return json.load(f)
+        except json.JSONDecodeError as e:
+            print(f"Error reading charts file: {e}")
+            return []
+    return []
+
+
+def save_charts_to_file(chart_list):
+    def make_serializable(obj):
+        if isinstance(obj, (np.generic, np.ndarray)):
+            return obj.tolist()
+        elif isinstance(obj, (datetime, date)):  # ✅ Handles both datetime & date
+            return obj.isoformat()
+        elif isinstance(obj, dict):
+            return {k: make_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [make_serializable(v) for v in obj]
+        return obj
+
+    try:
+        serializable_chart_list = make_serializable(chart_list)
+        with open(CHARTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(serializable_chart_list, f, indent=2, ensure_ascii=False)
+            f.flush()
+    except Exception as e:
+        print(f"Failed to save chart list: {e}")
+
+
+
+def load_existing_charts1():
+    file_path = 'generated_charts.json'  # Update to actual path
+    if not os.path.exists(file_path):
+        logger.warning("Charts file does not exist.")
+        return []
+
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = f.read()
+            if not data.strip():
+                logger.warning("Charts file is empty.")
+                return []
+            return json.loads(data)
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON decode error in charts file: {e}")
+        return []
+    except Exception as e:
+        logger.exception(f"Unexpected error loading charts file: {e}")
+        return []
+
+# Chat with Graphs API
+import logging
+logger = logging.getLogger(__name__)
+@csrf_exempt
+def graph_chat_response(request):
+    if request.method == "POST":
+        user_prompt = request.POST.get('prompt')
+        logger.debug(f"User prompt: {user_prompt}")
+
+        if not user_prompt:
+            logger.warning("Missing user prompt")
+            return JsonResponse({"message": "Missing prompt"}, status=400)
+
+        existing_charts = load_existing_charts1()
+        logger.debug(f"Loaded {len(existing_charts)} existing charts")
+
+        if not existing_charts:
+            logger.warning("No existing charts found")
+            return JsonResponse({"message": "No charts available."}, status=400)
+
+        context = "\n".join([
+            f"Query: {entry['query']}\nTimestamp: {entry['timestamp']}\n"
+            for entry in existing_charts[-5:]
+        ])
+
+        prompt = f"""
+You are a professional data analyst AI that understands data visualizations and user queries about them.
+
+Below are the summaries of the last 5 graphs that were generated, including the original queries and the time they were created.
+
+Graph Summaries:
+{context}
+
+User Question:
+{user_prompt}
+
+Your job is to:
+1. Understand what the user is asking.
+2. Refer to the most relevant graph(s) from the above summaries.
+3. Answer clearly and concisely in natural language.
+4. If needed, suggest what further data or graphs might help the user.
+
+Be helpful, precise, and professional.
+"""
+
+        logger.debug(f"Final constructed prompt:\n{prompt}")
+
+        ai_response = generate_chat_response1(prompt)
+        logger.debug(f"AI response: {ai_response}")
+
+        if not isinstance(ai_response, str) or not ai_response.strip():
+            logger.error("Empty AI response received")
+            return JsonResponse({"message": "Empty AI response."}, status=500)
+
+        return JsonResponse({"response": ai_response}, status=200)
+
+
+def generate_chat_response1(prompt: str) -> str:
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a helpful data analyst that explains data visualizations and user queries."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.7,
+        max_tokens=500
+    )
+    return response.choices[0].message.content.strip()
 
 
 # Column_description for the  Discover in UI
@@ -4201,7 +4427,8 @@ def create_data_with_data_scout(request):
     except Exception as e:
         return Response({"error": str(e)}, status=500)
 
-#Predictive Maintenence Apis:
+
+#Predictive Maintenence Apis.
 from .Predective_maintenence.anamoly_agent import AnomalyDetection_agent
 from .Predective_maintenence.schedule_agent import Scheduler_agent
 from .Predective_maintenence.alert_email import Alert_agent
@@ -4214,16 +4441,16 @@ DATA_FILE = "sensor_data_test.csv"
 def predictive_maintenence(request):
     try:
         prompt = request.POST.get("prompt", "").strip()
-        file = request.FILES.get("file")
         notify_result = []
 
-        if file:
-            with open(DATA_FILE, "wb") as f:
-                for chunk in file.chunks():
-                    f.write(chunk)
+        # Copy existing data.csv to sensor_data_test.csv
+        if os.path.exists("data.csv"):
+            shutil.copyfile("data.csv", DATA_FILE)
+        else:
+            return JsonResponse({"error": "data.csv not found."}, status=400)
 
         if not os.path.exists(DATA_FILE):
-            return JsonResponse({"error": "No uploaded sensor data found."}, status=400)
+            return JsonResponse({"error": "sensor_data_test.csv could not be created."}, status=400)
 
         anomaly_keywords = r"\b(anomaly|anomalies|detect|detection|abnormal|fault|irregularity)\b"
         schedule_keywords = r"\b(schedule|assign|allocate|dispatch|technician|appointment|maintenance)\b"
@@ -4261,7 +4488,7 @@ def predictive_maintenence(request):
         if notify_result:
             final_result += "\n".join(notify_result)
         if not final_result.strip():
-            final_result = "❓ Could not determine the intent of the prompt."
+            final_result = "Could not determine the intent of the prompt."
 
         response = {"result": final_result.strip()}
         if output_df is not None:
