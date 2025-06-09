@@ -1,6 +1,6 @@
 import os
 import openai
-from typing import Dict, List
+from typing import Dict, List, Tuple
 import re
 from langchain.tools import Tool, StructuredTool
 from langchain.agents import initialize_agent, AgentType
@@ -11,14 +11,16 @@ from io import BytesIO
 import uuid
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
+import base64
 
 load_dotenv()
 # Set your OpenAI API key (replace with your actual key)
 api_key = os.getenv("OPENAI_API_KEY")
 
-
 from openai import OpenAI
+
 client = OpenAI(api_key=api_key)
+
 
 # -----------------------------------------------------------------------------------------------------------------
 # Image Generation Tools
@@ -47,12 +49,12 @@ def extract_image_count_from_prompt(user_prompt: str) -> int:
     """Extracts number of images requested from the prompt."""
     match = re.search(r'(\d+)\s+(images|pictures|illustrations)', user_prompt, re.IGNORECASE)
     if match:
-        return min(int(match.group(1)), 4)  # DALL-E 2 max is 4 images per request
+        return min(int(match.group(1)), 10)  # DALL-E max is 4 images per request
     return 1  # Default to 1 image
 
 
-def generate_images_from_prompt(prompt: str, style: str, num_images: int = 1) -> List[str]:
-    """Generates images using DALL·E 3 (new API v1+)."""
+def generate_images_from_prompt(prompt: str, style: str, num_images: int = 1) -> List[Tuple[str, str]]:
+    """Generates images using DALL·E and returns list of (image_path, base64_data) tuples."""
     try:
         # Enhance prompt with character limit
         llm = ChatOpenAI(
@@ -75,35 +77,49 @@ def generate_images_from_prompt(prompt: str, style: str, num_images: int = 1) ->
 
         print(f"Enhanced prompt (length {len(enhanced_prompt)}): {enhanced_prompt}")
 
-        # Call OpenAI image generation using DALL·E 3
-        response = client.images.generate(
-            model="dall-e-2",  # DALL·E 3 only allows 1 image per request
-            prompt=str(enhanced_prompt),
-            n=num_images,
-            size="1024x1024"
-        )
+        # Create directory if it doesn't exist
+        os.makedirs("OpenAI/Predictive_maintenance/images", exist_ok=True)
 
-        image_url = response.data[0].url
-        image_paths = []
+        results = []
 
-        image_response = requests.get(image_url)
-        if image_response.status_code == 200:
-            filename = f"OpenAI/Predective_maintenence/images/dalle2_generated_{uuid.uuid4().hex[:8]}.png"
-            with open(filename, 'wb') as f:
-                f.write(image_response.content)
-            image_paths.append(filename)
+        for i in range(num_images):
+            # Call OpenAI image generation
+            response = client.images.generate(
+                model="dall-e-2",  # Using DALL-E 3 which supports higher quality
+                prompt=str(enhanced_prompt),
+                n=num_images,  # DALL-E 3 only allows 1 image per request
+                size="1024x1024"
+            )
 
-            img = Image.open(BytesIO(image_response.content))
-            img.show()
-            print(f"Saved at: {filename}")
-        else:
-            print("Image download failed.")
+            image_url = response.data[0].url
+            image_response = requests.get(image_url)
 
-        return image_paths
+            if image_response.status_code == 200:
+                # Generate unique filename
+                filename = f"OpenAI/Predictive_maintenance/images/dalle3_generated_{uuid.uuid4().hex[:8]}.png"
+
+                # Save image to file
+                with open(filename, 'wb') as f:
+                    f.write(image_response.content)
+
+                # Convert to base64
+                base64_data = base64.b64encode(image_response.content).decode('utf-8')
+
+                # Display image
+                img = Image.open(BytesIO(image_response.content))
+                img.show()
+
+                print(f"Saved image {i + 1} at: {filename}")
+                results.append((filename, base64_data))
+            else:
+                print(f"Image {i + 1} download failed.")
+
+        return results
 
     except Exception as e:
         print(f"Error generating image: {e}")
         raise ValueError("Failed to generate image.")
+
 
 def create_thumbnail(image_path: str, size: tuple = (256, 256)) -> str:
     """Creates a thumbnail version of the generated image."""
@@ -121,12 +137,24 @@ def create_thumbnail(image_path: str, size: tuple = (256, 256)) -> str:
 # -----------------------------------------------------------------------------------------------------------------
 # Tool Wrapping for LangChain for Image Generation
 
-def image_generator_tool(prompt: str, style: str, num_images: int) -> List[str]:
+def image_generator_tool(prompt: str, style: str, num_images: int) -> List[Dict[str, str]]:
+    """Generates images and returns list of dictionaries with path and base64 data."""
     if not prompt:
         raise ValueError("Prompt cannot be empty.")
-    if num_images <= 0 or num_images > 4:
-        raise ValueError("Number of images must be between 1 and 4.")
-    return generate_images_from_prompt(prompt, style, num_images)
+    if num_images <= 0 or num_images > 10:
+        raise ValueError("Number of images must be between 1 and 10.")
+
+    generated_images = generate_images_from_prompt(prompt, style, num_images)
+
+    # Format the results for better handling
+    return [
+        {
+            "image_path": path,
+            "base64_data": data,
+            "thumbnail_path": create_thumbnail(path) if create_thumbnail(path) else None
+        }
+        for path, data in generated_images
+    ]
 
 
 def extract_image_style_tool(prompt: str) -> Dict[str, str]:
@@ -141,9 +169,9 @@ def extract_image_count_tool(prompt: str) -> int:
 # Agent Setup
 
 def ImageGen_agent():
-    # Initialize ChatOpenAI instead of using initialize_llm
+    # Initialize ChatOpenAI
     llm = ChatOpenAI(
-        model_name="gpt-3.5-turbo",
+        model_name="gpt-4o-mini",
         temperature=0.7,
         openai_api_key=openai.api_key
     )
@@ -162,7 +190,7 @@ def ImageGen_agent():
         StructuredTool.from_function(
             func=image_generator_tool,
             name="GenerateImagesFromPrompt",
-            description="Generates images using DALL-E 2. Args: prompt (str), style (str), num_images (int)",
+            description="Generates images using DALL-E. Args: prompt (str), style (str), num_images (int)",
             return_direct=True
         )
     ]
