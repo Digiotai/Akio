@@ -3828,8 +3828,23 @@ def make_serializable(obj):
 from plotly.graph_objects import Figure
 import pandas as pd
 
-def analyze_dataset1(df):
-    global important_numerical, important_categorical
+import pandas as pd
+import random
+def analyze_dataset1(df, request_params=None):
+    """
+    Dynamically generates visualization queries based on dataset characteristics and request parameters
+
+    Args:
+        df: pandas DataFrame to analyze
+        request_params: dict of optional parameters from frontend that might influence the analysis
+                       (e.g., {'focus': 'correlations', 'num_graphs': 6, 'preferred_types': ['bar', 'scatter']})
+
+    Returns:
+        List of query dictionaries for visualization generation
+    """
+    if request_params is None:
+        request_params = {}
+
     queries = []
 
     # Get metadata about the dataset
@@ -3837,114 +3852,129 @@ def analyze_dataset1(df):
     categorical_columns = df.select_dtypes(exclude=['number']).columns.tolist()
     date_columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
 
-    # Select top 3-4 important numerical columns (based on correlation or variance)
-    if numerical_columns:
-        # Calculate correlation to find relationships
-        correlation_matrix = df[numerical_columns].corr().abs()
-        important_numerical = correlation_matrix.mean().nlargest(3).index.tolist()  # Top 3 numerical columns
+    # Determine which columns to focus on (randomize selection for variety)
+    focus_numerical = numerical_columns.copy()
+    focus_categorical = categorical_columns.copy()
 
-    # Select the most important categorical column (based on unique values)
-    if categorical_columns:
-        important_categorical = max(categorical_columns, key=lambda col: df[col].nunique())
+    # Shuffle to get different columns on each request
+    random.shuffle(focus_numerical)
+    random.shuffle(focus_categorical)
 
-    # BASIC GRAPHS (4 total)
-    # 1. Histogram (basic)
-    if important_numerical:
-        queries.append({
-            "type": "histogram",
-            "query": f"Generate a histogram for '{important_numerical[0]}' to show value distribution.",
-            "analysis": "Basic Distribution Analysis",
-            "category": "basic"
+    # Get number of graphs requested (default to 8 if not specified)
+    num_graphs = request_params.get('num_graphs', 8)
+
+    # Get preferred graph types if specified
+    preferred_types = request_params.get('preferred_types', [])
+
+    # Get analysis focus if specified (e.g., 'correlations', 'distributions', 'trends')
+    analysis_focus = request_params.get('focus', None)
+
+    # Basic graph templates that we can choose from
+    graph_templates = []
+
+    # 1. Histograms (for numerical distributions)
+    if focus_numerical:
+        for col in focus_numerical[:2]:  # Only consider first 2 shuffled numerical columns
+            graph_templates.append({
+                'type': 'histogram',
+                'query': f"Generate a histogram for '{col}' to show value distribution.",
+                'analysis': f"Distribution of {col}",
+                'category': 'basic'
+            })
+
+    # 2. Bar charts (for categorical distributions)
+    if focus_categorical:
+        for col in focus_categorical[:2]:  # Only consider first 2 shuffled categorical columns
+            graph_templates.append({
+                'type': 'bar',
+                'query': f"Generate a bar chart showing value counts for '{col}'.",
+                'analysis': f"Frequency of {col} categories",
+                'category': 'basic'
+            })
+
+    # 3. Scatter plots (for relationships)
+    if len(focus_numerical) >= 2:
+        x, y = focus_numerical[0], focus_numerical[1]
+        graph_templates.append({
+            'type': 'scatter',
+            'query': f"Generate a scatter plot comparing '{x}' and '{y}'.",
+            'analysis': f"Relationship between {x} and {y}",
+            'category': 'basic'
         })
 
-    # 2. Bar chart (basic)
-    if categorical_columns:
-        queries.append({
-            "type": "bar",
-            "query": f"Generate a bar chart showing value counts for '{important_categorical}'.",
-            "analysis": "Basic Categorical Analysis",
-            "category": "basic"
+    # 4. Line charts (for trends)
+    if date_columns and focus_numerical:
+        graph_templates.append({
+            'type': 'line',
+            'query': f"Generate a line chart showing '{focus_numerical[0]}' over time using '{date_columns[0]}'.",
+            'analysis': f"Trend of {focus_numerical[0]} over time",
+            'category': 'basic'
+        })
+    elif focus_numerical:  # Fallback if no date columns
+        graph_templates.append({
+            'type': 'line',
+            'query': f"Generate a line chart showing trend of '{focus_numerical[0]}'.",
+            'analysis': f"Trend of {focus_numerical[0]}",
+            'category': 'basic'
         })
 
-    # 3. Scatter plot (basic)
-    if len(important_numerical) >= 2:
-        queries.append({
-            "type": "scatter",
-            "query": f"Generate a scatter plot comparing '{important_numerical[0]}' and '{important_numerical[1]}'.",
-            "analysis": "Basic Relationship Analysis",
-            "category": "basic"
+    # Advanced graph templates
+    # 1. Box plots
+    if focus_numerical:
+        graph_templates.append({
+            'type': 'box',
+            'query': f"Generate a box plot for '{focus_numerical[0]}' to analyze outliers.",
+            'analysis': f"Outlier analysis for {focus_numerical[0]}",
+            'category': 'advanced'
         })
 
-    # 4. Line chart (basic)
-    if date_columns and important_numerical:
-        queries.append({
-            "type": "line",
-            "query": f"Generate a line chart showing '{important_numerical[0]}' over time using '{date_columns[0]}'.",
-            "analysis": "Basic Trend Analysis",
-            "category": "basic"
-        })
-    elif important_numerical:  # Fallback if no date columns
-        queries.append({
-            "type": "line",
-            "query": f"Generate a line chart showing trend of '{important_numerical[0]}'.",
-            "analysis": "Basic Trend Analysis",
-            "category": "basic"
-        })
-
-    # ADVANCED GRAPHS (4 total)
-    # 1. Box plot (advanced)
-    if important_numerical:
-        queries.append({
-            "type": "box",
-            "query": f"Generate a box plot for '{important_numerical[0]}' to analyze outliers and data distribution.",
-            "analysis": "Advanced Outlier Detection",
-            "category": "advanced"
-        })
-
-    # 2. Heatmap (advanced)
+    # 2. Heatmaps
     if len(numerical_columns) >= 2:
-        queries.append({
-            "type": "heatmap",
-            "query": f"Generate a heatmap showing correlations between numerical columns.",
-            "analysis": "Advanced Correlation Analysis",
-            "category": "advanced"
+        graph_templates.append({
+            'type': 'heatmap',
+            'query': "Generate a heatmap showing correlations between numerical columns.",
+            'analysis': "Correlation matrix of numerical features",
+            'category': 'advanced'
         })
 
-    # 3. Violin plot (advanced)
-    if important_numerical and categorical_columns:
-        queries.append({
-            "type": "violin",
-            "query": f"Generate a violin plot comparing distribution of '{important_numerical[0]}' across categories in '{important_categorical}'.",
-            "analysis": "Advanced Distribution Comparison",
-            "category": "advanced"
+    # 3. Violin plots
+    if focus_numerical and focus_categorical:
+        graph_templates.append({
+            'type': 'violin',
+            'query': f"Generate a violin plot comparing distribution of '{focus_numerical[0]}' across '{focus_categorical[0]}' categories.",
+            'analysis': f"Distribution comparison of {focus_numerical[0]} by {focus_categorical[0]}",
+            'category': 'advanced'
         })
 
-    # 4. 3D Scatter plot (advanced)
-    if len(important_numerical) >= 3:
-        queries.append({
-            "type": "3d_scatter",
-            "query": f"Generate a 3D scatter plot analyzing relationships between '{important_numerical[0]}', '{important_numerical[1]}', and '{important_numerical[2]}'.",
-            "analysis": "Advanced Multivariate Analysis",
-            "category": "advanced"
+    # 4. 3D Scatter plots
+    if len(focus_numerical) >= 3:
+        graph_templates.append({
+            'type': '3d_scatter',
+            'query': f"Generate a 3D scatter plot analyzing relationships between '{focus_numerical[0]}', '{focus_numerical[1]}', and '{focus_numerical[2]}'.",
+            'analysis': "Multivariate relationship analysis",
+            'category': 'advanced'
         })
 
-    elif len(important_numerical) >= 2:  # Fallback if only 2 numerical columns
-        queries.append({
-            "type": "scatter_matrix",
-            "query": f"Generate a scatter matrix for numerical columns to analyze pairwise relationships.",
-            "analysis": "Advanced Pairwise Analysis",
-            "category": "advanced"
-        })
+    # Filter by preferred graph types if specified
+    if preferred_types:
+        graph_templates = [g for g in graph_templates if g['type'] in preferred_types]
 
-    if important_numerical:
-        queries.append({
-            "type": "distplot",
-            "query": f"Generate a distplot showing the distribution of '{important_numerical[0]}'.",
-            "analysis": f"Distribution Analysis",
-            "category": "advanced"
-        })
+    # Filter by analysis focus if specified
+    if analysis_focus == 'correlations':
+        graph_templates = [g for g in graph_templates if g['type'] in ['scatter', 'heatmap', '3d_scatter']]
+    elif analysis_focus == 'distributions':
+        graph_templates = [g for g in graph_templates if g['type'] in ['histogram', 'box', 'violin', 'bar']]
+    elif analysis_focus == 'trends':
+        graph_templates = [g for g in graph_templates if g['type'] in ['line']]
 
-    return queries
+    # Select a random subset of graphs to return (for variety across requests)
+    try:
+        selected_graphs = random.sample(graph_templates, min(num_graphs, len(graph_templates)))
+    except ValueError:
+        selected_graphs = graph_templates
+
+    return selected_graphs
+
 
 #Dashboard apis
 CHARTS_FILE = "generated_charts.json"
@@ -4400,6 +4430,7 @@ def handle_missing_data(df):
 
 ###Data scout Apis:
 from .data_scout import DataScout_agent,DataScout_agent_with_pdf
+from .Predective_maintenence.data_scout_img import ImageGen_agent
 @csrf_exempt
 @api_view(['POST'])
 def create_data_with_data_scout(request):
@@ -4409,23 +4440,57 @@ def create_data_with_data_scout(request):
     if not prompt or not data_type:
         return Response({"error": "Prompt and type are required"}, status=400)
 
-    if data_type == "Excel":
+    if data_type == "excel":
         agent1 = DataScout_agent()
-    else:
-        agent1 = DataScout_agent_with_pdf()
+        try:
+            result = agent1.invoke(prompt)
+            if 'output' in result:
+                response_data = {
+                    "file_path": result['output'],
+                    "data": result.get('data', [])  # fallback to empty list if not provided
+                }
+                return Response(response_data)
+            else:
+                return Response({"error": "Failed to generate file"}, status=500)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
 
-    try:
-        result = agent1.invoke(prompt)
-        if 'output' in result:
-            response_data = {
-                "file_path": result['output'],
-                "data": result.get('data', [])  # fallback to empty list if not provided
-            }
-            return Response(response_data)
-        else:
-            return Response({"error": "Failed to generate file"}, status=500)
-    except Exception as e:
-        return Response({"error": str(e)}, status=500)
+    elif data_type == "pdf":
+        agent1 = DataScout_agent_with_pdf()
+        try:
+            result = agent1.invoke(prompt)
+            if 'file_path' in result:
+                response_data = {
+                    "file_path": result['file_path']
+                }
+                return Response(response_data)
+            else:
+                return Response({"error": "Failed to generate PDF"}, status=500)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+
+    else:
+        agent1 = ImageGen_agent()
+        try:
+            result = agent1.run(prompt)  # This will return file paths or a string of paths
+            if isinstance(result, list) and result:  # Ensure we have image paths
+                response_data = {
+                    "image_paths": result
+                }
+                return Response(response_data)
+            elif isinstance(result, str) and result.strip():
+                response_data = {
+                    "image_paths": [result.strip()]
+                }
+                return Response(response_data)
+            else:
+                return Response({"error": "Failed to generate images"}, status=500)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+
+
+
+
 
 
 #Predictive Maintenence Apis.
