@@ -4469,25 +4469,67 @@ def create_data_with_data_scout(request):
         except Exception as e:
             return Response({"error": str(e)}, status=500)
 
-    else:
+    elif data_type == "image":
         agent1 = ImageGen_agent()
         try:
-            result = agent1.run(prompt)  # This will return file paths or a string of paths
-            if isinstance(result, list) and result:  # Ensure we have image paths
-                response_data = {
-                    "image_paths": result
-                }
-                return Response(response_data)
+            result = agent1.run(prompt)  # This will now return a list of dictionaries
+
+            # Handle different return formats for backward compatibility
+            if isinstance(result, list):
+                # New format: list of dicts with path and base64 data
+                if all(isinstance(item, dict) and 'image_path' in item for item in result):
+                    response_data = {
+                        "images": [
+                            {
+                                "path": img_data["image_path"],
+                                "base64": img_data["base64_data"],
+                                "thumbnail": img_data.get("thumbnail_path")
+                            }
+                            for img_data in result
+                        ]
+                    }
+                    return Response(response_data)
+                # Old format: list of paths
+                elif all(isinstance(item, str) for item in result):
+                    # If we only got paths, we need to read and encode the images
+                    images_data = []
+                    for path in result:
+                        try:
+                            with open(path, "rb") as image_file:
+                                base64_data = base64.b64encode(image_file.read()).decode('utf-8')
+                                images_data.append({
+                                    "path": path,
+                                    "base64": base64_data,
+                                })
+                        except Exception as e:
+                            print(f"Error processing image {path}: {e}")
+                            continue
+
+                    if images_data:
+                        return Response({"images": images_data})
+                    else:
+                        return Response({"error": "Failed to process generated images"}, status=500)
+
             elif isinstance(result, str) and result.strip():
-                response_data = {
-                    "image_paths": [result.strip()]
-                }
-                return Response(response_data)
+                # Handle single string path (old format)
+                try:
+                    with open(result.strip(), "rb") as image_file:
+                        base64_data = base64.b64encode(image_file.read()).decode('utf-8')
+                        response_data = {
+                            "images": [{
+                                "path": result.strip(),
+                                "base64": base64_data,
+                            }]
+                        }
+                        return Response(response_data)
+                except Exception as e:
+                    return Response({"error": f"Failed to process image: {str(e)}"}, status=500)
+
             else:
-                return Response({"error": "Failed to generate images"}, status=500)
+                return Response({"error": "Failed to generate images - unexpected result format"}, status=500)
+
         except Exception as e:
             return Response({"error": str(e)}, status=500)
-
 
 
 
