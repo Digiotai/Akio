@@ -3976,8 +3976,22 @@ def analyze_dataset1(df, request_params=None):
     return selected_graphs
 
 
-#Dashboard apis
-CHARTS_FILE = "generated_charts.json"
+# Dashboard APIs
+CHARTS_DIR = "generated_charts"
+os.makedirs(CHARTS_DIR, exist_ok=True)
+
+# Fixed filenames for the 8 graphs
+FIXED_CHART_FILENAMES = [
+    "chart_1.json",
+    "chart_2.json",
+    "chart_3.json",
+    "chart_4.json",
+    "chart_5.json",
+    "chart_6.json",
+    "chart_7.json",
+    "chart_8.json"
+]
+
 @csrf_exempt
 def gen_plotly_response(request):
     if request.method == "POST":
@@ -3992,13 +4006,29 @@ def gen_plotly_response(request):
             queries = analyze_dataset1(df)
             print("Queries are.............................................", queries)
             if not queries:
-                return JsonResponse({"message": "No meaningful queries could be generated for the dataset."}, status=400)
+                # Clear all chart files if no queries generated
+                for filename in FIXED_CHART_FILENAMES:
+                    chart_path = os.path.join(CHARTS_DIR, filename)
+                    with open(chart_path, "w") as f:
+                        json.dump({}, f)
+                return JsonResponse({
+                    "message": "No meaningful queries could be generated for the dataset.",
+                    "charts": [],
+                    "chart_files": FIXED_CHART_FILENAMES
+                }, status=200)
 
             csv_metadata = {"columns": df.columns.tolist()}
             metadata_str = ", ".join(csv_metadata["columns"])
-            all_charts = load_existing_charts()
+            chart_responses = []
 
-            for query in queries:
+            # Initialize all chart files as empty
+            for filename in FIXED_CHART_FILENAMES:
+                chart_path = os.path.join(CHARTS_DIR, filename)
+                with open(chart_path, "w") as f:
+                    json.dump({}, f)
+
+            # Process queries up to 8 charts
+            for i, query in enumerate(queries[:8]):
                 print(query)
                 prompt_eng = (
                     f"You are an AI specialized in data analytics and visualization."
@@ -4034,146 +4064,111 @@ def gen_plotly_response(request):
                                 return obj
 
                             chart_data_serializable = make_serializable(chart_data)
+                            chart_filename = FIXED_CHART_FILENAMES[i]
+                            chart_path = os.path.join(CHARTS_DIR, chart_filename)
 
                             chart_entry = {
                                 "timestamp": datetime.now().isoformat(),
                                 "query": query["type"],
-                                "chart": chart_data_serializable
+                                "chart_data": chart_data_serializable,
+                                "chart_file": chart_filename,
+                                "status": "success"
                             }
 
-                            all_charts.append(chart_entry)
-                            save_charts_to_file(all_charts)
+                            # Save individual chart file
+                            with open(chart_path, "w", encoding="utf-8") as f:
+                                json.dump(chart_data_serializable, f, indent=2, ensure_ascii=False)
+                                f.flush()
+
+                            chart_responses.append(chart_entry)
                         else:
                             print(f"No valid Plotly figure found for query: {query}")
+                            # Add entry for failed chart generation
+                            chart_responses.append({
+                                "chart_file": FIXED_CHART_FILENAMES[i],
+                                "status": "failed",
+                                "error": "No valid figure generated"
+                            })
                     except Exception as e:
                         print(f"Execution error for query '{query}': {str(e)}")
+                        # Add entry for failed chart generation
+                        chart_responses.append({
+                            "chart_file": FIXED_CHART_FILENAMES[i],
+                            "status": "failed",
+                            "error": str(e)
+                        })
                 else:
                     print(f"Invalid AI response for query: {query}")
+                    # Add entry for failed chart generation
+                    chart_responses.append({
+                        "chart_file": FIXED_CHART_FILENAMES[i],
+                        "status": "failed",
+                        "error": "Invalid AI response"
+                    })
 
-            return JsonResponse({"charts": all_charts}, status=200)
+            # Prepare final response with all chart data
+            response_data = {
+                "message": "Chart generation completed",
+                "generated_charts": len([c for c in chart_responses if c.get("status") == "success"]),
+                "total_charts": len(FIXED_CHART_FILENAMES),
+                "chart_files": FIXED_CHART_FILENAMES,
+                "charts": chart_responses
+            }
+
+            return JsonResponse(response_data, status=200)
 
         except Exception as e:
             print(f"Unexpected error: {str(e)}")
-            return JsonResponse({"message": f"An unexpected error occurred: {str(e)}"}, status=500)
+            return JsonResponse({
+                "message": f"An unexpected error occurred: {str(e)}",
+                "charts": [],
+                "chart_files": FIXED_CHART_FILENAMES
+            }, status=500)
 
     return HttpResponse("Invalid request method", status=405)
 
 
-def load_existing_charts():
-    if os.path.exists(CHARTS_FILE):
-        try:
-            with open(CHARTS_FILE, "r") as f:
-                return json.load(f)
-        except json.JSONDecodeError as e:
-            print(f"Error reading charts file: {e}")
-            return []
-    return []
 
-
-def save_charts_to_file(chart_list):
-    def make_serializable(obj):
-        if isinstance(obj, (np.generic, np.ndarray)):
-            return obj.tolist()
-        elif isinstance(obj, (datetime, date)):  # ✅ Handles both datetime & date
-            return obj.isoformat()
-        elif isinstance(obj, dict):
-            return {k: make_serializable(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [make_serializable(v) for v in obj]
-        return obj
-
-    try:
-        serializable_chart_list = make_serializable(chart_list)
-        with open(CHARTS_FILE, "w", encoding="utf-8") as f:
-            json.dump(serializable_chart_list, f, indent=2, ensure_ascii=False)
-            f.flush()
-    except Exception as e:
-        print(f"Failed to save chart list: {e}")
-
-
-
-def load_existing_charts1():
-    file_path = 'generated_charts.json'  # Update to actual path
-    if not os.path.exists(file_path):
-        logger.warning("Charts file does not exist.")
-        return []
-
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = f.read()
-            if not data.strip():
-                logger.warning("Charts file is empty.")
-                return []
-            return json.loads(data)
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON decode error in charts file: {e}")
-        return []
-    except Exception as e:
-        logger.exception(f"Unexpected error loading charts file: {e}")
-        return []
-
-# Chat with Graphs API
-import logging
-logger = logging.getLogger(__name__)
+#Summarisiing the chart.
+SUMMARY_CACHE = {}  # in-memory cache for simplicity
 @csrf_exempt
-def graph_chat_response(request):
+def summarize_chart(request):
     if request.method == "POST":
-        user_prompt = request.POST.get('prompt')
-        logger.debug(f"User prompt: {user_prompt}")
+        try:
+            chart_id = request.POST.get('chart_id')
+            if not (int(chart_id) and 1 <= int(chart_id) <= 8):
+                return JsonResponse({"error": "Invalid chart ID"}, status=400)
 
-        if not user_prompt:
-            logger.warning("Missing user prompt")
-            return JsonResponse({"message": "Missing prompt"}, status=400)
+            filename = f"chart_{chart_id}.json"
+            chart_path = os.path.join(CHARTS_DIR, filename)
 
-        existing_charts = load_existing_charts1()
-        logger.debug(f"Loaded {len(existing_charts)} existing charts")
+            if not os.path.exists(chart_path):
+                return JsonResponse({"error": "Chart not found"}, status=404)
 
-        if not existing_charts:
-            logger.warning("No existing charts found")
-            return JsonResponse({"message": "No charts available."}, status=400)
+            with open(chart_path, "r", encoding="utf-8") as f:
+                chart_json = json.load(f)
 
-        context = "\n".join([
-            f"Query: {entry['query']}\nTimestamp: {entry['timestamp']}\n"
-            for entry in existing_charts[-5:]
-        ])
+            prompt = (
+                f"You are a data analyst AI. A user selected a chart represented by this Plotly JSON:\n{json.dumps(chart_json)}\n"
+                f"Summarize the key insights, trends, anomalies, and findings in detail."
+            )
+            summary = generate_text(prompt)
+            SUMMARY_CACHE[chart_id] = summary
 
-        prompt = f"""
-You are a professional data analyst AI that understands data visualizations and user queries about them.
+            return JsonResponse({
+                "chart_id": chart_id,
+                "summary": markdown_to_html(summary)
+            }, status=200)
 
-Below are the summaries of the last 5 graphs that were generated, including the original queries and the time they were created.
-
-Graph Summaries:
-{context}
-
-User Question:
-{user_prompt}
-
-Your job is to:
-1. Understand what the user is asking.
-2. Refer to the most relevant graph(s) from the above summaries.
-3. Answer clearly and concisely in natural language.
-4. If needed, suggest what further data or graphs might help the user.
-
-Be helpful, precise, and professional.
-"""
-
-        logger.debug(f"Final constructed prompt:\n{prompt}")
-
-        ai_response = generate_chat_response1(prompt)
-        logger.debug(f"AI response: {ai_response}")
-
-        if not isinstance(ai_response, str) or not ai_response.strip():
-            logger.error("Empty AI response received")
-            return JsonResponse({"message": "Empty AI response."}, status=500)
-
-        return JsonResponse({"response": ai_response}, status=200)
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
 
 
-def generate_chat_response1(prompt: str) -> str:
+def generate_text(prompt: str) -> str:
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "You are a helpful data analyst that explains data visualizations and user queries."},
+            {"role": "system", "content": "You are a helpful data analyst that explains data visualizations and user queries and write insightful summary for the given data."},
             {"role": "user", "content": prompt}
         ],
         temperature=0.7,
@@ -4181,6 +4176,35 @@ def generate_chat_response1(prompt: str) -> str:
     )
     return response.choices[0].message.content.strip()
 
+#Answering for the given question by the user.
+@csrf_exempt
+def ask_about_chart(request):
+    if request.method == "POST":
+        try:
+            chart_id = request.POST.get('chart_id')
+            question = request.POST.get('question')
+
+            if not (chart_id and question):
+                return JsonResponse({"error": "Missing chart_id or question"}, status=400)
+
+            summary = SUMMARY_CACHE.get(chart_id)
+            if not summary:
+                return JsonResponse({"error": "No summary available. Call /summarize_chart first."}, status=400)
+
+            prompt = (
+                f"You previously summarized a chart as follows:\n{summary}\n"
+                f"Now the user asks: '{question}'. Provide a precise and helpful answer."
+            )
+            answer = generate_text(prompt)
+
+            return JsonResponse({
+                "chart_id": chart_id,
+                "question": question,
+                "answer": answer
+            }, status=200)
+
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
 
 # Column_description for the  Discover in UI
 @csrf_exempt
