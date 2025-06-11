@@ -3,7 +3,7 @@ import pandas as pd
 from langchain.agents import initialize_agent, AgentType
 from langchain.tools import Tool
 from langchain_openai import ChatOpenAI
-from typing import List
+from typing import List, Dict, Any
 import re
 from langchain.tools import StructuredTool
 from typing import Dict
@@ -126,12 +126,14 @@ def generate_data_from_text(text_sample: str, column_names: List[str], num_rows:
 # ----------------------------------------------------------------------------------------------------------------
 # For DataScout with PDF Generation
 # Data Extraction Tools for PDF
-def extract_num_pages_for_pdf_prompt(user_prompt: str) -> int:
-    match = re.search(r'(\d+)\s+(pages|page)', user_prompt, re.IGNORECASE)
+import re
+from typing import Optional
+
+def extract_num_pages_for_pdf_prompt(user_prompt: str) -> Optional[int]:
+    match = re.search(r"(\d+)\s+(?:pages|page)", user_prompt, re.IGNORECASE)
     if match:
         return int(match.group(1))
     return None
-
 
 def extract_sections_from_prompt(user_prompt: str) -> List[str]:
     match = re.search(
@@ -144,122 +146,101 @@ def extract_sections_from_prompt(user_prompt: str) -> List[str]:
     else:
         return []
 
-    formatted_sections = [
-        section.strip().title() for section in raw_sections
-    ]
-
-    formatted_sections = list(filter(bool, formatted_sections))
-    return list(dict.fromkeys(formatted_sections))
+    formatted_sections = [section.strip().title() for section in raw_sections if section.strip()]
+    return list(dict.fromkeys(formatted_sections))  # deduplicated
 
 
-def generate_pdf_from_text(text_sample: str, sections: List[str], num_pages: int = 1) -> str:
+def parse_llm_json_response(response_text: str) -> Optional[dict]:
+    if not response_text.strip():
+        return None
+    try:
+        cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", response_text.strip(), flags=re.MULTILINE)
+        return json.loads(cleaned)
+    except Exception as e:
+        print(f"[LLM Parse Error] {e} | Raw: {response_text}")
+        return None
+
+
+# ----------------------------------------
+# PDF Generator Core
+
+def generate_structured_content(text_sample: str, sections: List[str], num_pages: int = 15) -> Dict[str, Any]:
+    assert isinstance(text_sample, str), "text_sample must be a string"
+    assert isinstance(sections, list) and all(isinstance(s, str) for s in sections), "sections must be a list of strings"
+
     llm = initialize_llm()
-    file_path = "smart_document.pdf"
 
     try:
-        analysis_prompt = f"""Analyze this document request and return JSON:
-        {{
-            "title": "Document title",
-            "style": "professional/academic",
-            "sections": [
-                {{
-                    "name": "Section name",
-                    "content_type": "text/mixed",
-                    "needs_visuals": true/false
-                }}
-            ]
-        }}
-        Request: Create a {num_pages}-page document about {text_sample} with sections {sections}"""
+        joined_sections = ', '.join(sections)
+        analysis_prompt = (
+            f"Analyze this document request and return JSON:\n"
+            f"{{\n"
+            f"    \"title\": \"Document title\",\n"
+            f"    \"style\": \"professional/academic\",\n"
+            f"    \"sections\": [\n"
+            f"        {{\"name\": \"Section name\", \"content_type\": \"text/mixed\", \"needs_visuals\": false}}\n"
+            f"    ]\n"
+            f"}}\n"
+            f"Request: Create a {num_pages}-page document about '{text_sample}' with sections: [{joined_sections}]"
+        )
 
         analysis = llm.invoke(analysis_prompt)
-        structure = json.loads(analysis.content)
+        structure = parse_llm_json_response(analysis.content)
+
+        if not structure:
+            print("Analysis failed, using defaults.")
+            structure = {
+                "title": "Generated Document",
+                "style": "professional",
+                "sections": [{"name": s, "content_type": "text"} for s in sections]
+            }
     except Exception as e:
-        print(f"Analysis failed, using defaults: {e}")
+        print(f"Analysis exception, using defaults: {e}")
         structure = {
             "title": "Generated Document",
             "style": "professional",
             "sections": [{"name": s, "content_type": "text"} for s in sections]
         }
 
-    styles = getSampleStyleSheet()
-    styles['Title'].fontSize = 18
-    styles['Title'].leading = 22
-    styles['Title'].alignment = 1
-
-    styles.add(ParagraphStyle(
-        name='SectionHeader',
-        parent=styles['Heading1'],
-        fontSize=16,
-        spaceAfter=12
-    ))
-
-    styles.add(ParagraphStyle(
-        name='BodyTextEnhanced',
-        parent=styles['BodyText'],
-        spaceAfter=8,
-        leading=14
-    ))
-
-    doc = SimpleDocTemplate(
-        file_path,
-        pagesize=letter,
-        leftMargin=0.75 * inch,
-        rightMargin=0.75 * inch,
-        topMargin=1 * inch,
-        bottomMargin=1 * inch
-    )
-
-    elements = []
-    elements.append(Spacer(1, 3 * inch))
-    elements.append(Paragraph(structure["title"], styles['Title']))
-    elements.append(Spacer(1, 2 * inch))
-    elements.append(PageBreak())
+    output = {
+        "title": structure["title"],
+        "sections": []
+    }
 
     for section in structure["sections"]:
-        elements.append(Paragraph(section["name"], styles['SectionHeader']))
-        elements.append(Spacer(1, 0.25 * inch))
-
-        content_prompt = f"""Generate professional content for section: {section["name"]}
-        About: {text_sample}
-        Format: Several well-structured paragraphs
-        Length: About {int(500 / len(sections))} words
-        Tone: Professional
-        Additional Instructions:
-        - Use clear topic sentences
-        - Maintain consistent formatting
-        - Avoid overly complex sentences"""
+        content_prompt = (
+            f"Write professional content for the section: '{section['name']}'\n"
+            f"Topic: {text_sample}\n"
+            f"Format: Use main heading, and 2-3 subheadings, each with 1-2 detailed paragraphs\n"
+            f"Tone: Professional and well-structured\n"
+            f"Return as JSON: {{\"heading\": \"...\", \"subsections\": [{{\"subheading\": \"...\", \"content\": \"...\"}}]}}"
+        )
 
         response = llm.invoke(content_prompt)
-        content = response.content
+        structured_section = parse_llm_json_response(response.content)
 
-        paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
-        for para in paragraphs[:3]:
-            elements.append(Paragraph(para, styles['BodyTextEnhanced']))
-            elements.append(Spacer(1, 0.15 * inch))
+        if structured_section:
+            output["sections"].append(structured_section)
+        else:
+            print(f"Failed to parse section '{section['name']}'")
+            print(f"Raw response: {response.content}")
 
-        elements.append(PageBreak())
-
-    doc.build(elements)
-    print(f"Successfully generated PDF at: {file_path}")
-    return file_path
-
-
+    return output
 # ----------------------------------------------------------------------------------------------------------------
 # Tool Wrapping for LangChain For PDF Generation
-def pdf_generator_tool(prompt: str, sections: List[str], number_of_pages: int) -> str:
+def pdf_generator_tool(prompt: str, sections: List[str], number_of_pages: int) -> Dict[str, Any]:
     if not sections:
         sections = ["Introduction", "Content", "Conclusion"]
     if not number_of_pages or number_of_pages <= 0:
         number_of_pages = 1
-    return generate_pdf_from_text(prompt, sections, number_of_pages)
-
+    return generate_structured_content(prompt, sections, number_of_pages)
 
 def extract_sections_tool(prompt: str) -> List[str]:
     return extract_sections_from_prompt(prompt)
 
-
 def extract_num_pages_tool(prompt: str) -> int:
-    return extract_num_pages_for_pdf_prompt(prompt)
+    pages = extract_num_pages_for_pdf_prompt(prompt)
+    return pages if pages else 1
 
 
 # -----------------------------------------------------------------------------------------------------------------
@@ -314,6 +295,7 @@ def DataScout_agent():
 
 # -----------------------------------------------------------------------------------------------------------------
 # Agent Setup for PDF Generation
+
 def DataScout_agent_with_pdf():
     llm = initialize_llm()
     tools = [
@@ -330,10 +312,11 @@ def DataScout_agent_with_pdf():
         StructuredTool.from_function(
             func=pdf_generator_tool,
             name="GeneratePDFFromPrompt",
-            description="Generates PDF document. Args: prompt (str), sections (List[str]), number_of_pages (int)",
+            description="Generates structured PDF content from the prompt, section list, and number of pages.",
             return_direct=True
         )
     ]
+
     agent = initialize_agent(
         tools,
         llm,
