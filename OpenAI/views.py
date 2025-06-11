@@ -4453,7 +4453,7 @@ def handle_missing_data(df):
 
 
 ###Data scout Apis:
-from .data_scout import DataScout_agent,DataScout_agent_with_pdf
+from .data_scout import DataScout_agent,extract_sections_tool,extract_num_pages_tool,pdf_generator_tool
 from .Predective_maintenence.data_scout_img import ImageGen_agent
 @csrf_exempt
 @api_view(['POST'])
@@ -4480,18 +4480,21 @@ def create_data_with_data_scout(request):
             return Response({"error": str(e)}, status=500)
 
     elif data_type == "pdf":
-        agent1 = DataScout_agent_with_pdf()
         try:
-            result = agent1.invoke(prompt)
-            if 'file_path' in result:
-                response_data = {
-                    "file_path": result['file_path']
-                }
-                return Response(response_data)
+            raw_prompt = prompt if isinstance(prompt, str) else prompt.get("prompt", "")
+            sections = extract_sections_tool(raw_prompt)
+            number_of_pages = extract_num_pages_tool(raw_prompt)
+
+            result = pdf_generator_tool(raw_prompt, sections, number_of_pages)
+
+            if isinstance(result, dict) and "title" in result and "sections" in result:
+                return Response(result)
             else:
-                return Response({"error": "Failed to generate PDF"}, status=500)
+                return Response({"error": "Failed to generate structured PDF content"}, status=500)
+
         except Exception as e:
             return Response({"error": str(e)}, status=500)
+
 
     elif data_type == "image":
         agent1 = ImageGen_agent()
