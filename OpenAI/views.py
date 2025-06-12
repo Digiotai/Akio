@@ -4150,7 +4150,10 @@ def summarize_chart(request):
 
             prompt = (
                 f"You are a data analyst AI. A user selected a chart represented by this Plotly JSON:\n{json.dumps(chart_json)}\n"
-                f"Summarize the key insights, trends, anomalies, and findings in detail."
+                f"Summarize the key insights, trends.Give the most important content only."
+                f"Don't give the headings like 'The provided plotly graph defines like...'.Just display the important content only."
+                f"Don't give any introductory description and conclusion description.Just provide the conscise meaningful summary within 10 lines."
+
             )
             summary = generate_text(prompt)
             SUMMARY_CACHE[chart_id] = summary
@@ -4193,7 +4196,7 @@ def ask_about_chart(request):
 
             prompt = (
                 f"You previously summarized a chart as follows:\n{summary}\n"
-                f"Now the user asks: '{question}'. Provide a precise and helpful answer."
+                f"Now the user asks: '{question}'. Provide a precise and accurate answer for the user questions within 3 lines only.Dont give huge content."
             )
             answer = generate_text(prompt)
 
