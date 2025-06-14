@@ -95,4 +95,7 @@ urlpatterns = [
     #Health Care assistant api:
     path('api/health_care_assistant', healthcare_assistant_api, name='Healthcare assistant api.'),
 
+    #Dynamic 4 kpis generation
+    path('api/dyn_kpis', get_dyn_kpis, name='4 dynamic kpi generation'),
+
 ]
