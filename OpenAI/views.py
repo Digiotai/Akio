@@ -3817,11 +3817,14 @@ def process_genai_response(response):
 def make_serializable(obj):
     if isinstance(obj, np.ndarray):
         return obj.tolist()
+    elif isinstance(obj, pd.Timestamp):  # ✅ Fix for your issue
+        return obj.isoformat()
     elif isinstance(obj, dict):
         return {k: make_serializable(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [make_serializable(v) for v in obj]
     return obj
+
 
 
 # Dashboard with AI
@@ -4152,7 +4155,8 @@ def summarize_chart(request):
                 f"You are a data analyst AI. A user selected a chart represented by this Plotly JSON:\n{json.dumps(chart_json)}\n"
                 f"Summarize the key insights, trends.Give the most important content only."
                 f"Don't give the headings like 'The provided plotly graph defines like...'.Just display the important content only."
-                f"Don't give any introductory description and conclusion description.Just provide the conscise meaningful summary within 10 lines."
+                f"Don't give any introductory description and conclusion description.Just provide the conscise meaningful summary within 8 lines."
+                f"Give the summary in the form of bullet points only.Don't give that as a paragraph."
 
             )
             summary = generate_text(prompt)
@@ -4665,3 +4669,62 @@ def healthcare_assistant_api(request):
             "error": "Something went wrong while processing the query.",
             "details": str(e)
         }, status=500)
+
+
+
+#Dynamic Generation of 4 kpis api
+@csrf_exempt
+def get_dyn_kpis(request):
+    if request.method == "POST":
+        try:
+            csv_file_path = 'data.csv'
+            df = pd.read_csv(csv_file_path)
+
+            # Attempt datetime conversion for object columns
+            for col in df.columns:
+                if df[col].dtype == 'object':
+                    try:
+                        df[col] = pd.to_datetime(df[col], errors='coerce')
+                    except Exception:
+                        pass
+
+            # Identify actual datetime columns
+            date_columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
+
+            col_info = [f"{col}: {str(dtype)}" for col, dtype in zip(df.columns, df.dtypes)]
+
+            data_preview_raw = df.head(3).to_dict(orient="records")
+            data_preview = make_serializable(data_preview_raw)
+
+            prompt = f"""
+                        You are a data analyst. Based on the following dataset structure and sample rows, generate 4 insightful KPIs.
+                        
+                        Columns:
+                        {chr(10).join(col_info)}
+                        
+                        Sample data:
+                        {json.dumps(data_preview, indent=2)}
+                        
+                        Return a list of 4 KPIs in this format:
+                        [
+                          {{"name": "KPI Name", "description": "Explanation", "value": "Formatted Value"}},
+                          ...
+                        ]
+                        """
+
+            kpi_text = generate_text(prompt)
+
+            try:
+                kpi_text_cleaned = re.search(r'\[.*\]', kpi_text, re.DOTALL).group(0)
+                kpis = json.loads(kpi_text_cleaned)
+            except Exception:
+                return JsonResponse({"error": "Failed to parse LLM output as JSON", "raw": kpi_text}, status=500)
+
+            return JsonResponse(kpis[:4], safe=False)
+
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
+
+
+    return JsonResponse({"error": "Invalid request method"}, status=405)
+
