@@ -3841,20 +3841,18 @@ import random
 
 def analyze_dataset1(df, request_params=None):
     """
-    Dynamically generates visualization queries based on dataset characteristics and request parameters
+    Dynamically generates visualization queries based on dataset characteristics.
 
     Args:
         df: pandas DataFrame to analyze
         request_params: dict of optional parameters from frontend that might influence the analysis
-                       (e.g., {'focus': 'correlations', 'num_graphs': 6, 'preferred_types': ['bar', 'scatter']})
+                       (e.g., {'num_graphs': 6})
 
     Returns:
         List of query dictionaries for visualization generation
     """
     if request_params is None:
         request_params = {}
-
-    queries = []
 
     # Get metadata about the dataset
     numerical_columns = df.select_dtypes(include=['number']).columns.tolist()
@@ -3865,25 +3863,18 @@ def analyze_dataset1(df, request_params=None):
     focus_numerical = numerical_columns.copy()
     focus_categorical = categorical_columns.copy()
 
-    # Shuffle to get different columns on each request
     random.shuffle(focus_numerical)
     random.shuffle(focus_categorical)
 
     # Get number of graphs requested (default to 8 if not specified)
     num_graphs = request_params.get('num_graphs', 8)
 
-    # Get preferred graph types if specified
-    preferred_types = request_params.get('preferred_types', [])
-
-    # Get analysis focus if specified (e.g., 'correlations', 'distributions', 'trends')
-    analysis_focus = request_params.get('focus', None)
-
-    # Basic graph templates that we can choose from
+    # Graph templates that we can choose from
     graph_templates = []
 
     # 1. Histograms (for numerical distributions)
     if focus_numerical:
-        for col in focus_numerical[:2]:  # Only consider first 2 shuffled numerical columns
+        for col in focus_numerical[:2]:
             graph_templates.append({
                 'type': 'histogram',
                 'query': f"Generate a histogram for '{col}' to show value distribution.",
@@ -3893,7 +3884,7 @@ def analyze_dataset1(df, request_params=None):
 
     # 2. Bar charts (for categorical distributions)
     if focus_categorical:
-        for col in focus_categorical[:2]:  # Only consider first 2 shuffled categorical columns
+        for col in focus_categorical[:2]:
             graph_templates.append({
                 'type': 'bar',
                 'query': f"Generate a bar chart showing value counts for '{col}'.",
@@ -3901,7 +3892,7 @@ def analyze_dataset1(df, request_params=None):
                 'category': 'basic'
             })
 
-    # 3. Scatter plots (for relationships)
+    # 3. Scatter plots
     if len(focus_numerical) >= 2:
         x, y = focus_numerical[0], focus_numerical[1]
         graph_templates.append({
@@ -3911,7 +3902,7 @@ def analyze_dataset1(df, request_params=None):
             'category': 'basic'
         })
 
-    # 4. Line charts (for trends)
+    # 4. Line charts
     if date_columns and focus_numerical:
         graph_templates.append({
             'type': 'line',
@@ -3919,7 +3910,7 @@ def analyze_dataset1(df, request_params=None):
             'analysis': f"Trend of {focus_numerical[0]} over time",
             'category': 'basic'
         })
-    elif focus_numerical:  # Fallback if no date columns
+    elif focus_numerical:
         graph_templates.append({
             'type': 'line',
             'query': f"Generate a line chart showing trend of '{focus_numerical[0]}'.",
@@ -3927,8 +3918,7 @@ def analyze_dataset1(df, request_params=None):
             'category': 'basic'
         })
 
-    # Advanced graph templates
-    # 1. Box plots
+    # 5. Box plot
     if focus_numerical:
         graph_templates.append({
             'type': 'box',
@@ -3937,16 +3927,16 @@ def analyze_dataset1(df, request_params=None):
             'category': 'advanced'
         })
 
-    # 2. Heatmaps
+    # 6. Heatmap
     if len(numerical_columns) >= 2:
         graph_templates.append({
             'type': 'heatmap',
-            'query': "Generate a heatmap showing correlations between numerical columns.",
+            'query': f"Generate a heatmap showing correlations between '{numerical_columns}'.",
             'analysis': "Correlation matrix of numerical features",
             'category': 'advanced'
         })
 
-    # 3. Violin plots
+    # 7. Violin plot
     if focus_numerical and focus_categorical:
         graph_templates.append({
             'type': 'violin',
@@ -3955,7 +3945,7 @@ def analyze_dataset1(df, request_params=None):
             'category': 'advanced'
         })
 
-    # 4. 3D Scatter plots
+    # 8. 3D scatter
     if len(focus_numerical) >= 3:
         graph_templates.append({
             'type': '3d_scatter',
@@ -3964,26 +3954,13 @@ def analyze_dataset1(df, request_params=None):
             'category': 'advanced'
         })
 
-    # Filter by preferred graph types if specified
-    if preferred_types:
-        graph_templates = [g for g in graph_templates if g['type'] in preferred_types]
-
-    # Filter by analysis focus if specified
-    if analysis_focus == 'correlations':
-        graph_templates = [g for g in graph_templates if g['type'] in ['scatter', 'heatmap', '3d_scatter']]
-    elif analysis_focus == 'distributions':
-        graph_templates = [g for g in graph_templates if g['type'] in ['histogram', 'box', 'violin', 'bar']]
-    elif analysis_focus == 'trends':
-        graph_templates = [g for g in graph_templates if g['type'] in ['line']]
-
-    # Select a random subset of graphs to return (for variety across requests)
+    # Return all generated graph templates, or a random subset if too many
     try:
         selected_graphs = random.sample(graph_templates, min(num_graphs, len(graph_templates)))
     except ValueError:
         selected_graphs = graph_templates
 
     return selected_graphs
-
 
 # Dashboard APIs
 CHARTS_DIR = "generated_charts"
