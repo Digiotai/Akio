@@ -98,4 +98,11 @@ urlpatterns = [
     #Dynamic 4 kpis generation
     path('api/dyn_kpis', get_dyn_kpis, name='4 dynamic kpi generation'),
 
+    #Report related apis
+    path('api/save_reports', save_report, name='save reports'),
+    path('api/delete_reports_by_id', delete_report_by_id, name='delete reports based on email'),
+    path('api/get_reports', get_reports_with_email, name='Getting the reports based on email'),
+    path('api/email_reports', email_report, name='sending the reports to the user email'),
+
+
 ]
