@@ -1,3 +1,6 @@
+import smtplib
+from email.mime.text import MIMEText
+
 from dotenv import load_dotenv
 # from .database import PostgreSQLDB
 import base64
@@ -3238,6 +3241,7 @@ def train_models(df, target_col):
 
             print(f"\n{freq.capitalize()} Training complete. Scenario: {scenario}, Model: {best_model_name}")
 
+
 def load_forecast_model(model_path):
     if os.path.exists(model_path):
         print(f"Loading model from: {model_path}")
@@ -3277,11 +3281,13 @@ def detect_seasonality(df):
     autocorr = df['value'].autocorr(lag=1)
     return abs(autocorr) > 0.3  # If autocorr > 0.3 → Seasonality exists
 
+
 def train_arima(train, test):
     model = ARIMA(train['value'], order=(1, 1, 1)).fit()
     pred = model.predict(start=test.index[0], end=test.index[-1])
     error = mean_squared_error(test['value'], pred, squared=False)
     return model, error
+
 
 # Train Prophet Model
 def train_prophet(train, test):
@@ -3331,8 +3337,9 @@ def save_best_model(model, model_path):
     joblib.dump(model, model_path)
 
 
-
 import plotly.graph_objects as go
+
+
 def plot_graph(data):
     try:
 
@@ -3642,7 +3649,6 @@ def gen_ai_bot(request):
                 ]
             )
 
-
             pre_code_text, post_code_text, code = process_genai_response(response)
             result.update({
                 'text_pre_code_response': pre_code_text,
@@ -3667,7 +3673,6 @@ def gen_ai_bot(request):
 
     except Exception as e:
         return JsonResponse({'message': str(e)}, status=500)
-
 
 
 def extract_forecast_details_llm(prompt, column_names):
@@ -3826,13 +3831,14 @@ def make_serializable(obj):
     return obj
 
 
-
 # Dashboard with AI
 from plotly.graph_objects import Figure
 import pandas as pd
 
 import pandas as pd
 import random
+
+
 def analyze_dataset1(df, request_params=None):
     """
     Dynamically generates visualization queries based on dataset characteristics and request parameters
@@ -3995,6 +4001,7 @@ FIXED_CHART_FILENAMES = [
     "chart_8.json"
 ]
 
+
 @csrf_exempt
 def gen_plotly_response(request):
     if request.method == "POST":
@@ -4131,9 +4138,10 @@ def gen_plotly_response(request):
     return HttpResponse("Invalid request method", status=405)
 
 
-
-#Summarisiing the chart.
+# Summarisiing the chart.
 SUMMARY_CACHE = {}  # in-memory cache for simplicity
+
+
 @csrf_exempt
 def summarize_chart(request):
     if request.method == "POST":
@@ -4175,7 +4183,8 @@ def generate_text(prompt: str) -> str:
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "You are a helpful data analyst that explains data visualizations and user queries and write insightful summary for the given data."},
+            {"role": "system",
+             "content": "You are a helpful data analyst that explains data visualizations and user queries and write insightful summary for the given data."},
             {"role": "user", "content": prompt}
         ],
         temperature=0.7,
@@ -4183,7 +4192,8 @@ def generate_text(prompt: str) -> str:
     )
     return response.choices[0].message.content.strip()
 
-#Answering for the given question by the user.
+
+# Answering for the given question by the user.
 @csrf_exempt
 def ask_about_chart(request):
     if request.method == "POST":
@@ -4200,7 +4210,8 @@ def ask_about_chart(request):
 
             prompt = (
                 f"You previously summarized a chart as follows:\n{summary}\n"
-                f"Now the user asks: '{question}'. Provide a precise and accurate answer for the user questions within 3 lines only.Dont give huge content."
+                f"Now the user asks: '{question}'. Provide a precise and accurate answer for the user questions within 3 lines  in the form of bullet points only.Dont give huge content."
+                f"There should be three bullet points only with the concise information."
             )
             answer = generate_text(prompt)
 
@@ -4212,6 +4223,7 @@ def ask_about_chart(request):
 
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
+
 
 # Column_description for the  Discover in UI
 @csrf_exempt
@@ -4460,8 +4472,10 @@ def handle_missing_data(df):
 
 
 ###Data scout Apis:
-from .data_scout import DataScout_agent,extract_sections_tool,extract_num_pages_tool,pdf_generator_tool
+from .data_scout import DataScout_agent, extract_sections_tool, extract_num_pages_tool, pdf_generator_tool
 from .Predective_maintenence.data_scout_img import ImageGen_agent
+
+
 @csrf_exempt
 @api_view(['POST'])
 def create_data_with_data_scout(request):
@@ -4501,7 +4515,6 @@ def create_data_with_data_scout(request):
 
         except Exception as e:
             return Response({"error": str(e)}, status=500)
-
 
     elif data_type == "image":
         agent1 = ImageGen_agent()
@@ -4566,16 +4579,14 @@ def create_data_with_data_scout(request):
             return Response({"error": str(e)}, status=500)
 
 
-
-
-
-#Predictive Maintenence Apis.
+# Predictive Maintenence Apis.
 from .Predective_maintenence.anamoly_agent import AnomalyDetection_agent
 from .Predective_maintenence.schedule_agent import Scheduler_agent
 from .Predective_maintenence.alert_email import Alert_agent
 from .Predective_maintenence.alert_whatsapp import WhatsAppAgent
 
 DATA_FILE = "sensor_data_test.csv"
+
 
 @csrf_exempt
 @api_view(["POST"])
@@ -4641,10 +4652,13 @@ def predictive_maintenence(request):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-#Health Care assistant apis
-from .HealthCare_Assistant.all_agents import load_faiss_index,Main_agent
+# Health Care assistant apis
+from .HealthCare_Assistant.all_agents import load_faiss_index, Main_agent
+
 # Load FAISS index once and reuse
 faiss_index = load_faiss_index()
+
+
 @csrf_exempt
 @api_view(["POST"])
 def healthcare_assistant_api(request):
@@ -4671,8 +4685,7 @@ def healthcare_assistant_api(request):
         }, status=500)
 
 
-
-#Dynamic Generation of 4 kpis api
+# Dynamic Generation of 4 kpis api
 @csrf_exempt
 def get_dyn_kpis(request):
     if request.method == "POST":
@@ -4725,6 +4738,108 @@ def get_dyn_kpis(request):
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
 
-
     return JsonResponse({"error": "Invalid request method"}, status=405)
 
+
+# Report related apis
+# 1.Saving the graphs in database.
+@csrf_exempt
+def save_report(request):
+    if request.method == 'POST':
+        try:
+            email = request.POST.get("email")
+            image_base64 = request.POST.get("image_base64")
+            if not email or not image_base64:
+                return JsonResponse({"error": "Missing email or image_base64"}, status=400)
+
+            print(f"Received save request for email: {email}")
+            status, result = db.insert_report(email, image_base64)
+            return JsonResponse({"status": status, "result": result})
+
+        except Exception as e:
+            print(f"Error in save_report: {e}")
+            return JsonResponse({"error": str(e)}, status=500)
+
+
+#Getting reports for the mail.
+@csrf_exempt
+def get_reports_with_email(request):
+    if request.method == 'POST':
+        try:
+            email = request.POST.get("email")
+            if not email:
+                return JsonResponse({"error": "Missing email"}, status=400)
+
+            df = db.get_report_by_email(email)
+            if df.empty:
+                return JsonResponse([], safe=False)
+
+            df = df.drop(columns=["image_bytes"], errors='ignore')
+            reports = df.to_dict(orient="records")
+            return JsonResponse(reports, safe=False)
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
+
+
+#Delete Reports based on the report_id
+@csrf_exempt
+def delete_report_by_id(request):
+    if request.method == 'POST':
+        try:
+            email = request.POST.get("email")
+            report_id = request.POST.get("id")
+            if not email or not report_id:
+                return JsonResponse({"error": "Missing email or report_id"}, status=400)
+
+            result = db.delete_user_report_by_id(email, report_id)
+            return JsonResponse({"status": result})
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
+
+
+##Sending email to the user
+import plotly.io as pio
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
+
+@csrf_exempt
+def email_report(request):
+    if request.method != 'POST':
+        return JsonResponse({"error": "Invalid method"}, status=405)
+
+    try:
+        email = request.POST.get("email")
+        if not email:
+            return JsonResponse({"error": "Missing email"}, status=400)
+
+        df = db.get_report_by_email(email)
+        if df.empty:
+            return JsonResponse({"error": "No reports found for this email."}, status=404)
+
+        msg = MIMEMultipart()
+        msg['Subject'] = 'Graph Reports'
+        msg['From'] = os.getenv("EMAIL_USER")
+        msg['To'] = email
+
+        msg.attach(MIMEText("Please find attached graph report(s).", 'plain'))
+
+        for i, row in df.iterrows():
+            try:
+                img_bytes = row["image_bytes"]
+                image_part = MIMEImage(img_bytes)
+                image_part.add_header('Content-Disposition', 'attachment', filename=f"graph_{i+1}.png")
+                msg.attach(image_part)
+            except Exception as render_err:
+                print(f"Failed to attach graph {i+1}: {render_err}")
+                continue
+
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.starttls()
+            server.login(os.getenv("EMAIL_USER"), os.getenv("EMAIL_PASS"))
+            server.send_message(msg)
+
+        return JsonResponse({"status": "Email sent successfully."})
+
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
