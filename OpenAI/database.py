@@ -428,15 +428,16 @@ class PostgresDatabase:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS reports (
-                        id SERIAL PRIMARY KEY,
-                        email VARCHAR(255),
-                        image_bytes BYTEA,
-                        created_at TIMESTAMP DEFAULT NOW(),
-                        updated_at TIMESTAMP DEFAULT NOW(),
-                        CONSTRAINT fk_email FOREIGN KEY(email) REFERENCES akio_data(email) ON DELETE CASCADE
-                    )
-                """)
+                       CREATE TABLE IF NOT EXISTS reports (
+                           id SERIAL PRIMARY KEY,
+                           email VARCHAR(255),
+                           image_bytes BYTEA,
+                           created_at TIMESTAMP DEFAULT NOW(),
+                           updated_at TIMESTAMP DEFAULT NOW(),
+                           CONSTRAINT fk_email FOREIGN KEY(email) REFERENCES akio_data(email) ON DELETE CASCADE
+                       )
+                   """)
+                self.connection.commit()
                 print("Table 'reports' created successfully.")
         except Exception as err:
             print(f"Error creating 'reports' table: {err}")
@@ -445,7 +446,6 @@ class PostgresDatabase:
     def insert_report(self, email, image_base64):
         try:
             self.ensure_connection()
-
             try:
                 image_bytes = base64.b64decode(image_base64)
             except Exception as decode_err:
@@ -453,11 +453,12 @@ class PostgresDatabase:
 
             with self.connection.cursor() as cursor:
                 cursor.execute("""
-                    INSERT INTO reports (email, image_bytes)
-                    VALUES (%s, %s)
-                    RETURNING id, email, image_bytes, created_at
-                """, (email, psycopg2.Binary(image_bytes)))
+                       INSERT INTO reports (email, image_bytes)
+                       VALUES (%s, %s)
+                       RETURNING id, email, created_at
+                   """, (email, psycopg2.Binary(image_bytes)))
                 result = cursor.fetchone()
+                self.connection.commit()
                 return "Report inserted", dict(zip([d[0] for d in cursor.description], result))
         except Exception as err:
             print(f"Error inserting report: {err}")
@@ -466,7 +467,6 @@ class PostgresDatabase:
     def update_report(self, email, image_base64):
         try:
             self.ensure_connection()
-
             try:
                 image_bytes = base64.b64decode(image_base64)
             except Exception as decode_err:
@@ -474,12 +474,13 @@ class PostgresDatabase:
 
             with self.connection.cursor() as cursor:
                 cursor.execute("""
-                    UPDATE reports
-                    SET image_bytes = %s, updated_at = NOW()
-                    WHERE email = %s
-                    RETURNING id, email, image_bytes, updated_at
-                """, (psycopg2.Binary(image_bytes), email))
+                       UPDATE reports
+                       SET image_bytes = %s, updated_at = NOW()
+                       WHERE email = %s
+                       RETURNING id, email, updated_at
+                   """, (psycopg2.Binary(image_bytes), email))
                 result = cursor.fetchone()
+                self.connection.commit()
                 return "Report updated", dict(zip([d[0] for d in cursor.description], result))
         except Exception as err:
             print(f"Error updating report: {err}")
@@ -489,9 +490,11 @@ class PostgresDatabase:
         try:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT id, email, image_bytes, created_at, updated_at FROM reports WHERE email = %s",
-                    (email,))
+                cursor.execute("""
+                       SELECT id, email, encode(image_bytes, 'base64') as image_bytes, created_at, updated_at
+                       FROM reports
+                       WHERE email = %s
+                   """, (email,))
                 rows = cursor.fetchall()
                 cols = [desc[0] for desc in cursor.description]
                 return pd.DataFrame(rows, columns=cols)
@@ -516,6 +519,7 @@ class PostgresDatabase:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("DROP TABLE IF EXISTS reports CASCADE")
+                self.connection.commit()
                 print("Table 'reports' deleted successfully.")
                 return "Reports table deleted"
         except Exception as err:
