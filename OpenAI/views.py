@@ -4755,12 +4755,7 @@ def save_report(request):
 
             print(f"Received save request for email: {email}")
 
-            # Save the data
             status, result = db.insert_report(email, image_base64)
-
-            # Make sure result is safe to serialize
-            if isinstance(result, memoryview):
-                result = result.tobytes().decode('utf-8')  # decode if it’s a string
 
             return JsonResponse({"status": status, "result": result})
 
@@ -4769,8 +4764,6 @@ def save_report(request):
             return JsonResponse({"error": str(e)}, status=500)
 
 
-
-#Getting reports for the mail.
 @csrf_exempt
 def get_reports_with_email(request):
     if request.method == 'POST':
@@ -4790,7 +4783,6 @@ def get_reports_with_email(request):
             return JsonResponse({"error": str(e)}, status=500)
 
 
-#Delete Reports based on the report_id
 @csrf_exempt
 def delete_report_by_id(request):
     if request.method == 'POST':
@@ -4805,13 +4797,9 @@ def delete_report_by_id(request):
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
 
-
-##Sending email to the user
-import plotly.io as pio
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
-
 @csrf_exempt
 def email_report(request):
     if request.method != 'POST':
@@ -4835,9 +4823,7 @@ def email_report(request):
 
         for i, row in df.iterrows():
             try:
-                img_bytes = row["image_bytes"]
-                if isinstance(img_bytes, memoryview):
-                    img_bytes = img_bytes.tobytes()
+                img_bytes = base64.b64decode(row["image_bytes"])
 
                 image_part = MIMEImage(img_bytes)
                 image_part.add_header('Content-Disposition', 'attachment', filename=f"graph_{i + 1}.png")
