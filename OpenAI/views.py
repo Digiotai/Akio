@@ -4749,16 +4749,25 @@ def save_report(request):
         try:
             email = request.POST.get("email")
             image_base64 = request.POST.get("image_base64")
+
             if not email or not image_base64:
                 return JsonResponse({"error": "Missing email or image_base64"}, status=400)
 
             print(f"Received save request for email: {email}")
+
+            # Save the data
             status, result = db.insert_report(email, image_base64)
+
+            # Make sure result is safe to serialize
+            if isinstance(result, memoryview):
+                result = result.tobytes().decode('utf-8')  # decode if it’s a string
+
             return JsonResponse({"status": status, "result": result})
 
         except Exception as e:
             print(f"Error in save_report: {e}")
             return JsonResponse({"error": str(e)}, status=500)
+
 
 
 #Getting reports for the mail.
@@ -4827,11 +4836,14 @@ def email_report(request):
         for i, row in df.iterrows():
             try:
                 img_bytes = row["image_bytes"]
+                if isinstance(img_bytes, memoryview):
+                    img_bytes = img_bytes.tobytes()
+
                 image_part = MIMEImage(img_bytes)
-                image_part.add_header('Content-Disposition', 'attachment', filename=f"graph_{i+1}.png")
+                image_part.add_header('Content-Disposition', 'attachment', filename=f"graph_{i + 1}.png")
                 msg.attach(image_part)
             except Exception as render_err:
-                print(f"Failed to attach graph {i+1}: {render_err}")
+                print(f"Failed to attach graph {i + 1}: {render_err}")
                 continue
 
         with smtplib.SMTP('smtp.gmail.com', 587) as server:
