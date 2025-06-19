@@ -137,7 +137,8 @@
 #     db.table_creation()
 #     db.add_user("revirevi", 'test@example123.com')
 #     print(db.get_user_data('revirevi'))
-
+import base64
+import json
 
 import psycopg2
 #
@@ -280,9 +281,6 @@ class PostgresDatabase:
             return "Connection failed"
 
     def ensure_connection(self):
-        """
-        Ensure the connection is active. Reconnect if necessary.
-        """
         try:
             if self.connection is None or self.connection.closed:
                 print("Reconnecting to the database...")
@@ -297,20 +295,18 @@ class PostgresDatabase:
             raise
 
     def create_table(self):
-        """
-        Create a table with a composite unique constraint on email and name.
-        """
         try:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
                 query = """CREATE TABLE IF NOT EXISTS akio_data(
                             id SERIAL PRIMARY KEY,
-                            email VARCHAR(255),
+                            email VARCHAR(255) NOT NULL,
                             name VARCHAR(255),
                             lastupdate TIMESTAMP,
                             datecreated TIMESTAMP,
                             fileobj BYTEA,
-                            CONSTRAINT email_name_unique UNIQUE(email, name) -- Composite unique constraint
+                            CONSTRAINT email_unique UNIQUE(email),
+                            CONSTRAINT email_name_unique UNIQUE(email, name)
                             )"""
                 cursor.execute(query)
                 print("Table 'akio_data' created successfully.")
@@ -319,21 +315,16 @@ class PostgresDatabase:
             return str(err)
 
     def insert_or_update(self, email, data, tb_name):
-        """
-        Insert or update records based on a combination of email and name.
-        """
         try:
             self.ensure_connection()
-            tb_name_clean = tb_name.split('.')[0]  # Strip extension
-            blob_data = pickle.dumps(data)  # Serialize the data
+            tb_name_clean = tb_name.split('.')[0]
+            blob_data = pickle.dumps(data)
 
             with self.connection.cursor() as cursor:
-                # Check if a record with the same email and name exists
                 cursor.execute("SELECT id FROM akio_data WHERE email = %s AND name = %s", (email, tb_name_clean))
                 existing_record = cursor.fetchone()
 
                 if existing_record:
-                    # Update the existing record
                     cursor.execute("""UPDATE akio_data
                                       SET lastupdate = %s, fileobj = %s
                                       WHERE email = %s AND name = %s""",
@@ -341,7 +332,6 @@ class PostgresDatabase:
                     print(f"Record with email '{email}' and name '{tb_name_clean}' updated successfully.")
                     return "Record updated successfully"
                 else:
-                    # Insert a new record
                     cursor.execute("""INSERT INTO akio_data (email, name, lastupdate, datecreated, fileobj)
                                       VALUES (%s, %s, %s, %s, %s)""",
                                    (email, tb_name_clean, datetime.now(), datetime.now(), psycopg2.Binary(blob_data)))
@@ -358,13 +348,12 @@ class PostgresDatabase:
                 cursor.execute("SELECT * FROM akio_data")
                 rows = cursor.fetchall()
 
-            # Convert the result to a DataFrame
             columns = ['id', 'email', 'name', 'lastupdate', 'datecreated', 'fileobj']
             df = pd.DataFrame(rows, columns=columns)
             return df
         except Exception as err:
             print(f"Error reading data: {err}")
-            return pd.DataFrame()  # Return an empty DataFrame in case of error
+            return pd.DataFrame()
 
     def get_tables_info(self):
         try:
@@ -397,33 +386,30 @@ class PostgresDatabase:
             print(f"Error getting table data: {err}")
             return pd.DataFrame()
 
-    # Deleting the tables required by the user
     def delete_tables_data(self, email, table_names):
         try:
             if not table_names:
                 return "No table names provided for deletion."
             self.ensure_connection()
             with self.connection.cursor() as cursor:
-                placeholders = ', '.join(['%s'] * len(table_names))  # Create placeholders for the SQL query
+                placeholders = ', '.join(['%s'] * len(table_names))
                 query = f"DELETE FROM akio_data WHERE email = %s AND name IN ({placeholders})"
-                params = [email] + table_names  # Combine email and table names into a single list for parameters
+                params = [email] + table_names
 
                 cursor.execute(query, params)
                 if cursor.rowcount == 0:
                     return f"No data found for email: {email} and tables: {table_names}"
 
-                self.connection.commit()  # Commit the transaction
+                self.connection.commit()
                 return f"{cursor.rowcount} record(s) deleted successfully for email: {email} and tables: {table_names}"
         except Exception as err:
             print(f"Error deleting tables data: {err}")
             return str(err)
 
-    #Delete all tables data.
     def delete_all_tables_data(self, email):
         try:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
-                # SQL query to delete all rows for the given email
                 query = "DELETE FROM akio_data WHERE email = %s"
                 params = (email,)
 
@@ -431,28 +417,136 @@ class PostgresDatabase:
                 if cursor.rowcount == 0:
                     return f"No data found for email: {email}"
 
-                self.connection.commit()  # Commit the transaction
+                self.connection.commit()
                 return f"{cursor.rowcount} record(s) deleted successfully for email: {email}"
         except Exception as err:
             print(f"Error deleting all tables data: {err}")
             return str(err)
 
-    def delete_main_table(self):
-        """
-        Delete the main table 'akio_data' along with all its data.
-        """
+    def create_reports_table(self):
         try:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
-                cursor.execute("DROP TABLE IF EXISTS akio_data CASCADE")
-                print("Main table 'akio_data' deleted successfully.")
-                return "Main table deleted successfully"
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS reports (
+                        id SERIAL PRIMARY KEY,
+                        email VARCHAR(255),
+                        image_bytes BYTEA,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        updated_at TIMESTAMP DEFAULT NOW(),
+                        CONSTRAINT fk_email FOREIGN KEY(email) REFERENCES akio_data(email) ON DELETE CASCADE
+                    )
+                """)
+                print("Table 'reports' created successfully.")
         except Exception as err:
-            print(f"Error deleting main table: {err}")
+            print(f"Error creating 'reports' table: {err}")
+            return str(err)
+
+    def insert_report(self, email, image_base64):
+        try:
+            self.ensure_connection()
+
+            try:
+                image_bytes = base64.b64decode(image_base64)
+            except Exception as decode_err:
+                return "Invalid base64 image", str(decode_err)
+
+            with self.connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO reports (email, image_bytes)
+                    VALUES (%s, %s)
+                    RETURNING id, email, image_bytes, created_at
+                """, (email, psycopg2.Binary(image_bytes)))
+                result = cursor.fetchone()
+                return "Report inserted", dict(zip([d[0] for d in cursor.description], result))
+        except Exception as err:
+            print(f"Error inserting report: {err}")
+            return "Error", str(err)
+
+    def update_report(self, email, image_base64):
+        try:
+            self.ensure_connection()
+
+            try:
+                image_bytes = base64.b64decode(image_base64)
+            except Exception as decode_err:
+                return "Invalid base64 image", str(decode_err)
+
+            with self.connection.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE reports
+                    SET image_bytes = %s, updated_at = NOW()
+                    WHERE email = %s
+                    RETURNING id, email, image_bytes, updated_at
+                """, (psycopg2.Binary(image_bytes), email))
+                result = cursor.fetchone()
+                return "Report updated", dict(zip([d[0] for d in cursor.description], result))
+        except Exception as err:
+            print(f"Error updating report: {err}")
+            return "Error", str(err)
+
+    def get_report_by_email(self, email):
+        try:
+            self.ensure_connection()
+            with self.connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT id, email, image_bytes, created_at, updated_at FROM reports WHERE email = %s",
+                    (email,))
+                rows = cursor.fetchall()
+                cols = [desc[0] for desc in cursor.description]
+                return pd.DataFrame(rows, columns=cols)
+        except Exception as err:
+            print(f"Error retrieving report: {err}")
+            return pd.DataFrame()
+
+    def delete_report_by_email(self, email):
+        try:
+            self.ensure_connection()
+            with self.connection.cursor() as cursor:
+                cursor.execute("DELETE FROM reports WHERE email = %s", (email,))
+                count = cursor.rowcount
+                self.connection.commit()
+                return f"{count} report(s) deleted for email: {email}"
+        except Exception as err:
+            print(f"Error deleting report: {err}")
+            return str(err)
+
+    def delete_reports_table(self):
+        try:
+            self.ensure_connection()
+            with self.connection.cursor() as cursor:
+                cursor.execute("DROP TABLE IF EXISTS reports CASCADE")
+                print("Table 'reports' deleted successfully.")
+                return "Reports table deleted"
+        except Exception as err:
+            print(f"Error dropping reports table: {err}")
+            return str(err)
+
+    def delete_user_report_by_id(self, email, report_id):
+        try:
+            self.ensure_connection()
+            with self.connection.cursor() as cursor:
+                cursor.execute("DELETE FROM reports WHERE id = %s AND email = %s", (report_id, email))
+                count = cursor.rowcount
+                self.connection.commit()
+                return f"{count} report(s) deleted for email: {email} and report_id: {report_id}"
+        except Exception as err:
+            print(f"Error deleting report by id and email: {err}")
+            return str(err)
+
+    def delete_all_tables(self):
+        try:
+            self.ensure_connection()
+            with self.connection.cursor() as cursor:
+                cursor.execute("DROP TABLE IF EXISTS reports CASCADE")
+                cursor.execute("DROP TABLE IF EXISTS akio_data CASCADE")
+                print("Tables 'reports' and 'akio_data' deleted successfully.")
+                return "All tables dropped"
+        except Exception as err:
+            print(f"Error deleting tables: {err}")
             return str(err)
 
 
-# Database configuration
 PGHOST = 'ep-yellow-recipe-a5fny139.us-east-2.aws.neon.tech'
 PGDATABASE = 'test'
 PGUSER = 'test_owner'
@@ -462,6 +556,10 @@ if __name__ == '__main__':
     pdd = PostgresDatabase()
     pdd.create_connection(PGUSER, PGPASSWORD, PGDATABASE, PGHOST)
     pdd.create_table()
+    pdd.create_reports_table()
+
+    # pdd.delete_all_tables()
+
 
     # # Test case: Users uploading files
     # df1 = pd.DataFrame({"Col1": [1, 2], "Col2": ["A", "B"]})
