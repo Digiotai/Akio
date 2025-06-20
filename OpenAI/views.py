@@ -1,5 +1,6 @@
 import smtplib
 from email.mime.text import MIMEText
+from typing import Optional
 
 from dotenv import load_dotenv
 # from .database import PostgreSQLDB
@@ -20,6 +21,8 @@ from digiotai.digiotai_jazz import Agent, Task, InputType, OutputType
 from django.views.decorators.csrf import csrf_exempt
 from dotenv import load_dotenv
 from keras.models import load_model
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage
 from openai import OpenAI
 from plotly.graph_objs import Figure
 from prophet import Prophet
@@ -1948,31 +1951,39 @@ def handle_synthetic_data_api(request):
     return JsonResponse({"error": "Invalid request method. Use POST."}, status=405)
 
 
+
+# Semantic ai related number of rows detection
+def extract_num_rows_from_prompt1(prompt: str, api_key: str) -> Optional[int]:
+    """
+    Extracts number of rows to generate using LLM-based semantic parsing only.
+    """
+    llm = ChatOpenAI(model="gpt-4o-mini",openai_api_key=api_key)
+    messages = [
+        SystemMessage(content="You extract the number of rows to generate from user input. Return only the integer."),
+        HumanMessage(content=prompt)
+    ]
+    try:
+        response = llm.invoke(messages)
+        match = re.search(r'\d+', response.content)
+        return int(match.group()) if match else None
+    except Exception as e:
+        print(f"[ERROR] Semantic extraction failed: {e}")
+        return None
+
 # For extended_synthetic_data
 import tempfile
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 import os
 
-
 @csrf_exempt
 def handle_synthetic_data_extended(request):
-    """
-    API Endpoint to generate synthetic data from a user's uploaded file and prompt.
-
-    Method: POST
-    Payload:
-      - uploaded_file (File): The empty Excel or CSV file with column names
-      - user_prompt (String): A prompt specifying the number of rows
-      - openai_api_key (String): OpenAI API key
-    """
     print("[DEBUG] Entering handle_synthetic_data_extended function")
-
     if request.method == "POST":
+        temp_file_name = None
         try:
             print("[DEBUG] Handling POST request")
 
-            # Extract uploaded file, user prompt, and API key from the request
             uploaded_file = request.FILES.get('file')
             user_prompt = request.POST.get('user_prompt')
             openai_api_key = get_api_key()
@@ -1985,7 +1996,6 @@ def handle_synthetic_data_extended(request):
                 print("[ERROR] Missing required parameters")
                 return JsonResponse({"error": "Missing required parameters"}, status=400)
 
-            # Determine file type and extract column names
             file_extension = os.path.splitext(uploaded_file.name)[1].lower()
             print(f"[DEBUG] File extension: {file_extension}")
 
@@ -1997,55 +2007,55 @@ def handle_synthetic_data_extended(request):
                 df = pd.read_csv(uploaded_file)
             else:
                 print("[ERROR] Unsupported file format")
-                return JsonResponse({"error": "Unsupported file format. Please upload an Excel or CSV file."},
-                                    status=400)
+                return JsonResponse({"error": "Unsupported file format. Please upload an Excel or CSV file."}, status=400)
 
             print(f"[DEBUG] Initial DataFrame columns: {list(df.columns)}")
 
-            # Create a temporary file for the data
             with tempfile.NamedTemporaryFile(suffix=file_extension, delete=False) as temp_file:
                 temp_file_name = temp_file.name
                 print(f"[DEBUG] Temporary file created at: {temp_file_name}")
 
-                # Save the truncated or original data to a temporary location
                 if file_extension == ".xlsx":
-                    print("[DEBUG] Saving DataFrame to temporary Excel file")
                     df.to_excel(temp_file_name, index=False)
                 elif file_extension == ".csv":
-                    print("[DEBUG] Saving DataFrame to temporary CSV file")
                     df.to_csv(temp_file_name, index=False)
 
-            # Extract the number of rows from the prompt
             print("[DEBUG] Extracting number of rows from the user prompt")
-            num_rows = extract_num_rows_from_prompt(user_prompt)
+            num_rows = extract_num_rows_from_prompt1(user_prompt,openai_api_key)
             print(f"[DEBUG] Number of rows extracted: {num_rows}")
 
             if num_rows is None:
                 print("[ERROR] Number of rows not found in the prompt")
                 return JsonResponse({"error": "Number of rows not found in the prompt"}, status=400)
 
-            # Generate synthetic data using the temporary file path
+            if num_rows > 100_000:
+                print("[ERROR] Requested too many rows")
+                return JsonResponse({"error": "Too many rows requested. Limit is 100,000."}, status=400)
+
             print(f"[DEBUG] Generating synthetic data with {num_rows} rows")
             generated_df = generate_synthetic_data(openai_api_key, temp_file_name, num_rows)
             print(f"[DEBUG] Synthetic data generated successfully: {generated_df.shape[0]} rows")
 
-            # Combine the original and synthetic data
             print("[DEBUG] Combining original and synthetic data")
             combined_df = pd.concat([df, generated_df], ignore_index=True)
             print(f"[DEBUG] Combined DataFrame shape: {combined_df.shape}")
 
-            # Convert to CSV for download
             print("[DEBUG] Converting combined DataFrame to CSV format")
-            combined_csv = combined_df.to_csv(index=False)
+            csv_data = combined_df.to_csv(index=False)
+            response = HttpResponse(csv_data, content_type='text/csv')
+            response['Content-Disposition'] = 'attachment; filename="synthetic_output.csv"'
 
-            print("[DEBUG] Returning successful response")
-            return JsonResponse({
-                "data": combined_csv
-            }, status=200)
+            print("[DEBUG] Returning file response")
+            return response
 
         except Exception as e:
             print(f"[ERROR] Exception occurred: {e}")
             return JsonResponse({"error": str(e)}, status=500)
+
+        finally:
+            if temp_file_name and os.path.exists(temp_file_name):
+                print(f"[DEBUG] Deleting temporary file: {temp_file_name}")
+                os.remove(temp_file_name)
 
     print("[ERROR] Invalid request method")
     return JsonResponse({"error": "Invalid request method. Use POST."}, status=405)
@@ -4465,15 +4475,12 @@ def create_data_with_data_scout(request):
     if data_type == "excel":
         agent1 = DataScout_agent()
         try:
-            result = agent1.invoke(prompt)
-            if 'output' in result:
-                response_data = {
-                    "file_path": result['output'],
-                    "data": result.get('data', [])  # fallback to empty list if not provided
-                }
-                return Response(response_data)
+            result = agent1.invoke({"input": prompt})
+            if isinstance(result, dict) and "output" in result:
+                # fallback if agent returns final message only
+                return Response({"message": result["output"]})
             else:
-                return Response({"error": "Failed to generate file"}, status=500)
+                return Response({"error": "Unexpected result format from agent."}, status=500)
         except Exception as e:
             return Response({"error": str(e)}, status=500)
 
@@ -4489,7 +4496,6 @@ def create_data_with_data_scout(request):
                 return Response(result)
             else:
                 return Response({"error": "Failed to generate structured PDF content"}, status=500)
-
         except Exception as e:
             return Response({"error": str(e)}, status=500)
 
