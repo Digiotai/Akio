@@ -3,11 +3,12 @@ import pandas as pd
 from langchain.agents import initialize_agent, AgentType
 from langchain.tools import Tool
 from langchain_openai import ChatOpenAI
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 import re
 from langchain.tools import StructuredTool
 from typing import Dict
 
+from pandas import DataFrame
 # For PDF Generation
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -19,10 +20,11 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 import io
 import requests
-from typing import List, Dict, Optional,Tuple
+from typing import List, Dict, Optional, Tuple
 import re
 import json
 from PIL import Image as PILImage
+from sklearn.utils import resample
 
 
 def initialize_llm():
@@ -38,32 +40,43 @@ def initialize_llm():
 # -----------------------------------------------------------------------------------------------------------------
 # For DataScout with Excel Generation
 # Data Extraction Tools
-def extract_num_rows_from_prompt(user_prompt: str) -> int:
-    match = re.search(r'(\d+)\s+(rows|records)', user_prompt, re.IGNORECASE)
-    if match:
-        return int(match.group(1))
-    return None
+def parse_prompt_with_semantic_ai(prompt: str) -> Tuple[Optional[int], List[str]]:
+    llm = initialize_llm()
+
+    system_instruction = (
+        """You are a prompt parser for synthetic data generation. 
+        Given a user input prompt, extract:
+        1. The number of rows requested (as an integer).
+        2. The list of column/field names (as a list of lowercase snake_case strings).
+
+        Respond with a JSON object strictly in the form:
+        {"num_rows": <int or null>, "columns": ["col1", "col2", ...]}.
+        Do not include any commentary.
+        """
+    )
+
+    response = llm.invoke(f"{system_instruction}\n\nPrompt: {prompt}")
+    content = response.content if hasattr(response, 'content') else str(response)
+
+    try:
+        parsed = eval(content) if isinstance(content, str) else content
+        num_rows = parsed.get("num_rows")
+        columns = parsed.get("columns", [])
+        return num_rows, columns
+    except Exception:
+        return None, []
 
 
-def extract_columns_from_prompt(user_prompt: str) -> List[str]:
-    match = re.search(r'(field names|column names|fields|columns|field_names|column_names)[\s:]*([a-zA-Z0-9_,\s\.]*)',
-                      user_prompt, re.IGNORECASE)
-    if match:
-        raw_columns = match.group(2).split(',')
-    else:
-        return []
-
-    formatted_columns = [
-        re.sub(r'[^a-zA-Z0-9]', '_', col.strip()).lower()
-        for col in raw_columns
-    ]
-
-    formatted_columns = list(filter(bool, formatted_columns))
-    return list(dict.fromkeys(formatted_columns))
+def extrapolate_from_seed(seed_df: pd.DataFrame, target_rows: int) -> pd.DataFrame:
+    factor = (target_rows + len(seed_df) - 1) // len(seed_df)
+    repeated_df = pd.concat([seed_df] * factor, ignore_index=True)
+    extrapolated_df = resample(repeated_df, n_samples=target_rows, random_state=42)
+    extrapolated_df.reset_index(drop=True, inplace=True)
+    return extrapolated_df
 
 
-# Synthetic Excel Data Generator
-def generate_data_from_text(text_sample: str, column_names: List[str], num_rows: int = 10, chunk_size: int = 50) -> Tuple[str, pd.DataFrame]:
+def generate_data_from_text(text_sample: str, column_names: List[str], num_rows: int = 10, seed_limit: int = 150) -> \
+        Tuple[str, pd.DataFrame]:
     llm = initialize_llm()
 
     sysp = """You are a data generator. Follow these rules:
@@ -73,54 +86,34 @@ def generate_data_from_text(text_sample: str, column_names: List[str], num_rows:
     4. No null values generation
     5. Strictly follow the output format"""
 
-    generated_rows = []
-    rows_generated = 0
     column_names_str = ", ".join(column_names)
+    generated_rows = []
 
-    while rows_generated < num_rows:
-        rows_to_generate = min(chunk_size, num_rows - rows_generated)
+    prompt = (
+        f"{sysp}\n\n"
+        f"Description: '{text_sample}'\n"
+        f"Generate {min(seed_limit, num_rows)} rows of synthetic data with columns: {column_names_str}.\n"
+        f"Tilde-separated only. No column headers or extra text."
+    )
 
-        if rows_generated == 0:
-            prompt = (
-                f"{sysp}\n\n"
-                f"Based on the following description:\n'{text_sample}'\n"
-                f"Generate {rows_to_generate} rows of synthetic data with the following columns:\n"
-                f"Columns: {column_names_str}\n"
-                "Ensure that all columns are present and the data is realistic, varied, and maintains logical relationships. "
-                "Format the data as tilde-separated values ('~') without including column names or any extra text."
-                "Return ONLY the raw data with no additional commentary or formatting."
-            )
-        else:
-            reference_data = "\n".join(["~".join(row) for row in generated_rows[-5:]])
-            prompt = (
-                f"{sysp}\n\n"
-                f"Based on the following description:\n'{text_sample}'\n"
-                f"Generate {rows_to_generate} rows of synthetic data with the following columns:\n"
-                f"Columns: {column_names_str}\n"
-                f"Follow the format of these recently generated rows:\n{reference_data}\n"
-                "Ensure that all columns are present and the data is realistic, varied, and maintains logical relationships. "
-                "Format the data as tilde-separated values ('~') without including column names or any extra text."
-                "Return ONLY the raw data with no additional commentary or formatting."
-            )
+    response = llm.invoke(prompt)
+    content = response.content if hasattr(response, 'content') else str(response)
 
-        response = llm.invoke(prompt)
-        content = response.content if hasattr(response, 'content') else str(response)
+    for line in content.strip().split('\n'):
+        parts = [cell.strip() for cell in line.split('~')]
+        if len(parts) == len(column_names):
+            generated_rows.append(parts)
 
-        # Process and validate rows
-        new_rows = []
-        for line in content.split('\n'):
-            parts = [cell.strip() for cell in line.strip().split('~')]
-            if len(parts) == len(column_names) and all(parts):
-                new_rows.append(parts)
+    df_seed = pd.DataFrame(generated_rows, columns=column_names)
 
-        generated_rows.extend(new_rows[:num_rows - rows_generated])
-        rows_generated = len(generated_rows)
+    if num_rows <= seed_limit:
+        df = df_seed
+    else:
+        df = extrapolate_from_seed(df_seed, num_rows)
 
-    df = pd.DataFrame(generated_rows, columns=column_names)
     file_path = "data_output.xlsx"
     df.to_excel(file_path, index=False)
     return file_path, df
-
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -129,26 +122,30 @@ def generate_data_from_text(text_sample: str, column_names: List[str], num_rows:
 import re
 from typing import Optional
 
-def extract_num_pages_for_pdf_prompt(user_prompt: str) -> Optional[int]:
-    match = re.search(r"(\d+)\s+(?:pages|page)", user_prompt, re.IGNORECASE)
-    if match:
-        return int(match.group(1))
-    return None
 
-def extract_sections_from_prompt(user_prompt: str) -> List[str]:
-    match = re.search(
-        r'(section names|sections|topics|headings|subsections|chapters|parts|content areas|section name|section|topic|heading|subsection|chapter|part|content area)[\s:]*([a-zA-Z0-9_,\s\.]*)',
-        user_prompt,
-        re.IGNORECASE
+# --- Prompt Parsing for PDF (LLM-based) ---
+def extract_pdf_prompt_semantics(user_prompt: str) -> Tuple[Optional[int], List[str]]:
+    llm = initialize_llm()
+
+    system_instruction = (
+        """You are a document request parser. Given a user prompt, extract:
+        1. The number of pages requested (as an integer).
+        2. The list of section names (as a list of title-case strings).
+
+        Respond with JSON only in this format:
+        {"num_pages": <int or null>, "sections": ["Section 1", "Section 2", ...]}.
+        No commentary or markdown.
+        """
     )
-    if match:
-        raw_sections = match.group(2).split(',')
-    else:
-        return []
 
-    formatted_sections = [section.strip().title() for section in raw_sections if section.strip()]
-    return list(dict.fromkeys(formatted_sections))  # deduplicated
+    response = llm.invoke(f"{system_instruction}\n\nPrompt: {user_prompt}")
+    content = response.content if hasattr(response, 'content') else str(response)
 
+    try:
+        parsed = json.loads(content)
+        return parsed.get("num_pages"), parsed.get("sections", [])
+    except Exception:
+        return None, []
 
 def parse_llm_json_response(response_text: str) -> Optional[dict]:
     if not response_text.strip():
@@ -166,7 +163,8 @@ def parse_llm_json_response(response_text: str) -> Optional[dict]:
 
 def generate_structured_content(text_sample: str, sections: List[str], num_pages: int = 15) -> Dict[str, Any]:
     assert isinstance(text_sample, str), "text_sample must be a string"
-    assert isinstance(sections, list) and all(isinstance(s, str) for s in sections), "sections must be a list of strings"
+    assert isinstance(sections, list) and all(
+        isinstance(s, str) for s in sections), "sections must be a list of strings"
 
     llm = initialize_llm()
 
@@ -226,39 +224,35 @@ def generate_structured_content(text_sample: str, sections: List[str], num_pages
             print(f"Raw response: {response.content}")
 
     return output
+
+
 # ----------------------------------------------------------------------------------------------------------------
 # Tool Wrapping for LangChain For PDF Generation
-def pdf_generator_tool(prompt: str, sections: List[str], number_of_pages: int) -> Dict[str, Any]:
-    if not sections:
+def pdf_generator_tool(prompt: str, sections: List[str] = None, number_of_pages: int = None) -> Dict[str, Any]:
+    if not sections or not isinstance(sections, list):
         sections = ["Introduction", "Content", "Conclusion"]
     if not number_of_pages or number_of_pages <= 0:
         number_of_pages = 1
     return generate_structured_content(prompt, sections, number_of_pages)
 
 def extract_sections_tool(prompt: str) -> List[str]:
-    return extract_sections_from_prompt(prompt)
+    _, sections = extract_pdf_prompt_semantics(prompt)
+    return sections
 
 def extract_num_pages_tool(prompt: str) -> int:
-    pages = extract_num_pages_for_pdf_prompt(prompt)
-    return pages if pages else 1
-
+    num_pages, _ = extract_pdf_prompt_semantics(prompt)
+    return num_pages if num_pages else 1
 
 # -----------------------------------------------------------------------------------------------------------------
-# Tool Wrapping for LangChain For Excel Generation
-def excel_generator_tool(prompt: str, columns: List[str], number_of_rows: int) -> str:
+def excel_generator_tool(prompt: str) -> tuple[str, DataFrame]:
+    num_rows, columns = parse_prompt_with_semantic_ai(prompt)
     if not columns:
-        raise ValueError("Column names cannot be empty.")
-    if not number_of_rows or number_of_rows <= 0:
-        raise ValueError("Number of rows must be a positive integer.")
-    return generate_data_from_text(prompt, columns, number_of_rows)
+        raise ValueError("Could not extract column names from prompt.")
+    if not num_rows or num_rows <= 0:
+        raise ValueError("Could not extract valid number of rows from prompt.")
 
+    return generate_data_from_text(prompt, columns, num_rows)
 
-def extract_columns_tool(prompt: str) -> List[str]:
-    return extract_columns_from_prompt(prompt)
-
-
-def extract_num_rows_tool(prompt: str) -> int:
-    return extract_num_rows_from_prompt(prompt)
 
 
 # -----------------------------------------------------------------------------------------------------------------
@@ -267,26 +261,17 @@ def DataScout_agent():
     llm = initialize_llm()
     tools = [
         Tool(
-            name="ExtractRowCount",
-            func=extract_num_rows_tool,
-            description="Extracts number of rows/records from the user's prompt."
-        ),
-        Tool(
-            name="ExtractColumnNames",
-            func=extract_columns_tool,
-            description="Extracts field/column names from the user's prompt."
-        ),
-        StructuredTool.from_function(
             func=excel_generator_tool,
             name="GenerateExcelFromPrompt",
-            description="Generates Excel data. Args: prompt (str), columns (List[str]), number_of_rows (int)",
+            description="Generate an Excel file from a free-text prompt. The prompt should include both the number of records and fields.",
             return_direct=True
         )
+
     ]
     agent = initialize_agent(
-        tools,
-        llm,
-        agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
+        tools=tools,
+        llm=llm,
+        agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
         verbose=True,
         handle_parsing_errors=True
     )
@@ -317,16 +302,15 @@ def DataScout_agent_with_pdf():
         )
     ]
 
-    agent = initialize_agent(
-        tools,
-        llm,
+    return initialize_agent(
+        tools=tools,
+        llm=llm,
         agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
         verbose=True,
         handle_parsing_errors=True
     )
-    return agent
 
-#pip install langchain-openai pandas openpyxl reportlab
+# pip install langchain-openai pandas openpyxl reportlab
 
 
 # Testing the pipeline
