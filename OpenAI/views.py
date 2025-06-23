@@ -4668,7 +4668,18 @@ def healthcare_assistant_api(request):
         }, status=500)
 
 
-# Dynamic Generation of 4 kpis api
+# Utility to make objects JSON serializable
+def make_serializable1(obj):
+    if isinstance(obj, dict):
+        return {k: make_serializable1(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [make_serializable1(i) for i in obj]
+    elif pd.isna(obj) or obj in [np.nan, np.inf, -np.inf]:
+        return None
+    elif isinstance(obj, pd.Timestamp):
+        return obj.isoformat()
+    return obj
+
 @csrf_exempt
 def get_dyn_kpis(request):
     if request.method == "POST":
@@ -4684,29 +4695,29 @@ def get_dyn_kpis(request):
                     except Exception:
                         pass
 
-            # Identify actual datetime columns
+            # Identify datetime columns
             date_columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
 
             col_info = [f"{col}: {str(dtype)}" for col, dtype in zip(df.columns, df.dtypes)]
 
+            # Preview and sanitize
             data_preview_raw = df.head(3).to_dict(orient="records")
-            data_preview = make_serializable(data_preview_raw)
+            data_preview = make_serializable1(data_preview_raw)
 
             prompt = f"""
-                        You are a data analyst. Based on the following dataset structure and sample rows, generate 4 insightful KPIs.
-                        
-                        Columns:
-                        {chr(10).join(col_info)}
-                        
-                        Sample data:
-                        {json.dumps(data_preview, indent=2)}
-                        
-                        Return a list of 4 KPIs in this format:
-                        [
-                          {{"name": "KPI Name", "description": "Explanation", "value": "Formatted Value"}},
-                          ...
-                        ]
-                        """
+            You are a data analyst. Based on the following dataset structure and sample rows, generate 4 insightful KPIs.
+
+            Columns:
+            {chr(10).join(col_info)}
+
+            Sample data:
+            {json.dumps(data_preview, indent=2)}
+
+            Return a list of 4 KPIs in this format:
+            [
+              {{"name": "KPI Name", "description": "Explanation", "value": "Formatted Value"}}
+            ]
+            """
 
             kpi_text = generate_text(prompt)
 
