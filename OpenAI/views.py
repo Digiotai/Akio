@@ -1,6 +1,6 @@
 import smtplib
 from email.mime.text import MIMEText
-from typing import Optional
+from typing import Optional, Dict, List
 
 from dotenv import load_dotenv
 # from .database import PostgreSQLDB
@@ -1951,13 +1951,12 @@ def handle_synthetic_data_api(request):
     return JsonResponse({"error": "Invalid request method. Use POST."}, status=405)
 
 
-
 # Semantic ai related number of rows detection
 def extract_num_rows_from_prompt1(prompt: str, api_key: str) -> Optional[int]:
     """
     Extracts number of rows to generate using LLM-based semantic parsing only.
     """
-    llm = ChatOpenAI(model="gpt-4o-mini",openai_api_key=api_key)
+    llm = ChatOpenAI(model="gpt-4o-mini", openai_api_key=api_key)
     messages = [
         SystemMessage(content="You extract the number of rows to generate from user input. Return only the integer."),
         HumanMessage(content=prompt)
@@ -1970,11 +1969,13 @@ def extract_num_rows_from_prompt1(prompt: str, api_key: str) -> Optional[int]:
         print(f"[ERROR] Semantic extraction failed: {e}")
         return None
 
+
 # For extended_synthetic_data
 import tempfile
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 import os
+
 
 @csrf_exempt
 def handle_synthetic_data_extended(request):
@@ -2007,7 +2008,8 @@ def handle_synthetic_data_extended(request):
                 df = pd.read_csv(uploaded_file)
             else:
                 print("[ERROR] Unsupported file format")
-                return JsonResponse({"error": "Unsupported file format. Please upload an Excel or CSV file."}, status=400)
+                return JsonResponse({"error": "Unsupported file format. Please upload an Excel or CSV file."},
+                                    status=400)
 
             print(f"[DEBUG] Initial DataFrame columns: {list(df.columns)}")
 
@@ -2021,7 +2023,7 @@ def handle_synthetic_data_extended(request):
                     df.to_csv(temp_file_name, index=False)
 
             print("[DEBUG] Extracting number of rows from the user prompt")
-            num_rows = extract_num_rows_from_prompt1(user_prompt,openai_api_key)
+            num_rows = extract_num_rows_from_prompt1(user_prompt, openai_api_key)
             print(f"[DEBUG] Number of rows extracted: {num_rows}")
 
             if num_rows is None:
@@ -3843,134 +3845,6 @@ def make_serializable(obj):
 
 # Dashboard with AI
 from plotly.graph_objects import Figure
-import pandas as pd
-
-import pandas as pd
-import random
-
-
-def analyze_dataset1(df, request_params=None):
-    """
-    Dynamically generates visualization queries based on dataset characteristics.
-
-    Args:
-        df: pandas DataFrame to analyze
-        request_params: dict of optional parameters from frontend that might influence the analysis
-                       (e.g., {'num_graphs': 6})
-
-    Returns:
-        List of query dictionaries for visualization generation
-    """
-    if request_params is None:
-        request_params = {}
-
-    # Get metadata about the dataset
-    numerical_columns = df.select_dtypes(include=['number']).columns.tolist()
-    categorical_columns = df.select_dtypes(exclude=['number']).columns.tolist()
-    date_columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
-
-    # Determine which columns to focus on (randomize selection for variety)
-    focus_numerical = numerical_columns.copy()
-    focus_categorical = categorical_columns.copy()
-
-    random.shuffle(focus_numerical)
-    random.shuffle(focus_categorical)
-
-    # Get number of graphs requested (default to 8 if not specified)
-    num_graphs = request_params.get('num_graphs', 8)
-
-    # Graph templates that we can choose from
-    graph_templates = []
-
-    # 1. Histograms (for numerical distributions)
-    if focus_numerical:
-        for col in focus_numerical[:2]:
-            graph_templates.append({
-                'type': 'histogram',
-                'query': f"Generate a histogram for '{col}' to show value distribution.",
-                'analysis': f"Distribution of {col}",
-                'category': 'basic'
-            })
-
-    # 2. Bar charts (for categorical distributions)
-    if focus_categorical:
-        for col in focus_categorical[:2]:
-            graph_templates.append({
-                'type': 'bar',
-                'query': f"Generate a bar chart showing value counts for '{col}'.",
-                'analysis': f"Frequency of {col} categories",
-                'category': 'basic'
-            })
-
-    # 3. Scatter plots
-    if len(focus_numerical) >= 2:
-        x, y = focus_numerical[0], focus_numerical[1]
-        graph_templates.append({
-            'type': 'scatter',
-            'query': f"Generate a scatter plot comparing '{x}' and '{y}'.",
-            'analysis': f"Relationship between {x} and {y}",
-            'category': 'basic'
-        })
-
-    # 4. Line charts
-    if date_columns and focus_numerical:
-        graph_templates.append({
-            'type': 'line',
-            'query': f"Generate a line chart showing '{focus_numerical[0]}' over time using '{date_columns[0]}'.",
-            'analysis': f"Trend of {focus_numerical[0]} over time",
-            'category': 'basic'
-        })
-    elif focus_numerical:
-        graph_templates.append({
-            'type': 'line',
-            'query': f"Generate a line chart showing trend of '{focus_numerical[0]}'.",
-            'analysis': f"Trend of {focus_numerical[0]}",
-            'category': 'basic'
-        })
-
-    # 5. Box plot
-    if focus_numerical:
-        graph_templates.append({
-            'type': 'box',
-            'query': f"Generate a box plot for '{focus_numerical[0]}' to analyze outliers.",
-            'analysis': f"Outlier analysis for {focus_numerical[0]}",
-            'category': 'advanced'
-        })
-
-    # 6. Heatmap
-    if len(numerical_columns) >= 2:
-        graph_templates.append({
-            'type': 'heatmap',
-            'query': f"Generate a heatmap showing correlations between '{numerical_columns}'.",
-            'analysis': "Correlation matrix of numerical features",
-            'category': 'advanced'
-        })
-
-    # 7. Violin plot
-    if focus_numerical and focus_categorical:
-        graph_templates.append({
-            'type': 'violin',
-            'query': f"Generate a violin plot comparing distribution of '{focus_numerical[0]}' across '{focus_categorical[0]}' categories.",
-            'analysis': f"Distribution comparison of {focus_numerical[0]} by {focus_categorical[0]}",
-            'category': 'advanced'
-        })
-
-    # 8. 3D scatter
-    if len(focus_numerical) >= 3:
-        graph_templates.append({
-            'type': '3d_scatter',
-            'query': f"Generate a 3D scatter plot analyzing relationships between '{focus_numerical[0]}', '{focus_numerical[1]}', and '{focus_numerical[2]}'.",
-            'analysis': "Multivariate relationship analysis",
-            'category': 'advanced'
-        })
-
-    # Return all generated graph templates, or a random subset if too many
-    try:
-        selected_graphs = random.sample(graph_templates, min(num_graphs, len(graph_templates)))
-    except ValueError:
-        selected_graphs = graph_templates
-
-    return selected_graphs
 
 # Dashboard APIs
 CHARTS_DIR = "generated_charts"
@@ -3983,11 +3857,8 @@ FIXED_CHART_FILENAMES = [
     "chart_3.json",
     "chart_4.json",
     "chart_5.json",
-    "chart_6.json",
-    "chart_7.json",
-    "chart_8.json"
+    "chart_6.json"
 ]
-
 
 @csrf_exempt
 def gen_plotly_response(request):
@@ -3996,13 +3867,13 @@ def gen_plotly_response(request):
             csv_file_path = 'data.csv'
             df = pd.read_csv(csv_file_path)
 
-            date_columns = [col for col in df.columns if 'date' in col.lower() or 'time' in col.lower()]
-            for col in date_columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
+            # metadata getting
+            metadata = infer_metadata(df)
+            print("metadata is..........",metadata)
 
-            queries = analyze_dataset1(df)
-            print("Queries are.............................................", queries)
-            if not queries:
+            topics = generate_topics_llm(metadata)
+            print("Queries are.............................................", topics)
+            if not topics:
                 # Clear all chart files if no queries generated
                 for filename in FIXED_CHART_FILENAMES:
                     chart_path = os.path.join(CHARTS_DIR, filename)
@@ -4014,8 +3885,7 @@ def gen_plotly_response(request):
                     "chart_files": FIXED_CHART_FILENAMES
                 }, status=200)
 
-            csv_metadata = {"columns": df.columns.tolist()}
-            metadata_str = ", ".join(csv_metadata["columns"])
+
             chart_responses = []
 
             # Initialize all chart files as empty
@@ -4025,19 +3895,24 @@ def gen_plotly_response(request):
                     json.dump({}, f)
 
             # Process queries up to 8 charts
-            for i, query in enumerate(queries[:8]):
-                print(query)
+            for i, topic in enumerate(topics[:6]):
+                print(topic)
                 prompt_eng = (
                     f"You are an AI specialized in data analytics and visualization."
                     f"Data used for analysis is stored in a CSV file named 'data.csv'."
-                    f"Attributes of the data are: {metadata_str}."
-                    f"Based on the user's query, generate Python code using Plotly to create the requested type of graph."
+                    f"Attributes of the data are: {metadata}."
+                    f"The user can give the {topics} only.Based on the topic name you have to select the best visualisation i.e best graphs which can be watchable and rich in nature."
+                    f"The graphs should be basic in nature,do not draw the advanced graphs.Give the rich colours for attractive "
+                    f"Try to draw the simple and easily understandable graphs from given topics which can be easily understood by the user."
+                    f"Based on the user's topic, generate Python code using Plotly to create the requested type of graph."
                     f"The code must output a Plotly 'Figure' object stored in a variable named 'fig'."
-                    f"The user asks: {query}"
+                    f"Do not draw the scatter plot at all.Replace that with the meaninigful graph."
+                    f"Must draw the graphs for all the topics and the graphs should be meaningful."
+                    f"The user asks: {topic}"
                 )
 
                 chat = generate_code(prompt_eng)
-                print(f"Generated code for query '{query}':")
+                print(f"Generated code for query '{topic}':")
                 print(chat)
 
                 if 'import' in chat:
@@ -4066,7 +3941,7 @@ def gen_plotly_response(request):
 
                             chart_entry = {
                                 "timestamp": datetime.now().isoformat(),
-                                "query": query["type"],
+                                "query": topic["type"],
                                 "chart_data": chart_data_serializable,
                                 "chart_file": chart_filename,
                                 "status": "success"
@@ -4079,7 +3954,7 @@ def gen_plotly_response(request):
 
                             chart_responses.append(chart_entry)
                         else:
-                            print(f"No valid Plotly figure found for query: {query}")
+                            print(f"No valid Plotly figure found for query: {topic}")
                             # Add entry for failed chart generation
                             chart_responses.append({
                                 "chart_file": FIXED_CHART_FILENAMES[i],
@@ -4087,7 +3962,7 @@ def gen_plotly_response(request):
                                 "error": "No valid figure generated"
                             })
                     except Exception as e:
-                        print(f"Execution error for query '{query}': {str(e)}")
+                        print(f"Execution error for query '{topic}': {str(e)}")
                         # Add entry for failed chart generation
                         chart_responses.append({
                             "chart_file": FIXED_CHART_FILENAMES[i],
@@ -4095,7 +3970,7 @@ def gen_plotly_response(request):
                             "error": str(e)
                         })
                 else:
-                    print(f"Invalid AI response for query: {query}")
+                    print(f"Invalid AI response for query: {topic}")
                     # Add entry for failed chart generation
                     chart_responses.append({
                         "chart_file": FIXED_CHART_FILENAMES[i],
@@ -4125,16 +4000,99 @@ def gen_plotly_response(request):
     return HttpResponse("Invalid request method", status=405)
 
 
+def infer_metadata(df: pd.DataFrame) -> Dict:
+    meta = {
+        "columns": [],
+        "correlation": df.select_dtypes(include='number').corr().to_dict(),
+        "shape": df.shape,
+        "total_nulls": int(df.isnull().sum().sum())
+    }
+
+    for col in df.columns:
+        dtype = str(df[col].dtype)
+        non_null_series = df[col].dropna()
+        sample_values = non_null_series.sample(min(3, len(non_null_series)), random_state=1).tolist() if len(non_null_series) > 0 else []
+
+        col_meta = {
+            "name": col,
+            "dtype": dtype,
+            "nulls": int(df[col].isnull().sum()),
+            "unique": int(df[col].nunique(dropna=True)),
+            "example_values": sample_values
+        }
+
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            col_meta['type'] = 'datetime'
+        elif pd.api.types.is_categorical_dtype(df[col]) or df[col].dtype == object:
+            col_meta['type'] = 'categorical'
+        elif pd.api.types.is_numeric_dtype(df[col]):
+            col_meta['type'] = 'numerical'
+        else:
+            col_meta['type'] = 'other'
+
+        meta["columns"].append(col_meta)
+
+    return meta
+
+
+def generate_topics_llm(meta: Dict) -> List[Dict]:
+    prompt = f"""
+    Given the following metadata about a dataset:
+    {json.dumps(meta, indent=2)}
+
+    Suggest six insightful data visualization topics. Each topic should be a dictionary with:
+    - title: a short human-readable chart title.
+    - type: one of charts in your knowledge which should be fit for the topics.
+    - columns: list of columns used in the chart.
+    
+    LLM Reasoning:
+    -Distribution of important metrics
+    -Relationships (correlation, trends, categories vs values)
+    -Time series (if datetime exists)
+    -Summary (heatmaps, bar plots,basic plots like line plots,multi line plots etc.)
+
+    I am giving you some examples for the generation of the topics.The examples are given below:
+    "Distribution of 'Price'"
+    "Sales over time"
+    "Revenue vs Category"
+    "Heatmap of numerical correlation"
+    
+    For Each requests,the topics should be dynamically changed leads to the different types of analysis in various scenarios.
+    Give the topics in which the user can easily understand with the help of visualisations.Just give the topics for basic analysis only.
+    You must give the six insightful data visualization topics.
+    Return a valid JSON list of dictionaries only.
+    """
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system",
+             "content": "You are a data visualization expert which can give basic topic names for the visualising of the plots."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.3,
+        max_tokens=500
+    )
+
+    try:
+        content = response.choices[0].message.content.strip()
+        if content.startswith("```json"):
+            content = content.lstrip("```json").rstrip("```").strip()
+        return json.loads(content)
+    except Exception as e:
+        print("Error parsing LLM response:", e)
+        return []
+
+
 # Summarisiing the chart.
 SUMMARY_CACHE = {}  # in-memory cache for simplicity
-
 
 @csrf_exempt
 def summarize_chart(request):
     if request.method == "POST":
         try:
             chart_id = request.POST.get('chart_id')
-            if not (int(chart_id) and 1 <= int(chart_id) <= 8):
+            if not (int(chart_id) and 1 <= int(chart_id) <= 6):
                 return JsonResponse({"error": "Invalid chart ID"}, status=400)
 
             filename = f"chart_{chart_id}.json"
@@ -4148,10 +4106,22 @@ def summarize_chart(request):
 
             prompt = (
                 f"You are a data analyst AI. A user selected a chart represented by this Plotly JSON:\n{json.dumps(chart_json)}\n"
-                f"Summarize the key insights, trends.Give the most important content only."
-                f"Don't give the headings like 'The provided plotly graph defines like...'.Just display the important content only."
-                f"Don't give any introductory description and conclusion description.Just provide the conscise meaningful summary within 8 lines."
-                f"Give the summary in the form of bullet points only.Don't give that as a paragraph."
+                f"Analyze and summarize only the insights, patterns, and trends that are directly visible in the chart.\n\n"
+                f"Follow this output structure:\n"
+                f"- Start with a core insight derived from the graph. Bold important terms where needed.\n"
+                f"- Describe distribution patterns if visible (e.g., skewness, outliers, clusters).\n"
+                f"- Explain what real-world behavior the graph appears to reflect (only if clearly supported by the data).\n"
+                f"- Mention modeling implications, **only if they are suggested by the visual pattern**.\n"
+                f"- If any transformation effect is evident from the graph (e.g., log-scale, smoothing), describe it clearly.\n"
+                f"  Use a code block to describe its effect:\n"
+                f"```\n"
+                f"- Point 1\n"
+                f"- Point 2\n"
+                f"- Point 3\n"
+                f"```\n"
+                f"- Mention any business insight that is clearly supported by the visual.\n"
+                f"- Suggest focused actions based on the graph’s trends (e.g., rising spikes, drop-offs, correlation zones).\n\n"
+                f"Only describe what you observe from the chart. Do not invent data or generalize beyond the chart. Use clean bullet points. No section headings. No intro or conclusion."
 
             )
             summary = generate_text(prompt)
@@ -4680,6 +4650,7 @@ def make_serializable1(obj):
         return obj.isoformat()
     return obj
 
+
 @csrf_exempt
 def get_dyn_kpis(request):
     if request.method == "POST":
@@ -4791,9 +4762,12 @@ def delete_report_by_id(request):
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
 
+
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
+
+
 @csrf_exempt
 def email_report(request):
     if request.method != 'POST':
