@@ -3860,144 +3860,122 @@ FIXED_CHART_FILENAMES = [
     "chart_6.json"
 ]
 
+
 @csrf_exempt
 def gen_plotly_response(request):
     if request.method == "POST":
-        try:
-            csv_file_path = 'data.csv'
-            df = pd.read_csv(csv_file_path)
+        csv_file_path = 'data.csv'
+        df = pd.read_csv(csv_file_path)
 
-            # metadata getting
-            metadata = infer_metadata(df)
-            print("metadata is..........",metadata)
+        # metadata getting
+        metadata = infer_metadata(df)
+        print("metadata is..........", metadata)
 
-            topics = generate_topics_llm(metadata)
-            print("Queries are.............................................", topics)
-            if not topics:
-                # Clear all chart files if no queries generated
-                for filename in FIXED_CHART_FILENAMES:
-                    chart_path = os.path.join(CHARTS_DIR, filename)
-                    with open(chart_path, "w") as f:
-                        json.dump({}, f)
-                return JsonResponse({
-                    "message": "No meaningful queries could be generated for the dataset.",
-                    "charts": [],
-                    "chart_files": FIXED_CHART_FILENAMES
-                }, status=200)
+        topics = generate_topics_llm(metadata)
+        print("Queries are.............................................", topics)
 
+        chart_responses = []
 
-            chart_responses = []
+        # Initialize all chart files as empty
+        for filename in FIXED_CHART_FILENAMES:
+            chart_path = os.path.join(CHARTS_DIR, filename)
+            with open(chart_path, "w") as f:
+                json.dump({}, f)
 
-            # Initialize all chart files as empty
-            for filename in FIXED_CHART_FILENAMES:
-                chart_path = os.path.join(CHARTS_DIR, filename)
-                with open(chart_path, "w") as f:
-                    json.dump({}, f)
+        # Process queries up to 8 charts
+        for i, topic in enumerate(topics[:6]):
+            print(topic)
+            prompt_eng = (
+                f"You are an AI specialized in data analytics and visualization."
+                f"Data used for analysis is stored in a CSV file named 'data.csv'."
+                f"Attributes of the data are: {metadata}."
+                f"The user can give the {topics} only.Based on the topic name you have to select the best visualisation i.e best graphs which can be watchable and rich in nature."
+                f"The graphs should be basic in nature,do not draw the advanced graphs.Give the rich colours for attractive "
+                f"Try to draw the simple and easily understandable graphs from given topics which can be easily understood by the user."
+                f"Based on the user's topic, generate Python code using Plotly to create the requested type of graph."
+                f"The code must output a Plotly 'Figure' object stored in a variable named 'fig'."
+                f"Do not draw the scatter plot at all.Replace that with the meaninigful graph."
+                f"Must draw the graphs for all the topics and the graphs should be meaningful."
+                f"The user asks: {topic}"
+            )
 
-            # Process queries up to 8 charts
-            for i, topic in enumerate(topics[:6]):
-                print(topic)
-                prompt_eng = (
-                    f"You are an AI specialized in data analytics and visualization."
-                    f"Data used for analysis is stored in a CSV file named 'data.csv'."
-                    f"Attributes of the data are: {metadata}."
-                    f"The user can give the {topics} only.Based on the topic name you have to select the best visualisation i.e best graphs which can be watchable and rich in nature."
-                    f"The graphs should be basic in nature,do not draw the advanced graphs.Give the rich colours for attractive "
-                    f"Try to draw the simple and easily understandable graphs from given topics which can be easily understood by the user."
-                    f"Based on the user's topic, generate Python code using Plotly to create the requested type of graph."
-                    f"The code must output a Plotly 'Figure' object stored in a variable named 'fig'."
-                    f"Do not draw the scatter plot at all.Replace that with the meaninigful graph."
-                    f"Must draw the graphs for all the topics and the graphs should be meaningful."
-                    f"The user asks: {topic}"
-                )
+            chat = generate_code4(prompt_eng)
+            print(f"Generated code for query '{topic}':")
+            print(chat)
 
-                chat = generate_code(prompt_eng)
-                print(f"Generated code for query '{topic}':")
-                print(chat)
+            if 'import' in chat:
+                namespace = {}
+                try:
+                    exec(chat, namespace)
+                    fig = namespace.get("fig")
 
-                if 'import' in chat:
-                    namespace = {}
-                    try:
-                        exec(chat, namespace)
-                        fig = namespace.get("fig")
+                    if fig and isinstance(fig, Figure):
+                        chart_data = fig.to_plotly_json()
 
-                        if fig and isinstance(fig, Figure):
-                            chart_data = fig.to_plotly_json()
+                        def make_serializable(obj):
+                            if isinstance(obj, (np.generic, np.ndarray)):
+                                return obj.tolist()
+                            elif isinstance(obj, datetime):
+                                return obj.isoformat()
+                            elif isinstance(obj, dict):
+                                return {k: make_serializable(v) for k, v in obj.items()}
+                            elif isinstance(obj, list):
+                                return [make_serializable(v) for v in obj]
+                            return obj
 
-                            def make_serializable(obj):
-                                if isinstance(obj, (np.generic, np.ndarray)):
-                                    return obj.tolist()
-                                elif isinstance(obj, datetime):
-                                    return obj.isoformat()
-                                elif isinstance(obj, dict):
-                                    return {k: make_serializable(v) for k, v in obj.items()}
-                                elif isinstance(obj, list):
-                                    return [make_serializable(v) for v in obj]
-                                return obj
+                        chart_data_serializable = make_serializable(chart_data)
+                        chart_filename = FIXED_CHART_FILENAMES[i]
+                        chart_path = os.path.join(CHARTS_DIR, chart_filename)
 
-                            chart_data_serializable = make_serializable(chart_data)
-                            chart_filename = FIXED_CHART_FILENAMES[i]
-                            chart_path = os.path.join(CHARTS_DIR, chart_filename)
+                        chart_entry = {
+                            "timestamp": datetime.now().isoformat(),
+                            "query": topic["type"],
+                            "chart_data": chart_data_serializable,
+                            "chart_file": chart_filename,
+                            "status": "success"
+                        }
 
-                            chart_entry = {
-                                "timestamp": datetime.now().isoformat(),
-                                "query": topic["type"],
-                                "chart_data": chart_data_serializable,
-                                "chart_file": chart_filename,
-                                "status": "success"
-                            }
+                        # Save individual chart file
+                        with open(chart_path, "w", encoding="utf-8") as f:
+                            json.dump(chart_data_serializable, f, indent=2, ensure_ascii=False)
+                            f.flush()
 
-                            # Save individual chart file
-                            with open(chart_path, "w", encoding="utf-8") as f:
-                                json.dump(chart_data_serializable, f, indent=2, ensure_ascii=False)
-                                f.flush()
-
-                            chart_responses.append(chart_entry)
-                        else:
-                            print(f"No valid Plotly figure found for query: {topic}")
-                            # Add entry for failed chart generation
-                            chart_responses.append({
-                                "chart_file": FIXED_CHART_FILENAMES[i],
-                                "status": "failed",
-                                "error": "No valid figure generated"
-                            })
-                    except Exception as e:
-                        print(f"Execution error for query '{topic}': {str(e)}")
+                        chart_responses.append(chart_entry)
+                    else:
+                        print(f"No valid Plotly figure found for query: {topic}")
                         # Add entry for failed chart generation
                         chart_responses.append({
                             "chart_file": FIXED_CHART_FILENAMES[i],
                             "status": "failed",
-                            "error": str(e)
+                            "error": "No valid figure generated"
                         })
-                else:
-                    print(f"Invalid AI response for query: {topic}")
+                except Exception as e:
+                    print(f"Execution error for query '{topic}': {str(e)}")
                     # Add entry for failed chart generation
                     chart_responses.append({
                         "chart_file": FIXED_CHART_FILENAMES[i],
                         "status": "failed",
-                        "error": "Invalid AI response"
+                        "error": str(e)
                     })
+            else:
+                print(f"Invalid AI response for query: {topic}")
+                # Add entry for failed chart generation
+                chart_responses.append({
+                    "chart_file": FIXED_CHART_FILENAMES[i],
+                    "status": "failed",
+                    "error": "Invalid AI response"
+                })
 
-            # Prepare final response with all chart data
-            response_data = {
-                "message": "Chart generation completed",
-                "generated_charts": len([c for c in chart_responses if c.get("status") == "success"]),
-                "total_charts": len(FIXED_CHART_FILENAMES),
-                "chart_files": FIXED_CHART_FILENAMES,
-                "charts": chart_responses
-            }
+        # Prepare final response with all chart data
+        response_data = {
+            "message": "Chart generation completed",
+            "generated_charts": len([c for c in chart_responses if c.get("status") == "success"]),
+            "total_charts": len(FIXED_CHART_FILENAMES),
+            "chart_files": FIXED_CHART_FILENAMES,
+            "charts": chart_responses
+        }
 
-            return JsonResponse(response_data, status=200)
-
-        except Exception as e:
-            print(f"Unexpected error: {str(e)}")
-            return JsonResponse({
-                "message": f"An unexpected error occurred: {str(e)}",
-                "charts": [],
-                "chart_files": FIXED_CHART_FILENAMES
-            }, status=500)
-
-    return HttpResponse("Invalid request method", status=405)
+        return JsonResponse(response_data, status=200)
 
 
 def infer_metadata(df: pd.DataFrame) -> Dict:
@@ -4011,7 +3989,8 @@ def infer_metadata(df: pd.DataFrame) -> Dict:
     for col in df.columns:
         dtype = str(df[col].dtype)
         non_null_series = df[col].dropna()
-        sample_values = non_null_series.sample(min(3, len(non_null_series)), random_state=1).tolist() if len(non_null_series) > 0 else []
+        sample_values = non_null_series.sample(min(3, len(non_null_series)), random_state=1).tolist() if len(
+            non_null_series) > 0 else []
 
         col_meta = {
             "name": col,
@@ -4040,22 +4019,25 @@ def generate_topics_llm(meta: Dict) -> List[Dict]:
     Given the following metadata about a dataset:
     {json.dumps(meta, indent=2)}
 
-    Suggest six insightful data visualization topics. Each topic should be a dictionary with:
-    - title: a short human-readable chart title.
-    - type: one of charts in your knowledge which should be fit for the topics.
-    - columns: list of columns used in the chart.
+        For each visualization topic, return a dictionary with:
+    - `title`: A clear, concise, and human-readable title for the chart (e.g., "Distribution of Price", "Sales over Time").
+    - `type`: A basic chart type that best fits the topic, such as  `bar`,`line`, `scatter`, `histogram`, `heatmap`, `pie`, `box`, etc.
+    - `columns`: A list of column names from the dataset that are relevant to the chart.
     
-    LLM Reasoning:
-    -Distribution of important metrics
-    -Relationships (correlation, trends, categories vs values)
-    -Time series (if datetime exists)
-    -Summary (heatmaps, bar plots,basic plots like line plots,multi line plots etc.)
-
-    I am giving you some examples for the generation of the topics.The examples are given below:
-    "Distribution of 'Price'"
-    "Sales over time"
-    "Revenue vs Category"
-    "Heatmap of numerical correlation"
+    Your response must be a **valid JSON list of exactly six such dictionaries**. Avoid duplication across the topics.
+    
+    In choosing the topics, apply the following reasoning:
+    - Identify key metrics for **distribution analysis** (e.g., using histograms, box plots).
+    - Use **relationships or comparisons** (e.g., category vs value, correlation between two columns).
+    - If there's a time/datetime column, include **time series analysis** (e.g., line plots).
+    - Include at least one **summary view**, such as a heatmap of numerical correlations.
+    - Choose **basic visualizations only** that are clear and accessible to a general user audience.
+    -Do not select the topics which we cannot able to draw the plot.
+    - Do not give the topics repeatedly.Give the topics uniquely  for the generation of the graphs.
+    
+    Ensure your choices adapt dynamically to each metadata input and avoid repeating the same topic titles across calls.
+    
+    Always return output in valid JSON format with no additional text.
     
     For Each requests,the topics should be dynamically changed leads to the different types of analysis in various scenarios.
     Give the topics in which the user can easily understand with the help of visualisations.Just give the topics for basic analysis only.
@@ -4064,13 +4046,13 @@ def generate_topics_llm(meta: Dict) -> List[Dict]:
     """
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         messages=[
             {"role": "system",
-             "content": "You are a data visualization expert which can give basic topic names for the visualising of the plots."},
+             "content": "You are a data visualization expert which can give basic topic names for the visualising of the plots.You specialize in helping users generate insightful and beginner-friendly data analysis ideas based on dataset metadata."},
             {"role": "user", "content": prompt}
         ],
-        temperature=0.3,
+        temperature=0.7,
         max_tokens=500
     )
 
@@ -4084,8 +4066,52 @@ def generate_topics_llm(meta: Dict) -> List[Dict]:
         return []
 
 
+# Function to generate code from OpenAI API
+def generate_code4(prompt_eng):
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": f"""
+                                        You are a helpful coding assistant named VizCopilot. You're an expert in Python and specialize in generating interactive visualizations using Plotly (both Plotly Express and Plotly Graph Objects).
+
+                                        Your job is to:
+                                        - Understand the user's data context, visualization goals.
+                                        - Generate full, working Plotly code snippets using best practices (readable, maintainable, idiomatic).
+                                        - Use `plotly.express` for standard charts, and `plotly.graph_objects` when more customization is needed.
+                                        - Include layout configuration for titles, labels, tooltips, and themes.
+                                        - Always use a fully reproducible Python code block.
+                                        - Format outputs in Markdown with proper syntax highlighting.
+                                        
+                                        When generating code (especially Plotly/Python):
+                                        - Always produce **fully working, valid Python code**.
+                                        - Use **correct imports**, avoid missing modules like `import plotly.express as px`, `import pandas as pd`, etc.
+                                        - Never leave incomplete functions or syntax or rising of the serialisable json issues.
+                                        - Validate your code logically before outputting it.
+                                        - Always close brackets, function calls, and maintain indentation properly.
+                                        
+                                        You aim to make data visualization with Plotly fast, clear, and interactive. Never skip code steps. Always generate complete, working code.Do not give errors while executing the code.
+                                          """},
+            {"role": "user", "content": prompt_eng}
+        ]
+    )
+    all_text = ""
+    for choice in response.choices:
+        message = choice.message
+        chunk_message = message.content if message else ''
+        all_text += chunk_message
+    print(all_text)
+    if "```python" in all_text:
+        code_start = all_text.find("```python") + 9
+        code_end = all_text.find("```", code_start)
+        code = all_text[code_start:code_end]
+    else:
+        code = all_text
+    return code
+
+
 # Summarisiing the chart.
 SUMMARY_CACHE = {}  # in-memory cache for simplicity
+
 
 @csrf_exempt
 def summarize_chart(request):
@@ -4651,59 +4677,175 @@ def make_serializable1(obj):
     return obj
 
 
+# @csrf_exempt
+# def get_dyn_kpis(request):
+#     if request.method == "POST":
+#         try:
+#             csv_file_path = 'data.csv'
+#             df = pd.read_csv(csv_file_path)
+#
+#             # Attempt datetime conversion for object columns
+#             for col in df.columns:
+#                 if df[col].dtype == 'object':
+#                     try:
+#                         df[col] = pd.to_datetime(df[col], errors='coerce')
+#                     except Exception:
+#                         pass
+#
+#             # Identify datetime columns
+#             date_columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
+#
+#             col_info = [f"{col}: {str(dtype)}" for col, dtype in zip(df.columns, df.dtypes)]
+#
+#             # Preview and sanitize
+#             data_preview_raw = df.head(3).to_dict(orient="records")
+#             data_preview = make_serializable1(data_preview_raw)
+#
+#             prompt = f"""
+#             You are a data analyst. Based on the following dataset structure and sample rows, generate 4 insightful KPIs.
+#
+#             Columns:
+#             {chr(10).join(col_info)}
+#
+#             Sample data:
+#             {json.dumps(data_preview, indent=2)}
+#
+#             Return a list of 4 KPIs in this format:
+#             [
+#               {{"name": "KPI Name", "description": "Explanation", "value": "Formatted Value"}}
+#             ]
+#             """
+#
+#             kpi_text = generate_text(prompt)
+#
+#             try:
+#                 kpi_text_cleaned = re.search(r'\[.*\]', kpi_text, re.DOTALL).group(0)
+#                 kpis = json.loads(kpi_text_cleaned)
+#             except Exception:
+#                 return JsonResponse({"error": "Failed to parse LLM output as JSON", "raw": kpi_text}, status=500)
+#
+#             return JsonResponse(kpis[:4], safe=False)
+#
+#         except Exception as e:
+#             return JsonResponse({"error": str(e)}, status=500)
+#
+#     return JsonResponse({"error": "Invalid request method"}, status=405)
+
+# Statistical Analysis for Dashboard
 @csrf_exempt
-def get_dyn_kpis(request):
-    if request.method == "POST":
-        try:
-            csv_file_path = 'data.csv'
-            df = pd.read_csv(csv_file_path)
+def data_processing(request):
+    if request.method == 'GET':
+        if os.path.exists(os.path.join('data.csv')):
+            df = pd.read_csv(os.path.join('data.csv'))
+            df = updatedtypes(df)
+            if df.shape[0] > 0:
+                nullvalues = df.isnull().sum().to_dict()
+                parameters = list(nullvalues.keys())
+                Count = list(nullvalues.values())
+                total_missing = df.isnull().sum().sum()
+                # df, html_df = process_missing_data(df)
+                # cache.set('dataframe', html_df)
+                # df.to_csv(os.path.join('uploads', 'processed_data.csv'), index=False)
+                nor = df.shape[0]
+                nof = df.shape[1]
+                timestamp = 'N'
+                boolean = 'N'
+                categorical_vars = []
+                boolean_vars = []
+                numeric_vars = {}
+                datetime_vars = []
+                text_data = []
+                td = None
+                stationary = "NA"
+                numfilter = ['25%', '50%', '75%']
+                single_value_columns = [col for col in df.columns if df[col].nunique() == 1]
+                df.drop(single_value_columns, axis=1, inplace=True)
+                for i, j in df.dtypes.items():
+                    if str(j) in ["float64", "int64"]:
+                        data = df[i].describe().to_dict()
+                        numeric_vars[i] = data
+                    elif str(j) in ["object"] and i not in ['Remark']:
+                        categorical_vars.append({i: df[i].nunique()})
+                    elif str(j) in ["datetime64[ns]"]:
+                        if i.upper() in ['DATE', "TIME", "DATE_TIME"]:
+                            td = i
+                        datetime_vars.append(i)
+                    elif str(j) in ["bool"]:
+                        boolean_vars.append(i)
+                request.session['TimeSeriesColumns'] = datetime_vars
+                # if 'Remark' in df.columns:
+                #     text_data.append('Remark')
+                istextdata = 'Y' if len(text_data) > 0 else 'N'
+                if len(datetime_vars) > 0:
+                    timestamp = 'Y'
+                if td:
+                    stationary = adf_test(df, td)
+                catvalues = [{'Parameter': list(data.keys())[0], 'Count': list(data.values())[0]} for data in
+                             categorical_vars]
+                sentiment = checkSentiment(df, categorical_vars)
+                if len(catvalues) > 0:
+                    catdf = pd.DataFrame(catvalues)
+                else:
+                    catdf = pd.DataFrame()
+                if len(numeric_vars) > 0:
+                    numdf = pd.DataFrame(numeric_vars).T
+                    numdf['ColumnName'] = numdf.index
+                else:
+                    numdf = pd.DataFrame()
+                if len(boolean_vars) > 0:
+                    boolean = 'Y'
 
-            # Attempt datetime conversion for object columns
-            for col in df.columns:
-                if df[col].dtype == 'object':
-                    try:
-                        df[col] = pd.to_datetime(df[col], errors='coerce')
-                    except Exception:
-                        pass
+                missingvalue = pd.DataFrame({"Parameters": parameters, 'Missing Value Count': Count})
 
-            # Identify datetime columns
-            date_columns = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
+                duplicate_records = df[df.duplicated(keep='first')].shape[0]
 
-            col_info = [f"{col}: {str(dtype)}" for col, dtype in zip(df.columns, df.dtypes)]
+                return JsonResponse(
+                    {'nof_rows': str(nor), 'nof_columns': str(nof), 'timestamp': timestamp,
+                     "single_value_columns": ",".join(single_value_columns) if len(
+                         single_value_columns) > 0 else "NA",
+                     "sentiment": sentiment,
+                     "stationary": stationary,
+                     'catdf': catdf.to_json(orient='records'),
+                     'missing_data': str(total_missing),
+                     'numdf': numdf.to_json(orient='records') if numdf.shape[0] > 0 else "No data", 'boolean': boolean,
+                     'missingvalue': missingvalue.to_json(orient='records'),
+                     'textdata': istextdata, 'duplicate_records': str(duplicate_records)
+                     })
 
-            # Preview and sanitize
-            data_preview_raw = df.head(3).to_dict(orient="records")
-            data_preview = make_serializable1(data_preview_raw)
+            else:
+                return HttpResponse("No data")
+        else:
+            return HttpResponse(json.dumps(
+                {'msg': 'Please upload file'}))
+    else:
+        return HttpResponse('Invalid Request')
 
-            prompt = f"""
-            You are a data analyst. Based on the following dataset structure and sample rows, generate 4 insightful KPIs.
 
-            Columns:
-            {chr(10).join(col_info)}
+def adf_test(df, kpi):
+    df_t = df.set_index(kpi)
 
-            Sample data:
-            {json.dumps(data_preview, indent=2)}
+    for col in df_t.columns:
+        # Check if the column name is not in the specified list and is numeric
+        if col.upper() not in ['DATE', 'TIME', 'DATE_TIME'] and pd.api.types.is_numeric_dtype(df_t[col]):
+            if df_t[col].nunique() > 1:
+                dftest = adfuller(df_t[col], autolag='AIC')
+                statistic_value = dftest[0]
+                p_value = dftest[1]
+                if (p_value > 0.5) and all([statistic_value > j for j in dftest[4].values()]):
+                    return "Y"
+            else:
+                break
+    return "N"
 
-            Return a list of 4 KPIs in this format:
-            [
-              {{"name": "KPI Name", "description": "Explanation", "value": "Formatted Value"}}
-            ]
-            """
 
-            kpi_text = generate_text(prompt)
-
-            try:
-                kpi_text_cleaned = re.search(r'\[.*\]', kpi_text, re.DOTALL).group(0)
-                kpis = json.loads(kpi_text_cleaned)
-            except Exception:
-                return JsonResponse({"error": "Failed to parse LLM output as JSON", "raw": kpi_text}, status=500)
-
-            return JsonResponse(kpis[:4], safe=False)
-
-        except Exception as e:
-            return JsonResponse({"error": str(e)}, status=500)
-
-    return JsonResponse({"error": "Invalid request method"}, status=405)
+def checkSentiment(df, categorical):
+    sentiment = 'N'
+    for i in categorical:
+        # print([j for j in df[i]])
+        data = ' '.join([str(j) for j in df[list(i.keys())[0]]]).upper()
+        if ('GOOD' in data) | ('BAD' in data) | ('Better' in data):
+            sentiment = "Y"
+    return sentiment
 
 
 # Report related apis
