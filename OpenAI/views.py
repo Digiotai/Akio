@@ -780,117 +780,6 @@ def analyze_data(df):
     return response_data
 
 
-def process_missing_data(df):
-    df = convert_to_datetime(df)
-    df, html_df = handle_missing_data(df)
-    return df, html_df
-
-
-def convert_to_datetime(df):
-    # Define the possible date formats to try
-    date_formats = ['%m-%d-%Y', '%m/%d/%Y', '%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d', '%Y/%m/%d']
-
-    # Loop through each column
-    for col in df.columns:
-        # Only process object columns, assuming they may contain dates in string format
-        if df[col].dtype == 'object':
-            # Check if the column contains potential date strings
-            if df[col].str.contains(r'\d{1,4}[-/]\d{1,2}[-/]\d{1,4}', na=False).any():
-                # Try to parse automatically first
-                try:
-                    df[col] = pd.to_datetime(df[col], errors='raise')
-                except (ValueError, TypeError):
-                    # If automatic parsing fails, try each format individually
-                    def parse_date(value):
-                        for fmt in date_formats:
-                            try:
-                                return pd.to_datetime(value, format=fmt)
-                            except (ValueError, TypeError):
-                                continue
-                        return pd.NaT  # Return NaT if none of the formats match
-
-                    # Apply the custom parse function to handle multiple formats
-                    df[col] = df[col].apply(parse_date)
-    return df
-
-
-from sklearn.impute import KNNImputer
-
-
-def handle_missing_data(df):
-    try:
-        # Identify numeric and datetime columns
-        numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
-        date_time_cols = df.select_dtypes(include=['datetime64']).columns
-
-        # Impute numeric columns and track which cells were imputed
-        imputer = KNNImputer(n_neighbors=5)
-        imputed_numeric = imputer.fit_transform(df[numeric_cols])
-        imputed_numeric_df = pd.DataFrame(imputed_numeric, columns=numeric_cols)
-
-        # Mark imputed cells (True if the original cell was NaN)
-        imputed_flags = df[numeric_cols].isnull()
-        imputed_flags = imputed_flags.applymap(lambda x: x if x else False)
-
-        # Update DataFrame with imputed values
-        df[numeric_cols] = imputed_numeric_df
-
-        # Handle datetime columns by forward filling missing values
-        for col in date_time_cols:
-            df[col] = pd.to_datetime(df[col])
-            time_diffs = df[col].diff().dropna()
-            avg_diff_sec = time_diffs.mean().total_seconds()
-            minute_sec = 60
-            hour_sec = 3600
-            day_sec = 86400
-            month_sec = day_sec * 30.44
-            year_sec = day_sec * 365.25
-
-            if avg_diff_sec < hour_sec:
-                time_unit = "minutes"
-                avg_diff = pd.Timedelta(minutes=avg_diff_sec / minute_sec)
-            elif avg_diff_sec < day_sec:
-                time_unit = "hours"
-                avg_diff = pd.Timedelta(hours=avg_diff_sec / hour_sec)
-            elif avg_diff_sec < month_sec:
-                time_unit = "days"
-                avg_diff = pd.Timedelta(days=avg_diff_sec / day_sec)
-            elif avg_diff_sec < year_sec:
-                time_unit = "months"
-                avg_diff = pd.DateOffset(months=round(avg_diff_sec / month_sec))
-            else:
-                time_unit = "years"
-                avg_diff = pd.DateOffset(years=round(avg_diff_sec / year_sec))
-
-            for i in range(1, len(df)):
-                if pd.isnull(df[col].iloc[i]):
-                    df.loc[i, col] = df[col].iloc[i - 1] + avg_diff
-                    imputed_flags.loc[i, col] = True
-
-            imputed_flags.fillna(False, inplace=True)
-
-        # Convert the DataFrame into a JSON-serializable format with flags
-        data = []
-        for _, row in df.iterrows():
-            row_data = {}
-            for col in df.columns:
-                row_data[col] = {
-                    "value": row[col].strftime('%Y-%m-%d %H:%M:%S') if isinstance(row[col], pd.Timestamp) else row[col],
-                    "is_imputed": str(imputed_flags[col].get(_, False)) if col in imputed_flags else str(False)
-                    # Check if cell was imputed
-                }
-            data.append(row_data)
-        return df, data
-    except Exception as e:
-        print(e)
-
-
-def serialize_datetime(obj):
-    if isinstance(obj, (datetime, pd.Timestamp)):
-        return obj.isoformat()
-    raise TypeError("Type not serializable")
-
-
 # Showing the number of tables in the database
 @csrf_exempt
 def get_tableinfo(request):
@@ -3850,16 +3739,7 @@ from plotly.graph_objects import Figure
 CHARTS_DIR = "generated_charts"
 os.makedirs(CHARTS_DIR, exist_ok=True)
 
-# Fixed filenames for the 8 graphs
-FIXED_CHART_FILENAMES = [
-    "chart_1.json",
-    "chart_2.json",
-    "chart_3.json",
-    "chart_4.json",
-    "chart_5.json",
-    "chart_6.json"
-]
-
+MAX_SUCCESSES = 4
 
 @csrf_exempt
 def gen_plotly_response(request):
@@ -3874,17 +3754,15 @@ def gen_plotly_response(request):
         topics = generate_topics_llm(metadata)
         print("Queries are.............................................", topics)
 
+        # ── Iterate until four valid charts ───────────────────────
+        success_count = 0
         chart_responses = []
+        chart_files = []
 
         # Initialize all chart files as empty
-        for filename in FIXED_CHART_FILENAMES:
-            chart_path = os.path.join(CHARTS_DIR, filename)
-            with open(chart_path, "w") as f:
-                json.dump({}, f)
-
-        # Process queries up to 8 charts
-        for i, topic in enumerate(topics[:6]):
-            print(topic)
+        for topic in topics:
+            if success_count == MAX_SUCCESSES:
+                break
             prompt_eng = (
                 f"You are an AI specialized in data analytics and visualization."
                 f"Data used for analysis is stored in a CSV file named 'data.csv'."
@@ -3900,8 +3778,6 @@ def gen_plotly_response(request):
             )
 
             chat = generate_code4(prompt_eng)
-            print(f"Generated code for query '{topic}':")
-            print(chat)
 
             if 'import' in chat:
                 namespace = {}
@@ -3924,57 +3800,34 @@ def gen_plotly_response(request):
                             return obj
 
                         chart_data_serializable = make_serializable(chart_data)
-                        chart_filename = FIXED_CHART_FILENAMES[i]
+                        chart_filename = f"chart_{success_count + 1}.json"
                         chart_path = os.path.join(CHARTS_DIR, chart_filename)
+                        with open(chart_path, "w", encoding="utf-8") as f:
+                            json.dump(chart_data_serializable, f, indent=2)
 
                         chart_entry = {
                             "timestamp": datetime.now().isoformat(),
-                            "query": topic["type"],
-                            "chart_data": chart_data_serializable,
+                            "query": topic.get("type", str(topic)),
                             "chart_file": chart_filename,
-                            "status": "success"
+                            "status": "success",
                         }
-
-                        # Save individual chart file
-                        with open(chart_path, "w", encoding="utf-8") as f:
-                            json.dump(chart_data_serializable, f, indent=2, ensure_ascii=False)
-                            f.flush()
-
                         chart_responses.append(chart_entry)
-                    else:
-                        print(f"No valid Plotly figure found for query: {topic}")
-                        # Add entry for failed chart generation
-                        chart_responses.append({
-                            "chart_file": FIXED_CHART_FILENAMES[i],
-                            "status": "failed",
-                            "error": "No valid figure generated"
-                        })
-                except Exception as e:
-                    print(f"Execution error for query '{topic}': {str(e)}")
-                    # Add entry for failed chart generation
-                    chart_responses.append({
-                        "chart_file": FIXED_CHART_FILENAMES[i],
-                        "status": "failed",
-                        "error": str(e)
-                    })
-            else:
-                print(f"Invalid AI response for query: {topic}")
-                # Add entry for failed chart generation
-                chart_responses.append({
-                    "chart_file": FIXED_CHART_FILENAMES[i],
-                    "status": "failed",
-                    "error": "Invalid AI response"
-                })
+                        chart_files.append(chart_filename)
 
-        # Prepare final response with all chart data
+                        success_count += 1
+
+                except Exception as e:
+                    # Any exception → drop chart, continue looping
+                    continue
+
+            # ── Build HTTP response ───────────────────────────────────
         response_data = {
             "message": "Chart generation completed",
-            "generated_charts": len([c for c in chart_responses if c.get("status") == "success"]),
-            "total_charts": len(FIXED_CHART_FILENAMES),
-            "chart_files": FIXED_CHART_FILENAMES,
-            "charts": chart_responses
+            "generated_charts": success_count,
+            "total_expected": MAX_SUCCESSES,
+            "chart_files": chart_files,
+            "charts": chart_responses,
         }
-
         return JsonResponse(response_data, status=200)
 
 
@@ -4046,7 +3899,7 @@ def generate_topics_llm(meta: Dict) -> List[Dict]:
     """
 
     response = client.chat.completions.create(
-        model="gpt-4o",
+        model="gpt-4o-mini",
         messages=[
             {"role": "system",
              "content": "You are a data visualization expert which can give basic topic names for the visualising of the plots.You specialize in helping users generate insightful and beginner-friendly data analysis ideas based on dataset metadata."},
@@ -4069,7 +3922,7 @@ def generate_topics_llm(meta: Dict) -> List[Dict]:
 # Function to generate code from OpenAI API
 def generate_code4(prompt_eng):
     response = client.chat.completions.create(
-        model="gpt-4o",
+        model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": f"""
                                         You are a helpful coding assistant named VizCopilot. You're an expert in Python and specialize in generating interactive visualizations using Plotly (both Plotly Express and Plotly Graph Objects).
@@ -4132,23 +3985,29 @@ def summarize_chart(request):
 
             prompt = (
                 f"You are a data analyst AI. A user selected a chart represented by this Plotly JSON:\n{json.dumps(chart_json)}\n"
-                f"Analyze and summarize only the insights, patterns, and trends that are directly visible in the chart.\n\n"
-                f"Follow this output structure:\n"
-                f"- Start with a core insight derived from the graph. Bold important terms where needed.\n"
-                f"- Describe distribution patterns if visible (e.g., skewness, outliers, clusters).\n"
-                f"- Explain what real-world behavior the graph appears to reflect (only if clearly supported by the data).\n"
-                f"- Mention modeling implications, **only if they are suggested by the visual pattern**.\n"
-                f"- If any transformation effect is evident from the graph (e.g., log-scale, smoothing), describe it clearly.\n"
-                f"  Use a code block to describe its effect:\n"
+                f"Your task is to describe only what is **visibly present in the chart.**\n\n"
+                f"Follow this structure:\n\n"
+                f" **Insight:**\n\n"
+                f"**What the Chart Shows:**\n"
+                f"- Clearly state what variables are being plotted and what kind of chart it is (scatter, bar, etc.).\n"
+                f"- Mention the axes and what each represents.\n\n"
+                f"**Visible Patterns:**\n"
+                f"- Identify any clear clusters, dense regions, gaps, or trends in the data points.\n"
+                f"- Note ranges where data is most concentrated (e.g., 'Most values fall between 60%–80% for Danceability').\n"
+                f"- Mention outliers or highly spread distributions.\n\n"
+                f"Use a code block for feature-specific observations when needed:\n"
                 f"```\n"
-                f"- Point 1\n"
-                f"- Point 2\n"
-                f"- Point 3\n"
-                f"```\n"
-                f"- Mention any business insight that is clearly supported by the visual.\n"
-                f"- Suggest focused actions based on the graph’s trends (e.g., rising spikes, drop-offs, correlation zones).\n\n"
-                f"Only describe what you observe from the chart. Do not invent data or generalize beyond the chart. Use clean bullet points. No section headings. No intro or conclusion."
-
+                f"- Feature: [Name of Feature]\n"
+                f"- Range: [Typical range observed]\n"
+                f"- Spread: [Narrow/Wide/Skewed]\n"
+                f"- Pattern: [e.g., weak upward trend, no trend, inverted U-shape, etc.]\n"
+                f"```\n\n"
+                f"**Other Notable Graph Details:**\n"
+                f"- Describe if the chart uses any transformations (log scale, smoothing).\n"
+                f"- Mention if data density varies across the plot (e.g., bottom-heavy, top-right cluster).\n\n"
+                f"Only describe **what is visually obvious from the chart.** Do not infer causes, suggest business actions, or mention modeling. Stick to what the graph itself shows."
+                
+                f"All the information should be generated in 4 or 5 lines only maximum.Do not generate the too much information.Just give the important information."
             )
             summary = generate_text(prompt)
             SUMMARY_CACHE[chart_id] = summary
@@ -4323,19 +4182,20 @@ def missing_data(request):
         df = pd.read_csv(csv_file_path)
         print(df.head(5))
 
-        new_df, html_df = process_missing_data(df.copy())
+        new_df, html_df, summary = process_missing_data(df.copy())
         new_df.to_csv(os.path.join('uploads', 'processed_data.csv'), index=False)
         new_df.to_csv("data.csv", index=False)
         with open(os.path.join('mvt_data.json'), 'w') as fp:
             json.dump({'data': html_df}, fp, indent=4)
 
-        return JsonResponse({"df": html_df})
+        return JsonResponse({"df": html_df,"summary":summary})
 
 
 def process_missing_data(df):
     df = convert_to_datetime(df)
-    df, html_df = handle_missing_data(df)
-    return df, html_df
+    df, html_df, summary = handle_missing_data(df)
+    return df, html_df, summary
+
 
 
 def convert_to_datetime(df):
@@ -4351,8 +4211,6 @@ def convert_to_datetime(df):
 
 
 import dateutil.parser
-
-
 def detect_and_parse_date(value):
     """
     Detects and converts dates in multiple formats, including:
@@ -4386,16 +4244,29 @@ def detect_and_parse_date(value):
         return pd.NaT  # Return NaT if parsing fails
 
 
+from sklearn.impute import KNNImputer
 def handle_missing_data(df):
     try:
+        ignore_types = ['object', 'string', 'timedelta', 'complex']
+        ignored_columns_info = {}
+
         # Identify numeric and datetime columns
         numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
         date_time_cols = df.select_dtypes(include=['datetime64']).columns
+        ignored_cols = df.select_dtypes(include=ignore_types).columns
+        int_like_cols = [col for col in numeric_cols if is_integer_like(df[col])]
+
+        for col in ignored_cols:
+            ignored_columns_info[col] = f"Ignored because of optional data"
 
         # Impute numeric columns and track which cells were imputed
         imputer = KNNImputer(n_neighbors=5)
         imputed_numeric = imputer.fit_transform(df[numeric_cols])
         imputed_numeric_df = pd.DataFrame(imputed_numeric, columns=numeric_cols).round(2)
+
+        for col in numeric_cols:
+            if col in int_like_cols:
+                imputed_numeric_df[col] = imputed_numeric_df[col].round().astype("Int64")
 
         # Mark imputed cells (True if the original cell was NaN)
         imputed_flags = df[numeric_cols].isnull()
@@ -4403,6 +4274,15 @@ def handle_missing_data(df):
 
         # Update DataFrame with imputed values
         df[numeric_cols] = imputed_numeric_df
+
+        for col in df.select_dtypes(include='category').columns:
+            if df[col].isnull().any():
+                mode_val = df[col].mode().iloc[0] if not df[col].mode().empty else "Unknown"
+                df[col].fillna(mode_val, inplace=True)
+                imputed_flags[col] = df[col].isnull()
+        for col in df.select_dtypes(include='bool').columns:
+            if df[col].isnull().any():
+                df[col].fillna(df[col].mode().iloc[0], inplace=True)
 
         # Handle datetime columns by forward filling missing values
         for col in date_time_cols:
@@ -4440,6 +4320,7 @@ def handle_missing_data(df):
 
         # Convert the DataFrame into a JSON-serializable format with flags
         data = []
+
         for _, row in df.iterrows():
             row_data = {}
             for col in df.columns:
@@ -4449,9 +4330,48 @@ def handle_missing_data(df):
                     # Check if cell was imputed
                 }
             data.append(row_data)
-        return df, data
+        missing_values_summary = summarize_missing_values(imputed_flags)
+        missing_values_summary["ignored_columns"] = ignored_columns_info
+        return df, data, missing_values_summary
     except Exception as e:
         print(e)
+
+
+def is_integer_like(series):
+    return pd.api.types.is_numeric_dtype(series) and \
+        series.dropna().apply(lambda x: float(x).is_integer()).all()
+
+
+def summarize_missing_values(df):
+    try:
+        # 1. Total number of missing values
+        total_missing = df.sum().sum()
+
+        # 2. Columns with any missing values
+        columns_with_missing = df.columns[df.any()].tolist()
+
+        # 3. Count of missing values per column
+        missing_count_per_column = df.sum()
+
+        # 4. Percentage of missing values per column (optional)
+        missing_percentage = df.mean() * 100
+
+        # Final summary
+        summary = {
+            "total_missing_values": int(total_missing),
+            "columns_with_missing": columns_with_missing,
+            "missing_count_per_column": missing_count_per_column.to_dict(),
+            "missing_percentage_per_column": missing_percentage.round(2).to_dict()
+        }
+        return summary
+    except Exception as e:
+        print(e)
+        return {}
+
+def serialize_datetime(obj):
+    if isinstance(obj, (datetime, pd.Timestamp)):
+        return obj.isoformat()
+    raise TypeError("Type not serializable")
 
 
 ###Data scout Apis:
