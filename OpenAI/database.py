@@ -433,8 +433,7 @@ class PostgresDatabase:
                            email VARCHAR(255) UNIQUE,
                            image_bytes BYTEA,
                            created_at TIMESTAMP DEFAULT NOW(),
-                           updated_at TIMESTAMP DEFAULT NOW(),
-                           CONSTRAINT fk_email FOREIGN KEY(email) REFERENCES akio_data(email) ON DELETE CASCADE
+                           updated_at TIMESTAMP DEFAULT NOW()
                        )
                    """)
                 self.connection.commit()
@@ -562,7 +561,7 @@ if __name__ == '__main__':
     pdd.create_table()
     pdd.create_reports_table()
 
-    # pdd.delete_all_tables()
+    #pdd.delete_all_tables()
 
 
     # # Test case: Users uploading files
