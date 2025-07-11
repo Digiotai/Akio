@@ -430,7 +430,7 @@ class PostgresDatabase:
                 cursor.execute("""
                        CREATE TABLE IF NOT EXISTS reports (
                            id SERIAL PRIMARY KEY,
-                           email VARCHAR(255),
+                           email VARCHAR(255) UNIQUE,
                            image_bytes BYTEA,
                            created_at TIMESTAMP DEFAULT NOW(),
                            updated_at TIMESTAMP DEFAULT NOW(),
