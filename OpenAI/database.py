@@ -304,9 +304,7 @@ class PostgresDatabase:
                             name VARCHAR(255),
                             lastupdate TIMESTAMP,
                             datecreated TIMESTAMP,
-                            fileobj BYTEA,
-                            CONSTRAINT email_unique UNIQUE(email),
-                            CONSTRAINT email_name_unique UNIQUE(email, name)
+                            fileobj BYTEA
                             )"""
                 cursor.execute(query)
                 print("Table 'akio_data' created successfully.")
@@ -611,6 +609,8 @@ if __name__ == '__main__':
     pdd.create_connection(PGUSER, PGPASSWORD, PGDATABASE, PGHOST)
     pdd.create_table()
     pdd.create_reports_table()
+
+    pdd.get_user_tables('admin@gmail.com')
 
     #pdd.delete_all_tables()
 
