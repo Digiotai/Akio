@@ -103,6 +103,9 @@ urlpatterns = [
     path('api/save_reports', save_report, name='save reports'),
     path('api/delete_reports_by_id', delete_report_by_id, name='delete reports based on email'),
     path('api/get_reports', get_reports_with_email, name='Getting the reports based on email'),
+    path('api/get_reports_by_id', get_report_with_email_and_id, name='Getting the reports based on email and id'),
+    path('api/get_report_description', generate_report_description, name='Getting the reports description based on the id.'),
+    path('api/get_answer', ask_about_report, name='Getting the answers based on the report summary.'),
     path('api/email_reports', email_report, name='sending the reports to the user email'),
 
 
