@@ -3749,7 +3749,6 @@ FIXED_CHART_FILENAMES = [
     "chart_6.json"
 ]
 
-
 @csrf_exempt
 def gen_plotly_response(request):
     if request.method == "POST":
@@ -3765,6 +3764,7 @@ def gen_plotly_response(request):
 
         chart_responses = []
         successful_chart_files = []
+        chart_counter = 1  # Counter for successful charts
 
         # Initialize all chart files as empty
         for filename in FIXED_CHART_FILENAMES:
@@ -3773,7 +3773,7 @@ def gen_plotly_response(request):
                 json.dump({}, f)
 
         # Process queries up to 8 charts
-        for i, topic in enumerate(topics[:6]):
+        for topic in topics[:6]:
             print(topic)
             prompt_eng = (
                 f"You are an AI specialized in data analytics and visualization."
@@ -3814,7 +3814,7 @@ def gen_plotly_response(request):
                             return obj
 
                         chart_data_serializable = make_serializable(chart_data)
-                        chart_filename = FIXED_CHART_FILENAMES[i]
+                        chart_filename = f"chart_{chart_counter}.json"  # Use the counter for filename
                         chart_path = os.path.join(CHARTS_DIR, chart_filename)
 
                         chart_entry = {
@@ -3832,6 +3832,7 @@ def gen_plotly_response(request):
 
                         chart_responses.append(chart_entry)
                         successful_chart_files.append(chart_filename)
+                        chart_counter += 1  # Only increment for successful charts
                     else:
                         print(f"No valid Plotly figure found for query: {topic}")
                 except Exception as e:
@@ -3851,6 +3852,7 @@ def gen_plotly_response(request):
         }
 
         return JsonResponse(response_data, status=200)
+
 
 def infer_metadata(df: pd.DataFrame) -> Dict:
     meta = {
