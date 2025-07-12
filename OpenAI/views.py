@@ -3739,7 +3739,16 @@ from plotly.graph_objects import Figure
 CHARTS_DIR = "generated_charts"
 os.makedirs(CHARTS_DIR, exist_ok=True)
 
-MAX_SUCCESSES = 4
+# Fixed filenames for the 8 graphs
+FIXED_CHART_FILENAMES = [
+    "chart_1.json",
+    "chart_2.json",
+    "chart_3.json",
+    "chart_4.json",
+    "chart_5.json",
+    "chart_6.json"
+]
+
 
 @csrf_exempt
 def gen_plotly_response(request):
@@ -3754,15 +3763,17 @@ def gen_plotly_response(request):
         topics = generate_topics_llm(metadata)
         print("Queries are.............................................", topics)
 
-        # ── Iterate until four valid charts ───────────────────────
-        success_count = 0
         chart_responses = []
-        chart_files = []
 
         # Initialize all chart files as empty
-        for topic in topics:
-            if success_count == MAX_SUCCESSES:
-                break
+        for filename in FIXED_CHART_FILENAMES:
+            chart_path = os.path.join(CHARTS_DIR, filename)
+            with open(chart_path, "w") as f:
+                json.dump({}, f)
+
+        # Process queries up to 8 charts
+        for i, topic in enumerate(topics[:6]):
+            print(topic)
             prompt_eng = (
                 f"You are an AI specialized in data analytics and visualization."
                 f"Data used for analysis is stored in a CSV file named 'data.csv'."
@@ -3778,6 +3789,8 @@ def gen_plotly_response(request):
             )
 
             chat = generate_code4(prompt_eng)
+            print(f"Generated code for query '{topic}':")
+            print(chat)
 
             if 'import' in chat:
                 namespace = {}
@@ -3800,34 +3813,57 @@ def gen_plotly_response(request):
                             return obj
 
                         chart_data_serializable = make_serializable(chart_data)
-                        chart_filename = f"chart_{success_count + 1}.json"
+                        chart_filename = FIXED_CHART_FILENAMES[i]
                         chart_path = os.path.join(CHARTS_DIR, chart_filename)
-                        with open(chart_path, "w", encoding="utf-8") as f:
-                            json.dump(chart_data_serializable, f, indent=2)
 
                         chart_entry = {
                             "timestamp": datetime.now().isoformat(),
-                            "query": topic.get("type", str(topic)),
+                            "query": topic["type"],
+                            "chart_data": chart_data_serializable,
                             "chart_file": chart_filename,
-                            "status": "success",
+                            "status": "success"
                         }
+
+                        # Save individual chart file
+                        with open(chart_path, "w", encoding="utf-8") as f:
+                            json.dump(chart_data_serializable, f, indent=2, ensure_ascii=False)
+                            f.flush()
+
                         chart_responses.append(chart_entry)
-                        chart_files.append(chart_filename)
-
-                        success_count += 1
-
+                    else:
+                        print(f"No valid Plotly figure found for query: {topic}")
+                        # Add entry for failed chart generation
+                        chart_responses.append({
+                            "chart_file": FIXED_CHART_FILENAMES[i],
+                            "status": "failed",
+                            "error": "No valid figure generated"
+                        })
                 except Exception as e:
-                    # Any exception → drop chart, continue looping
-                    continue
+                    print(f"Execution error for query '{topic}': {str(e)}")
+                    # Add entry for failed chart generation
+                    chart_responses.append({
+                        "chart_file": FIXED_CHART_FILENAMES[i],
+                        "status": "failed",
+                        "error": str(e)
+                    })
+            else:
+                print(f"Invalid AI response for query: {topic}")
+                # Add entry for failed chart generation
+                chart_responses.append({
+                    "chart_file": FIXED_CHART_FILENAMES[i],
+                    "status": "failed",
+                    "error": "Invalid AI response"
+                })
 
-            # ── Build HTTP response ───────────────────────────────────
+        # Prepare final response with all chart data
         response_data = {
             "message": "Chart generation completed",
-            "generated_charts": success_count,
-            "total_expected": MAX_SUCCESSES,
-            "chart_files": chart_files,
-            "charts": chart_responses,
+            "generated_charts": len([c for c in chart_responses if c.get("status") == "success"]),
+            "total_charts": len(FIXED_CHART_FILENAMES),
+            "chart_files": FIXED_CHART_FILENAMES,
+            "charts": chart_responses
         }
+
         return JsonResponse(response_data, status=200)
 
 
