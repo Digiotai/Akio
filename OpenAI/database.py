@@ -428,21 +428,22 @@ class PostgresDatabase:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
-                       CREATE TABLE IF NOT EXISTS reports (
-                           id SERIAL PRIMARY KEY,
-                           email VARCHAR(255) UNIQUE,
-                           image_bytes BYTEA,
-                           created_at TIMESTAMP DEFAULT NOW(),
-                           updated_at TIMESTAMP DEFAULT NOW()
-                       )
-                   """)
+                    CREATE TABLE IF NOT EXISTS reports (
+                        id SERIAL PRIMARY KEY,
+                        email VARCHAR(255) UNIQUE,
+                        image_bytes BYTEA,
+                        plotly_json JSONB,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        updated_at TIMESTAMP DEFAULT NOW()
+                    )
+                """)
                 self.connection.commit()
                 print("Table 'reports' created successfully.")
         except Exception as err:
             print(f"Error creating 'reports' table: {err}")
             return str(err)
 
-    def insert_report(self, email, image_base64):
+    def insert_report(self, email, image_base64, plotly_json):
         try:
             self.ensure_connection()
             try:
@@ -452,32 +453,59 @@ class PostgresDatabase:
 
             with self.connection.cursor() as cursor:
                 cursor.execute("""
-                       INSERT INTO reports (email, image_bytes)
-                       VALUES (%s, %s)
-                       RETURNING id, email, created_at
-                   """, (email, psycopg2.Binary(image_bytes)))
+                    INSERT INTO reports (email, image_bytes, plotly_json)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (email) 
+                    DO UPDATE SET 
+                        image_bytes = EXCLUDED.image_bytes,
+                        plotly_json = EXCLUDED.plotly_json,
+                        updated_at = NOW()
+                    RETURNING id, email, created_at, updated_at
+                """, (email, psycopg2.Binary(image_bytes), json.dumps(plotly_json) if plotly_json else None))
+
                 result = cursor.fetchone()
                 self.connection.commit()
-                return "Report inserted", dict(zip([d[0] for d in cursor.description], result))
+
+                # Determine if it was an insert or update
+                action = "Report updated" if result[3] == result[2] else "Report inserted"
+                return action, dict(zip([d[0] for d in cursor.description], result))
         except Exception as err:
-            print(f"Error inserting report: {err}")
+            print(f"Error inserting/updating report: {err}")
             return "Error", str(err)
 
-    def update_report(self, email, image_base64):
+    def update_report(self, email, image_base64=None, plotly_json=None):
         try:
             self.ensure_connection()
-            try:
-                image_bytes = base64.b64decode(image_base64)
-            except Exception as decode_err:
-                return "Invalid base64 image", str(decode_err)
+
+            # Prepare update fields and values
+            update_fields = []
+            values = []
+
+            if image_base64 is not None:
+                try:
+                    image_bytes = base64.b64decode(image_base64)
+                    update_fields.append("image_bytes = %s")
+                    values.append(psycopg2.Binary(image_bytes))
+                except Exception as decode_err:
+                    return "Invalid base64 image", str(decode_err)
+
+            if plotly_json is not None:
+                update_fields.append("plotly_json = %s")
+                values.append(json.dumps(plotly_json))
+
+            if not update_fields:
+                return "Error", "No fields to update"
+
+            values.append(email)  # For WHERE clause
 
             with self.connection.cursor() as cursor:
-                cursor.execute("""
-                       UPDATE reports
-                       SET image_bytes = %s, updated_at = NOW()
-                       WHERE email = %s
-                       RETURNING id, email, updated_at
-                   """, (psycopg2.Binary(image_bytes), email))
+                query = f"""
+                    UPDATE reports
+                    SET {', '.join(update_fields)}, updated_at = NOW()
+                    WHERE email = %s
+                    RETURNING id, email, updated_at
+                """
+                cursor.execute(query, values)
                 result = cursor.fetchone()
                 self.connection.commit()
                 return "Report updated", dict(zip([d[0] for d in cursor.description], result))
@@ -490,16 +518,39 @@ class PostgresDatabase:
             self.ensure_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
-                       SELECT id, email, encode(image_bytes, 'base64') as image_bytes, created_at, updated_at
-                       FROM reports
-                       WHERE email = %s
-                   """, (email,))
+                    SELECT id, email, encode(image_bytes, 'base64') as image_bytes, 
+                           plotly_json, created_at, updated_at
+                    FROM reports
+                    WHERE email = %s
+                """, (email,))
                 rows = cursor.fetchall()
                 cols = [desc[0] for desc in cursor.description]
                 return pd.DataFrame(rows, columns=cols)
         except Exception as err:
             print(f"Error retrieving report: {err}")
             return pd.DataFrame()
+
+    def get_report_by_email_and_id(self, email, report_id):
+        try:
+            self.ensure_connection()
+            with self.connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT id, email, encode(image_bytes, 'base64') AS image_bytes,
+                           plotly_json, created_at, updated_at
+                    FROM reports
+                    WHERE email = %s AND id = %s
+                """, (email, report_id))
+
+                row = cursor.fetchone()
+                if row:
+                    cols = [desc[0] for desc in cursor.description]
+                    return pd.DataFrame([row], columns=cols)
+                else:
+                    return pd.DataFrame()
+        except Exception as err:
+            print(f"Error retrieving report: {err}")
+            return pd.DataFrame()
+
 
     def delete_report_by_email(self, email):
         try:
