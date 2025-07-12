@@ -3764,6 +3764,7 @@ def gen_plotly_response(request):
         print("Queries are.............................................", topics)
 
         chart_responses = []
+        successful_chart_files = []
 
         # Initialize all chart files as empty
         for filename in FIXED_CHART_FILENAMES:
@@ -3830,42 +3831,26 @@ def gen_plotly_response(request):
                             f.flush()
 
                         chart_responses.append(chart_entry)
+                        successful_chart_files.append(chart_filename)
                     else:
                         print(f"No valid Plotly figure found for query: {topic}")
-                        # Add entry for failed chart generation
-                        chart_responses.append({
-                            "chart_file": FIXED_CHART_FILENAMES[i],
-                            "status": "failed",
-                            "error": "No valid figure generated"
-                        })
                 except Exception as e:
                     print(f"Execution error for query '{topic}': {str(e)}")
-                    # Add entry for failed chart generation
-                    chart_responses.append({
-                        "chart_file": FIXED_CHART_FILENAMES[i],
-                        "status": "failed",
-                        "error": str(e)
-                    })
             else:
                 print(f"Invalid AI response for query: {topic}")
-                # Add entry for failed chart generation
-                chart_responses.append({
-                    "chart_file": FIXED_CHART_FILENAMES[i],
-                    "status": "failed",
-                    "error": "Invalid AI response"
-                })
 
-        # Prepare final response with all chart data
+        # Filter out failed chart generations
+        successful_charts = [c for c in chart_responses if c.get("status") == "success"]
+
+        # Prepare final response with only successful charts
         response_data = {
             "message": "Chart generation completed",
-            "generated_charts": len([c for c in chart_responses if c.get("status") == "success"]),
-            "total_charts": len(FIXED_CHART_FILENAMES),
-            "chart_files": FIXED_CHART_FILENAMES,
-            "charts": chart_responses
+            "generated_charts": len(successful_charts),
+            "chart_files": successful_chart_files,  # Only successful files
+            "charts": successful_charts  # Only successful charts
         }
 
         return JsonResponse(response_data, status=200)
-
 
 def infer_metadata(df: pd.DataFrame) -> Dict:
     meta = {
@@ -4042,7 +4027,7 @@ def summarize_chart(request):
                 f"- Describe if the chart uses any transformations (log scale, smoothing).\n"
                 f"- Mention if data density varies across the plot (e.g., bottom-heavy, top-right cluster).\n\n"
                 f"Only describe **what is visually obvious from the chart.** Do not infer causes, suggest business actions, or mention modeling. Stick to what the graph itself shows."
-                
+
                 f"All the information should be generated in 4 or 5 lines only maximum.Do not generate the too much information.Just give the important information."
             )
             summary = generate_text(prompt)
@@ -4224,14 +4209,13 @@ def missing_data(request):
         with open(os.path.join('mvt_data.json'), 'w') as fp:
             json.dump({'data': html_df}, fp, indent=4)
 
-        return JsonResponse({"df": html_df,"summary":summary})
+        return JsonResponse({"df": html_df, "summary": summary})
 
 
 def process_missing_data(df):
     df = convert_to_datetime(df)
     df, html_df, summary = handle_missing_data(df)
     return df, html_df, summary
-
 
 
 def convert_to_datetime(df):
@@ -4247,6 +4231,8 @@ def convert_to_datetime(df):
 
 
 import dateutil.parser
+
+
 def detect_and_parse_date(value):
     """
     Detects and converts dates in multiple formats, including:
@@ -4281,6 +4267,8 @@ def detect_and_parse_date(value):
 
 
 from sklearn.impute import KNNImputer
+
+
 def handle_missing_data(df):
     try:
         ignore_types = ['object', 'string', 'timedelta', 'complex']
@@ -4403,6 +4391,7 @@ def summarize_missing_values(df):
     except Exception as e:
         print(e)
         return {}
+
 
 def serialize_datetime(obj):
     if isinstance(obj, (datetime, pd.Timestamp)):
@@ -4812,13 +4801,14 @@ def save_report(request):
         try:
             email = request.POST.get("email")
             image_base64 = request.POST.get("image_base64")
+            plotly_json = request.POST.get("json_data")
 
-            if not email or not image_base64:
+            if not email or not image_base64 or not plotly_json:
                 return JsonResponse({"error": "Missing email or image_base64"}, status=400)
 
             print(f"Received save request for email: {email}")
 
-            status, result = db.insert_report(email, image_base64)
+            status, result = db.insert_report(email, image_base64, plotly_json)
 
             return JsonResponse({"status": status, "result": result})
 
@@ -4839,11 +4829,42 @@ def get_reports_with_email(request):
             if df.empty:
                 return JsonResponse([], safe=False)
 
-            df = df.drop(columns=["image_bytes"], errors='ignore')
             reports = df.to_dict(orient="records")
             return JsonResponse(reports, safe=False)
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+def get_report_with_email_and_id(request):
+    if request.method != 'POST':
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    try:
+        email = request.POST.get("email")
+        report_id = request.POST.get("id")
+
+        # ---- validate inputs -------------------------------------------------
+        if not email or not report_id:
+            return JsonResponse(
+                {"error": "Both 'email' and 'id' fields are required"}, status=400
+            )
+        try:
+            report_id = int(report_id)
+        except ValueError:
+            return JsonResponse({"error": "'id' must be an integer"}, status=400)
+
+        # ---- query the database ---------------------------------------------
+        df = db.get_report_by_email_and_id(email, report_id)  # <== new helper
+        if df.empty:
+            return JsonResponse({"message": "No report found"}, status=404)
+
+        # ---- build response --------------------------------------------------
+        report = df.to_dict(orient="records")[0]  # single row → dict
+        return JsonResponse(report, safe=False)
+
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
 
 
 @csrf_exempt
@@ -4857,6 +4878,110 @@ def delete_report_by_id(request):
 
             result = db.delete_user_report_by_id(email, report_id)
             return JsonResponse({"status": result})
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
+
+
+# Get report description
+# Summarisiing the chart.
+SUMMARY_CACHE1 = {}  # in-memory cache for simplicity
+
+
+@csrf_exempt
+def generate_report_description(request):
+    if request.method == 'POST':
+        try:
+            email = request.POST.get("email")
+            report_id = request.POST.get("id")
+            id = int(report_id)
+            if not email or not id:
+                return JsonResponse({"error": "Missing email or report_id"}, status=400)
+            print("parameters got...")
+            result = db.get_report_by_email_and_id(email, id)
+            plotly_json = result.iloc[0]['plotly_json']
+
+            prompt = (
+                f"You are a skilled Data Analyst AI. A user has selected a chart represented by this Plotly JSON:\n{json.dumps(plotly_json, indent=2)}\n\n"
+                f"Your task is to generate a clear, **concise**, and **visually attractive report** that accurately summarizes the chart contents.\n\n"
+                f" **Guidelines**:\n"
+                f"- Stick to only what's visibly shown in the chart — no assumptions or inferred insights.\n"
+                f"- Use simple, **direct language**, formatted cleanly with headings and bullet points.\n"
+                f"- Limit output to **10 lines max for each heading**, focusing on every corner information also along with the main content.\n\n"
+                f"**Report Format:**\n\n"
+                f"###  What the Chart Shows\n"
+                f"- Type of chart (e.g., bar, scatter, pie, etc.)\n"
+                f"- X and Y axes labels and what they represent\n\n"
+                f"###  Visible Patterns\n"
+                f"- Any trends, clusters, gaps, outliers\n"
+                f"- Densely populated value ranges\n"
+                f"- Spread characteristics (e.g., narrow, wide, skewed)\n\n"
+                f"``` \n"
+                f"- Feature: [Feature Name] \n"
+                f"- Range: [Typical range] \n"
+                f"- Spread: [Narrow/Wide/Skewed] \n"
+                f"- Pattern: [Trend Type] \n"
+                f"```\n\n"
+                f"###  Other Notable Visuals\n"
+                f"- Any visual styling: color usage, log scales, smoothing\n"
+                f"- Distribution patterns (e.g., top-right cluster, bottom-heavy)\n\n"
+                f"Keep your response sleek, structured, and sharply focused on what’s visible. Use the concept of headings and subheadings also."
+            )
+            summary = generate_text1(prompt)
+            SUMMARY_CACHE1[id] = summary
+
+            return JsonResponse({
+                "chart_id": id,
+                "summary": markdown_to_html(summary)
+            }, status=200)
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
+
+
+def generate_text1(prompt: str) -> str:
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system",
+             "content": (
+                 "You are a helpful and concise data analyst AI that reviews Plotly JSON charts and provides clear, visually structured summaries. "
+                 "You generate insightful yet brief descriptions of charts using bullet points and clear section headings. "
+                 "Only describe what is visually shown — avoid assumptions, causes, or recommendations. "
+                 "Use a sleek format with 3 short sections: What the Chart Shows, Visible Patterns, and Other Notable Visuals. "
+             )},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.7,
+        max_tokens=500
+    )
+    return response.choices[0].message.content.strip()
+
+
+@csrf_exempt
+def ask_about_report(request):
+    if request.method == "POST":
+        try:
+            id = request.POST.get('report_id')
+            question = request.POST.get('question')
+
+            # chart_id = int(chart_id)
+
+            summary = SUMMARY_CACHE1.get(id)
+            if not summary:
+                return JsonResponse({"error": "No summary available. Call /summarize_chart first."}, status=400)
+
+            prompt = (
+                f"You previously summarized a chart as follows:\n{summary}\n"
+                f"Now the user asks: '{question}'. Provide a precise and accurate answer for the user questions within 3 lines  in the form of bullet points only.Dont give huge content."
+                f"There should be three bullet points only with the concise information."
+            )
+            answer = generate_text1(prompt)
+
+            return JsonResponse({
+                "report_id": id,
+                "question": question,
+                "answer": answer
+            }, status=200)
+
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
 
