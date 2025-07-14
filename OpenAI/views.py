@@ -3893,49 +3893,34 @@ def infer_metadata(df: pd.DataFrame) -> Dict:
 
 def generate_topics_llm(meta: Dict) -> List[Dict]:
     prompt = f"""
-    Given the following metadata about a dataset:
-    {json.dumps(meta, indent=2)}
+        Given the following metadata about a dataset:
+        {json.dumps(meta, indent=2)}
 
-        For each visualization topic, return a dictionary with:
-    - `title`: A clear, concise, and human-readable title for the chart (e.g., "Distribution of Price", "Sales over Time").
-    - `type`: A basic chart type that best fits the topic, such as  `bar`,`line`, `scatter`, `histogram`, `heatmap`, `pie`, `box`, etc.
-    - `columns`: A list of column names from the dataset that are relevant to the chart.
-    
-    Your response must be a **valid JSON list of exactly six such dictionaries**. Avoid duplication across the topics.
-    
-    In choosing the topics, apply the following reasoning:
-    - Identify key metrics for **distribution analysis** (e.g., using histograms, box plots).
-    - Use **relationships or comparisons** (e.g., category vs value, correlation between two columns).
-    - If there's a time/datetime column, include **time series analysis** (e.g., line plots).
-    - Include at least one **summary view**, such as a heatmap of numerical correlations.
-    - Choose **basic visualizations only** that are clear and accessible to a general user audience.
-    -Do not select the topics which we cannot able to draw the plot.
-    - Do not give the topics repeatedly.Give the topics uniquely  for the generation of the graphs.
-    
-    - Explore *advanced Plotly features*, such as:
-      - facet_row, facet_col for comparison grids,
-      - multi-series (e.g. line or scatter with color=column),
-      - combo charts (e.g., bar + line together),
-      - rolling averages or moving means,
-      - violin plots to show distributions,
-      - 3D scatter plots (px.scatter_3d) where 3 numeric dimensions exist,
-      - animations (animation_frame, animation_group) if time-based trends are useful.
-    - Aim for *high-value insights*, like:
-      - Seasonality or cyclic patterns,
-      - Equipment performing worse than average,
-      - Category-wise contribution to deficit or emissions,
-      - Any shocking anomalies or unexpected gaps.
+            For each visualization topic, return a dictionary with:
+        - `title`: A clear, concise, and human-readable title for the chart (e.g., "Distribution of Price", "Sales over Time").
+        - `type`: A basic chart type that best fits the topic, such as  `bar`,`line`, `scatter`, `histogram`, `heatmap`, `pie`, `box`, etc.
+        - `columns`: A list of column names from the dataset that are relevant to the chart.
 
-    
-    Ensure your choices adapt dynamically to each metadata input and avoid repeating the same topic titles across calls.
-    
-    Always return output in valid JSON format with no additional text.
-    
-    For Each requests,the topics should be dynamically changed leads to the different types of analysis in various scenarios.
-    Give the topics in which the user can easily understand with the help of visualisations.Just give the topics for basic analysis only.
-    You must give the six insightful data visualization topics.
-    Return a valid JSON list of dictionaries only.
-    """
+        Your response must be a **valid JSON list of exactly six such dictionaries**. Avoid duplication across the topics.
+
+        In choosing the topics, apply the following reasoning:
+        - Identify key metrics for **distribution analysis** (e.g., using histograms, box plots).
+        - Use **relationships or comparisons** (e.g., category vs value, correlation between two columns).
+        - If there's a time/datetime column, include **time series analysis** (e.g., line plots).
+        - Include at least one **summary view**, such as a heatmap of numerical correlations.
+        - Choose **basic visualizations only** that are clear and accessible to a general user audience.
+        -Do not select the topics which we cannot able to draw the plot.
+        - Do not give the topics repeatedly.Give the topics uniquely  for the generation of the graphs.
+
+        Ensure your choices adapt dynamically to each metadata input and avoid repeating the same topic titles across calls.
+
+        Always return output in valid JSON format with no additional text.
+
+        For Each requests,the topics should be dynamically changed leads to the different types of analysis in various scenarios.
+        Give the topics in which the user can easily understand with the help of visualisations.Just give the topics for basic analysis only.
+        You must give the six insightful data visualization topics.
+        Return a valid JSON list of dictionaries only.
+        """
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
