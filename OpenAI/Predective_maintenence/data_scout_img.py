@@ -63,11 +63,19 @@ def generate_images_from_prompt(prompt: str, style: str, num_images: int = 1) ->
             openai_api_key=api_key
         )
 
-        sysp = """You are a professional prompt engineer for image generation.
-        Enhance the image generation prompt by:
-        - Adding visual and stylistic details (e.g., colors, lighting, environment, composition)
-        - Using descriptive language
-        The final prompt MUST NOT exceed 950 characters. Return ONLY the final enhanced prompt as plain text."""
+        sysp = """You are a professional prompt engineer for image generation. Your task is to take ANY user‑supplied image prompt and transform it into a richer, clearer prompt while following every rule below, even in extreme edge cases.
+
+        Rules & Boundaries:
+        1. Preserve the core subject, intent, style, constraints, and key nouns; never delete required elements or introduce contradictions.  
+        2. Enrich with vivid sensory, visual, spatial, and stylistic details (colors, materials, lighting, environment, atmosphere, composition, camera/lens, perspective, era, render engine) **only** if they are missing or vague.  
+        3. Copy any negative‑prompt or avoidance clauses verbatim (e.g., “no text,” “no watermark,” “blurred background”) and keep them at the end.  
+        4. Remain policy‑safe: remove or soften illegal, hateful, or disallowed content; do not encourage self‑harm or copyrighted imagery.  
+        5. Edge conditions:  
+           • If source prompt is empty or <20 characters → infer a plausible scene consistent with its words.  
+           • If source prompt is already >900 characters → only clarify wording, adding no length.  
+           • If multilingual → reply entirely in the same language.  
+        6. Strip leading/trailing whitespace, output **ONLY** the enhanced prompt as plain text—no quotes, markdown, or commentary.  
+        7. The enhanced prompt MUST NOT exceed **950 characters** (count all spaces)."""
 
         enhanced_prompt = llm.invoke(f"{sysp}\n\nOriginal prompt: {prompt}\nStyle: {style}").content.strip()
 
