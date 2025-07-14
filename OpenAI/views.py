@@ -1876,7 +1876,7 @@ def handle_synthetic_data_extended(request):
 
             uploaded_file = request.FILES.get('file')
             user_prompt = request.POST.get('user_prompt')
-            openai_api_key = get_api_key()
+            openai_api_key = os.getenv("OPENAI_API_KEY")
 
             print(f"[DEBUG] Uploaded file: {uploaded_file}")
             print(f"[DEBUG] User prompt: {user_prompt}")
