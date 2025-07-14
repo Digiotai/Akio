@@ -528,25 +528,38 @@ class PostgresDatabase:
             print(f"Error retrieving report: {err}")
             return pd.DataFrame()
 
-    def get_report_by_email_and_id(self, email, report_id):
+    def get_reports_by_email_and_ids(self, email, report_ids):
         try:
             self.ensure_connection()
+
+            # Ensure report_ids is a list
+            if isinstance(report_ids, (str, int)):
+                report_ids = [str(report_ids)]
+            elif isinstance(report_ids, tuple):
+                report_ids = list(report_ids)
+
+            if not report_ids:
+                return pd.DataFrame()
+
             with self.connection.cursor() as cursor:
-                cursor.execute("""
+                placeholders = ','.join(['%s'] * len(report_ids))
+                query = f"""
                     SELECT id, email, encode(image_bytes, 'base64') AS image_bytes,
                            plotly_json, created_at, updated_at
                     FROM reports
-                    WHERE email = %s AND id = %s
-                """, (email, report_id))
+                    WHERE email = %s AND id IN ({placeholders})
+                """
+                cursor.execute(query, [email] + report_ids)
+                rows = cursor.fetchall()
 
-                row = cursor.fetchone()
-                if row:
+                if rows:
                     cols = [desc[0] for desc in cursor.description]
-                    return pd.DataFrame([row], columns=cols)
+                    return pd.DataFrame(rows, columns=cols)
                 else:
                     return pd.DataFrame()
+
         except Exception as err:
-            print(f"Error retrieving report: {err}")
+            print(f"Error retrieving reports: {err}")
             return pd.DataFrame()
 
 
