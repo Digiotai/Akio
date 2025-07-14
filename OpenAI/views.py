@@ -3749,6 +3749,7 @@ FIXED_CHART_FILENAMES = [
     "chart_6.json"
 ]
 
+
 @csrf_exempt
 def gen_plotly_response(request):
     if request.method == "POST":
@@ -3776,7 +3777,7 @@ def gen_plotly_response(request):
         for topic in topics[:6]:
             print(topic)
             prompt_eng = (
-                f"You are an AI specialized in data analytics and visualization."
+                f"You are a data visualization expert and a highly skilled Python Plotly developer."
                 f"Data used for analysis is stored in a CSV file named 'data.csv'."
                 f"Attributes of the data are: {metadata}."
                 f"The user can give the {topics} only.Based on the topic name you have to select the best visualisation i.e best graphs which can be watchable and rich in nature."
@@ -3911,6 +3912,21 @@ def generate_topics_llm(meta: Dict) -> List[Dict]:
     -Do not select the topics which we cannot able to draw the plot.
     - Do not give the topics repeatedly.Give the topics uniquely  for the generation of the graphs.
     
+    - Explore *advanced Plotly features*, such as:
+      - facet_row, facet_col for comparison grids,
+      - multi-series (e.g. line or scatter with color=column),
+      - combo charts (e.g., bar + line together),
+      - rolling averages or moving means,
+      - violin plots to show distributions,
+      - 3D scatter plots (px.scatter_3d) where 3 numeric dimensions exist,
+      - animations (animation_frame, animation_group) if time-based trends are useful.
+    - Aim for *high-value insights*, like:
+      - Seasonality or cyclic patterns,
+      - Equipment performing worse than average,
+      - Category-wise contribution to deficit or emissions,
+      - Any shocking anomalies or unexpected gaps.
+
+    
     Ensure your choices adapt dynamically to each metadata input and avoid repeating the same topic titles across calls.
     
     Always return output in valid JSON format with no additional text.
@@ -3958,13 +3974,30 @@ def generate_code4(prompt_eng):
                                         - Always use a fully reproducible Python code block.
                                         - Format outputs in Markdown with proper syntax highlighting.
                                         
-                                        When generating code (especially Plotly/Python):
-                                        - Always produce **fully working, valid Python code**.
-                                        - Use **correct imports**, avoid missing modules like `import plotly.express as px`, `import pandas as pd`, etc.
-                                        - Never leave incomplete functions or syntax or rising of the serialisable json issues.
-                                        - Validate your code logically before outputting it.
-                                        - Always close brackets, function calls, and maintain indentation properly.
-                                        
+                                        Instructions:
+                                            - Return *only valid Python code. Do **not* use markdown or bullet points.
+                                            - Begin with any required imports and initialization of chart_dict.
+                                            - - Do not use except exception as e:. It is incorrect Python. Always use except Exception as e: (capital E). Any other form is invalid and will cause a runtime error.
+                                            - All explanations must be in valid Python comments (# ...)
+                                            - Do not add any extra text outside Python code.
+                                            - Use a diverse range of charts like: line, bar, scatter, pie, box, heatmap, area, violin, Scatter3d, facet, or animated plots.
+                                            - Use *aggregations* like .groupby(...).mean(), .count(), .sum() where helpful.
+                                            - - Apply *filters* when helpful, such as:
+                                              - Top N categories by value or count,
+                                              - Recent date ranges,
+                                              - Removal of nulls or extreme outliers.
+                                              - Top 5 categories by frequency or value
+                                        IMPORTANT:
+                                            - If you ever write except exception as e, your answer is wrong and must be corrected before use.
+                                            - Ensure column names are used *exactly* as they appear in the dataset. *Do not change the case* or formatting of column names.
+                                            - Always use df.columns = df.columns.str.strip() after loading the dataset to handle unwanted spaces.
+                                            - After reading the CSV:
+                                            - Use df.columns = df.columns.str.strip() to remove leading/trailing spaces from column names.
+                                            - For datetime columns:
+                                                - Strip values using df[col] = df[col].astype(str).str.strip()
+                                                - Convert to datetime using pd.to_datetime(df[col], errors='coerce', utc=True)
+                                                - Drop rows where datetime conversion failed using df.dropna(subset=[col], inplace=True)
+                                            - Before using .dt, ensure the column is of datetime type using pd.to_datetime().  
                                         You aim to make data visualization with Plotly fast, clear, and interactive. Never skip code steps. Always generate complete, working code.Do not give errors while executing the code.
                                           """},
             {"role": "user", "content": prompt_eng}
@@ -4009,6 +4042,7 @@ def summarize_chart(request):
             prompt = (
                 f"You are a data analyst AI. A user selected a chart represented by this Plotly JSON:\n{json.dumps(chart_json)}\n"
                 f"Your task is to describe only what is **visibly present in the chart.**\n\n"
+                f" Final Response  must  be in the bullet points only in hierarchical structure."
                 f"Follow this structure:\n\n"
                 f" **Insight:**\n\n"
                 f"**What the Chart Shows:**\n"
@@ -4076,7 +4110,7 @@ def ask_about_chart(request):
             prompt = (
                 f"You previously summarized a chart as follows:\n{summary}\n"
                 f"Now the user asks: '{question}'. Provide a precise and accurate answer for the user questions within 3 lines  in the form of bullet points only.Dont give huge content."
-                f"There should be three bullet points only with the concise information."
+                f"The Response must be consists of three bullet points only with the concise information."
             )
             answer = generate_text(prompt)
 
@@ -4857,7 +4891,7 @@ def get_report_with_email_and_id(request):
             return JsonResponse({"error": "'id' must be an integer"}, status=400)
 
         # ---- query the database ---------------------------------------------
-        df = db.get_report_by_email_and_id(email, report_id)  # <== new helper
+        df = db.get_reports_by_email_and_ids(email, report_id)  # <== new helper
         if df.empty:
             return JsonResponse({"message": "No report found"}, status=404)
 
@@ -4899,7 +4933,7 @@ def generate_report_description(request):
             if not email or not id:
                 return JsonResponse({"error": "Missing email or report_id"}, status=400)
             print("parameters got...")
-            result = db.get_report_by_email_and_id(email, id)
+            result = db.get_reports_by_email_and_ids(email, id)
             plotly_json = result.iloc[0]['plotly_json']
 
             prompt = (
@@ -4961,31 +4995,28 @@ def generate_text1(prompt: str) -> str:
 @csrf_exempt
 def ask_about_report(request):
     if request.method == "POST":
-        try:
-            id = request.POST.get('report_id')
-            question = request.POST.get('question')
+        id = request.POST.get('report_id')
+        question = request.POST.get('question')
 
-            # chart_id = int(chart_id)
+        chart_id = int(id)
 
-            summary = SUMMARY_CACHE1.get(id)
-            if not summary:
-                return JsonResponse({"error": "No summary available. Call /summarize_chart first."}, status=400)
+        summary = SUMMARY_CACHE1.get(chart_id)
+        if not summary:
+            return JsonResponse({"error": "No summary available. Call /summarize_chart first."}, status=400)
 
-            prompt = (
-                f"You previously summarized a chart as follows:\n{summary}\n"
-                f"Now the user asks: '{question}'. Provide a precise and accurate answer for the user questions within 3 lines  in the form of bullet points only.Dont give huge content."
-                f"There should be three bullet points only with the concise information."
-            )
-            answer = generate_text1(prompt)
+        prompt = (
+            f"You previously summarized a chart as follows:\n{summary}\n"
+            f"Now the user asks: '{question}'. Provide a precise and accurate answer for the user questions within 3 lines  in the form of bullet points only.Dont give huge content."
+            f"There should be three bullet points only with the concise information."
+        )
+        answer = generate_text1(prompt)
 
-            return JsonResponse({
-                "report_id": id,
-                "question": question,
-                "answer": answer
-            }, status=200)
+        return JsonResponse({
+            "report_id": id,
+            "question": question,
+            "answer": answer
+        }, status=200)
 
-        except Exception as e:
-            return JsonResponse({"error": str(e)}, status=500)
 
 
 from email.mime.multipart import MIMEMultipart
@@ -4993,42 +5024,86 @@ from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 
 
+def _build_email_with_images(df, to_email):
+    msg = MIMEMultipart()
+    msg['Subject'] = 'Graph Reports'
+    msg['From'] = os.getenv("EMAIL_USER")
+    msg['To'] = to_email
+
+    msg.attach(MIMEText("Please find attached graph report(s).", 'plain'))
+
+    for i, row in df.iterrows():
+        try:
+            img_bytes = base64.b64decode(row["image_bytes"])
+            image_part = MIMEImage(img_bytes)
+            image_part.add_header('Content-Disposition', 'attachment', filename=f"graph_{i + 1}.png")
+            msg.attach(image_part)
+        except Exception as e:
+            print(f"Failed to attach image {i + 1}: {e}")
+            continue
+
+    return msg
+
+
+def _send_email(msg):
+    with smtplib.SMTP('smtp.gmail.com', 587) as server:
+        server.starttls()
+        server.login(os.getenv("EMAIL_USER"), os.getenv("EMAIL_PASS"))
+        server.send_message(msg)
+
+
+# @csrf_exempt
+# def email_report(request):
+#     if request.method != 'POST':
+#         return JsonResponse({"error": "Invalid method"}, status=405)
+#
+#     email = request.POST.get("email")
+#     if not email:
+#         return JsonResponse({"error": "Missing email"}, status=400)
+#
+#     try:
+#         df = db.get_report_by_email(email)
+#         if df.empty:
+#             return JsonResponse({"error": "No reports found for this email."}, status=404)
+#
+#         msg = _build_email_with_images(df, email)
+#         _send_email(msg)
+#
+#         return JsonResponse({"status": "Email sent successfully."})
+#
+#     except Exception as e:
+#         return JsonResponse({"error": str(e)}, status=500)
+
+
 @csrf_exempt
 def email_report(request):
     if request.method != 'POST':
         return JsonResponse({"error": "Invalid method"}, status=405)
 
+    email = request.POST.get("email")
+    raw_ids = request.POST.get("report_id")
+
+    if not email or not raw_ids:
+        return JsonResponse({"error": "Missing email or report_id"}, status=400)
+
     try:
-        email = request.POST.get("email")
-        if not email:
-            return JsonResponse({"error": "Missing email"}, status=400)
+        # Parse report IDs: accept comma-separated or JSON array
+        if raw_ids.startswith("["):
+            import json
+            report_ids = json.loads(raw_ids)
+        else:
+            report_ids = [rid.strip() for rid in raw_ids.split(",") if rid.strip()]
 
-        df = db.get_report_by_email(email)
+        if not report_ids:
+            return JsonResponse({"error": "No valid report IDs provided."}, status=400)
+
+        df = db.get_reports_by_email_and_ids(email, report_ids)  # this method must accept list of IDs
+
         if df.empty:
-            return JsonResponse({"error": "No reports found for this email."}, status=404)
+            return JsonResponse({"error": "No reports found for this email and given IDs."}, status=404)
 
-        msg = MIMEMultipart()
-        msg['Subject'] = 'Graph Reports'
-        msg['From'] = os.getenv("EMAIL_USER")
-        msg['To'] = email
-
-        msg.attach(MIMEText("Please find attached graph report(s).", 'plain'))
-
-        for i, row in df.iterrows():
-            try:
-                img_bytes = base64.b64decode(row["image_bytes"])
-
-                image_part = MIMEImage(img_bytes)
-                image_part.add_header('Content-Disposition', 'attachment', filename=f"graph_{i + 1}.png")
-                msg.attach(image_part)
-            except Exception as render_err:
-                print(f"Failed to attach graph {i + 1}: {render_err}")
-                continue
-
-        with smtplib.SMTP('smtp.gmail.com', 587) as server:
-            server.starttls()
-            server.login(os.getenv("EMAIL_USER"), os.getenv("EMAIL_PASS"))
-            server.send_message(msg)
+        msg = _build_email_with_images(df, email)
+        _send_email(msg)
 
         return JsonResponse({"status": "Email sent successfully."})
 
