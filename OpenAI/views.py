@@ -1051,7 +1051,7 @@ def gen_txt_response(request):
         code = generate_code(prompt_eng)
         # Execute the generated code
         result = execute_py_code(code, df)
-        return JsonResponse({"answer": result})
+        return JsonResponse({"answer": markdown_to_html(result)})
     return HttpResponse("Invalid Request Method", status=405)
 
 
@@ -1865,91 +1865,95 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 import os
 
-
 @csrf_exempt
 def handle_synthetic_data_extended(request):
-    print("[DEBUG] Entering handle_synthetic_data_extended function")
-    if request.method == "POST":
-        temp_file_name = None
-        try:
-            print("[DEBUG] Handling POST request")
+    print("[DEBUG] Entered handle_synthetic_data_extended")  # Track function entry
 
-            uploaded_file = request.FILES.get('file')
-            user_prompt = request.POST.get('user_prompt')
-            openai_api_key = os.getenv("OPENAI_API_KEY")
+    if request.method != "POST":
+        print("[DEBUG] Invalid request method. Expected POST.")
+        return JsonResponse({"error": "Invalid request method. Use POST."}, status=405)
 
-            print(f"[DEBUG] Uploaded file: {uploaded_file}")
-            print(f"[DEBUG] User prompt: {user_prompt}")
-            print(f"[DEBUG] OpenAI API key: {'Provided' if openai_api_key else 'Missing'}")
+    temp_file_name = None
+    try:
+        uploaded_file = request.FILES.get('file')
+        user_prompt = request.POST.get('user_prompt')
+        openai_api_key = os.getenv("OPENAI_API_KEY")
 
-            if not uploaded_file or not user_prompt or not openai_api_key:
-                print("[ERROR] Missing required parameters")
-                return JsonResponse({"error": "Missing required parameters"}, status=400)
+        print(f"[DEBUG] Uploaded file: {uploaded_file.name if uploaded_file else 'None'}")
+        print(f"[DEBUG] User prompt: {user_prompt}")
+        print(f"[DEBUG] OpenAI API key present: {bool(openai_api_key)}")
 
-            file_extension = os.path.splitext(uploaded_file.name)[1].lower()
-            print(f"[DEBUG] File extension: {file_extension}")
+        if not uploaded_file or not user_prompt or not openai_api_key:
+            missing = []
+            if not uploaded_file: missing.append("file")
+            if not user_prompt: missing.append("user_prompt")
+            if not openai_api_key: missing.append("OpenAI API key")
+            print(f"[DEBUG] Missing parameters: {', '.join(missing)}")
+            return JsonResponse({"error": "Missing required parameters"}, status=400)
 
+        file_extension = os.path.splitext(uploaded_file.name)[1].lower()
+        print(f"[DEBUG] File extension: {file_extension}")
+
+        if file_extension == ".xlsx":
+            df = pd.read_excel(uploaded_file)
+        elif file_extension == ".csv":
+            df = pd.read_csv(uploaded_file)
+        else:
+            print(f"[DEBUG] Unsupported file format: {file_extension}")
+            return JsonResponse({"error": "Unsupported file format. Please upload an Excel or CSV file."}, status=400)
+
+        print(f"[DEBUG] Original DataFrame shape: {df.shape}")
+
+        with tempfile.NamedTemporaryFile(suffix=file_extension, delete=False) as temp_file:
+            temp_file_name = temp_file.name
             if file_extension == ".xlsx":
-                print("[DEBUG] Reading Excel file")
-                df = pd.read_excel(uploaded_file)
+                df.to_excel(temp_file_name, index=False)
             elif file_extension == ".csv":
-                print("[DEBUG] Reading CSV file")
-                df = pd.read_csv(uploaded_file)
-            else:
-                print("[ERROR] Unsupported file format")
-                return JsonResponse({"error": "Unsupported file format. Please upload an Excel or CSV file."},
-                                    status=400)
+                df.to_csv(temp_file_name, index=False)
+            print(f"[DEBUG] Temporary file saved at: {temp_file_name}")
 
-            print(f"[DEBUG] Initial DataFrame columns: {list(df.columns)}")
+        num_rows = extract_num_rows_from_prompt1(user_prompt, openai_api_key)
+        print(f"[DEBUG] Extracted number of rows: {num_rows}")
 
-            with tempfile.NamedTemporaryFile(suffix=file_extension, delete=False) as temp_file:
-                temp_file_name = temp_file.name
-                print(f"[DEBUG] Temporary file created at: {temp_file_name}")
+        if num_rows is None:
+            print("[DEBUG] Failed to extract number of rows from prompt.")
+            return JsonResponse({"error": "Number of rows not found in the prompt"}, status=400)
 
-                if file_extension == ".xlsx":
-                    df.to_excel(temp_file_name, index=False)
-                elif file_extension == ".csv":
-                    df.to_csv(temp_file_name, index=False)
+        if num_rows > 100_000:
+            print(f"[DEBUG] Requested rows ({num_rows}) exceed limit (100,000).")
+            return JsonResponse({"error": "Too many rows requested. Limit is 100,000."}, status=400)
 
-            print("[DEBUG] Extracting number of rows from the user prompt")
-            num_rows = extract_num_rows_from_prompt1(user_prompt, openai_api_key)
-            print(f"[DEBUG] Number of rows extracted: {num_rows}")
+        datetime_col = infer_datetime_column(df)
+        print(f"[DEBUG] Inferred datetime column: {datetime_col}")
 
-            if num_rows is None:
-                print("[ERROR] Number of rows not found in the prompt")
-                return JsonResponse({"error": "Number of rows not found in the prompt"}, status=400)
+        generated_df = generate_synthetic_data(openai_api_key, temp_file_name, num_rows, datetime_col=datetime_col)
+        print(f"[DEBUG] Generated synthetic data shape: {generated_df.shape}")
 
-            if num_rows > 100_000:
-                print("[ERROR] Requested too many rows")
-                return JsonResponse({"error": "Too many rows requested. Limit is 100,000."}, status=400)
+        combined_df = pd.concat([df, generated_df], ignore_index=True)
+        print(f"[DEBUG] Combined DataFrame shape: {combined_df.shape}")
 
-            print(f"[DEBUG] Generating synthetic data with {num_rows} rows")
-            generated_df = generate_synthetic_data(openai_api_key, temp_file_name, num_rows)
-            print(f"[DEBUG] Synthetic data generated successfully: {generated_df.shape[0]} rows")
+        csv_data = combined_df.to_csv(index=False)
+        response = HttpResponse(csv_data, content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="synthetic_output.csv"'
+        print("[DEBUG] Successfully generated synthetic data response.")
+        return response
 
-            print("[DEBUG] Combining original and synthetic data")
-            combined_df = pd.concat([df, generated_df], ignore_index=True)
-            print(f"[DEBUG] Combined DataFrame shape: {combined_df.shape}")
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+    finally:
+        if temp_file_name and os.path.exists(temp_file_name):
+            os.remove(temp_file_name)
+            print(f"[DEBUG] Temporary file {temp_file_name} deleted.")
 
-            print("[DEBUG] Converting combined DataFrame to CSV format")
-            csv_data = combined_df.to_csv(index=False)
-            response = HttpResponse(csv_data, content_type='text/csv')
-            response['Content-Disposition'] = 'attachment; filename="synthetic_output.csv"'
-
-            print("[DEBUG] Returning file response")
-            return response
-
-        except Exception as e:
-            print(f"[ERROR] Exception occurred: {e}")
-            return JsonResponse({"error": str(e)}, status=500)
-
-        finally:
-            if temp_file_name and os.path.exists(temp_file_name):
-                print(f"[DEBUG] Deleting temporary file: {temp_file_name}")
-                os.remove(temp_file_name)
-
-    print("[ERROR] Invalid request method")
-    return JsonResponse({"error": "Invalid request method. Use POST."}, status=405)
+def infer_datetime_column(df: pd.DataFrame) -> Optional[str]:
+    for col in df.columns:
+        try:
+            parsed = pd.to_datetime(df[col], errors='coerce')
+            if parsed.notna().sum() > len(df) * 0.8:
+                return col
+        except Exception:
+            continue
+    return None
 
 
 # SAP SYSTEM
@@ -4505,6 +4509,348 @@ def create_data_with_data_scout(request):
 
         except Exception as e:
             return Response({"error": str(e)}, status=500)
+
+
+#Generating the images with the given images
+from PIL import Image
+import openai
+import zipfile
+from datetime import datetime
+ZIP_PATH = os.path.abspath("synthetic_images.zip")
+
+def ensure_zip_buffer() -> io.BytesIO:
+    zip_buffer = io.BytesIO()
+    if os.path.exists(ZIP_PATH):
+        with open(ZIP_PATH, 'rb') as f:
+            zip_buffer.write(f.read())
+    zip_buffer.seek(0)
+    return zip_buffer
+
+
+ROBUST_VISION_SYSTEM_PROMPT = """
+You are an expert computer vision analyst with exceptional observational skills. Your task is to provide comprehensive, detailed visual analysis of images with scientific precision and artistic sensitivity.
+
+CORE ANALYSIS FRAMEWORK:
+
+1. COMPOSITIONAL STRUCTURE:
+   - Analyze the overall layout, framing, and spatial organization
+   - Identify foreground, middle ground, and background elements
+   - Describe the visual flow and how elements guide the viewer's eye
+   - Note any compositional techniques (rule of thirds, symmetry, leading lines)
+
+2. OBJECTS AND SUBJECTS:
+   - Catalog ALL visible objects, people, animals, and entities
+   - Describe their positions, sizes, and relationships to each other
+   - Identify specific details: clothing, expressions, poses, conditions
+   - Note any text, signs, logos, or written elements
+   - Mention partially visible or obscured objects
+
+3. VISUAL CHARACTERISTICS:
+   - Color palette: dominant colors, color harmony, saturation levels
+   - Lighting: source, direction, quality (harsh/soft), shadows, highlights
+   - Texture and materials: surfaces, fabrics, finishes
+   - Depth and dimensionality: perspective, scale relationships
+   - Focus and clarity: sharp vs. blurred areas, depth of field
+
+4. STYLE AND AESTHETIC:
+   - Artistic style (realistic, abstract, minimalist, ornate, etc.)
+   - Genre or category (portrait, landscape, still life, architectural, etc.)
+   - Mood and atmosphere conveyed
+   - Cultural or historical context if apparent
+   - Technical quality and craftsmanship
+
+5. CONTEXTUAL ELEMENTS:
+   - Setting and environment (indoor/outdoor, specific location type)
+   - Time indicators (lighting suggests time of day, seasonal clues)
+   - Weather conditions if visible
+   - Social or cultural context
+   - Any narrative or story elements
+
+6. TECHNICAL OBSERVATIONS:
+   - Image quality, resolution, and clarity
+   - Camera angle and perspective
+   - Any visible artifacts, distortions, or technical issues
+   - Photographic or artistic techniques employed
+
+RESPONSE GUIDELINES:
+- Begin with a concise overview sentence
+- Organize observations logically from general to specific
+- Use precise, descriptive language without unnecessary adjectives
+- Quantify when possible (approximate counts, sizes, proportions)
+- Be objective while noting subjective elements like mood or style
+- Mention what's NOT present if it's notable or expected
+- Conclude with the most striking or significant visual element
+
+ACCURACY REQUIREMENTS:
+- Never invent details not visible in the image
+- Distinguish between what you can see clearly vs. what you infer
+- Use conditional language for uncertain observations ("appears to be", "seems to")
+- Prioritize factual description over interpretation
+- If image quality limits observation, acknowledge this
+
+Your goal is to create a verbal representation so detailed that someone could understand the image's content, composition, and character without seeing it themselves. Just give the final response in 200 characters  only.
+"""
+
+# Usage example with your function:
+def describe_image(image: Image.Image, api_key: str) -> str:
+    vision_llm = ChatOpenAI(model="gpt-4o-mini", openai_api_key=api_key)
+    image_bytes = io.BytesIO()
+    image.save(image_bytes, format='PNG')
+    image_bytes.seek(0)
+    base64_image = base64.b64encode(image_bytes.read()).decode('utf-8')
+
+    vision_messages = [
+        SystemMessage(content=ROBUST_VISION_SYSTEM_PROMPT),
+        HumanMessage(content=[
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
+        ])
+    ]
+
+    try:
+        response = vision_llm.invoke(vision_messages)
+        return response.content.strip()
+    except Exception:
+        return "a visually rich and consistent image based on user style"
+
+
+def analyze_all_images_for_style(uploaded_images, openai_api_key):
+    """
+    Analyze all uploaded images to extract a comprehensive style description.
+    """
+    individual_descriptions = []
+
+    # Get description for each uploaded image
+    for i, image_file in enumerate(uploaded_images):
+        try:
+            image = Image.open(image_file).convert("RGB")
+            vision_caption = describe_image(image, openai_api_key)
+            individual_descriptions.append({
+                'index': i + 1,
+                'description': vision_caption
+            })
+            print(f"Image {i + 1} analysis: {vision_caption}")
+        except Exception as e:
+            print(f"Error analyzing image {i + 1}: {str(e)}")
+            continue
+
+    if not individual_descriptions:
+        return "No valid images could be analyzed"
+
+    # Create a comprehensive style analysis prompt
+    style_analysis_prompt = f"""
+    Analyze the following {len(individual_descriptions)} images and provide a comprehensive style summary that captures the common visual elements, artistic approach, and aesthetic characteristics across all images.
+
+    Individual Image Descriptions:
+    """
+
+    for desc in individual_descriptions:
+        style_analysis_prompt += f"\nImage {desc['index']}: {desc['description']}"
+
+    style_analysis_prompt += """
+
+    Based on these individual descriptions, provide a unified style analysis that includes:
+    1. Common visual elements (colors, lighting, composition patterns)
+    2. Consistent artistic style and approach
+    3. Technical characteristics (quality, resolution, photographic style)
+    4. Subject matter patterns and themes
+    5. Overall aesthetic and mood
+
+    Focus on the elements that are consistent across all images to define the core style that should be maintained in generated images. If there are variations, mention the acceptable range of variation within the style.
+
+    Provide a concise but comprehensive style guide that can be used for generating new images in the same style.
+    You must provide the final response in 500 characters only.Return the main content only .Don't return headings and unuseful information.
+    """
+
+    # Use ChatOpenAI to analyze the combined descriptions
+    try:
+        from langchain_openai import ChatOpenAI
+        from langchain.schema import SystemMessage, HumanMessage
+
+        analysis_llm = ChatOpenAI(model="gpt-4o-mini", openai_api_key=openai_api_key)
+        analysis_messages = [
+            SystemMessage(
+                content="You are an expert visual style analyst. Analyze multiple image descriptions to extract a comprehensive, unified style guide."),
+            HumanMessage(content=style_analysis_prompt)
+        ]
+
+        response = analysis_llm.invoke(analysis_messages)
+        comprehensive_style = response.content.strip()
+        print(f"Comprehensive style analysis: {comprehensive_style}")
+        return comprehensive_style
+
+    except Exception as e:
+        print(f"Error in comprehensive style analysis: {str(e)}")
+        # Fallback: combine individual descriptions
+        combined_description = " | ".join([desc['description'] for desc in individual_descriptions])
+        return f"Combined style elements from {len(individual_descriptions)} images: {combined_description}"
+
+def generate_images(client: OpenAI, prompt: str, count: int) -> list:
+    response = client.images.generate(
+        model="dall-e-2",
+        prompt=prompt,
+        n=count,
+        size="512x512"
+    )
+    return [r.url for r in response.data if r.url]
+
+#Extract number of images from prompt
+def extract_num_images_from_prompt(prompt: str, api_key: str) -> Optional[int]:
+    try:
+        llm = ChatOpenAI(model="gpt-4o-mini", openai_api_key=api_key)
+        messages = [
+            SystemMessage(content="You extract the number of images to generate from user input. Return only the integer."),
+            HumanMessage(content=prompt)
+        ]
+        response = llm.invoke(messages)
+        match = re.search(r'\d+', response.content)
+        if match:
+            return int(match.group())
+    except Exception as e:
+        print(f"[ERROR] LLM semantic extraction failed: {e}")
+
+    try:
+        fallback_match = re.search(r'(?:generate|create|make)?\s*(\d{1,3})\s*(?:images|pictures)', prompt, re.IGNORECASE)
+        if fallback_match:
+            return int(fallback_match.group(1))
+    except Exception as e:
+        print(f"[ERROR] Regex fallback extraction failed: {e}")
+
+    return None
+
+
+#Generating images
+@csrf_exempt
+def generate_synthetic_images(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Invalid method. Use POST.'}, status=405)
+
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    if not openai_api_key:
+        return JsonResponse({'error': 'Missing OpenAI API key'}, status=400)
+
+    uploaded_images = request.FILES.getlist('images')
+    if not uploaded_images:
+        return JsonResponse({'error': 'No images uploaded'}, status=400)
+
+    prompt = request.POST.get("user_prompt", "")
+    requested_count = extract_num_images_from_prompt(prompt, openai_api_key)
+    if requested_count is None or requested_count <= 0:
+        return JsonResponse({
+            'error': 'Could not extract a valid number of images from prompt. Include a clear number like "generate 20 images".'},
+            status=400)
+
+    if requested_count > 100:
+        return JsonResponse({'error': 'Maximum limit is 100 images per request.'}, status=400)
+
+    # Ensure the images folder exists
+    folder_path = ensure_images_folder()
+
+    # ANALYZE ALL IMAGES FIRST to get comprehensive style
+    print("Analyzing all uploaded images for comprehensive style...")
+    comprehensive_style = analyze_all_images_for_style(uploaded_images, openai_api_key)
+    print(f"Final comprehensive style: {comprehensive_style}")
+
+    client = OpenAI(api_key=openai_api_key)
+
+    # Get starting index for new images
+    start_index = get_next_image_index(folder_path)
+    total_generated = 0
+    generated_images_info = []
+
+    # Generate images using the comprehensive style analysis
+    while total_generated < requested_count:
+        try:
+            remaining = requested_count - total_generated
+            batch_size = min(5, remaining)
+
+            # Use comprehensive style for all generations
+            full_prompt = (
+                f"Generate {batch_size} high-quality, stylistically consistent images based on the uploaded example."
+                f"- Visual style extracted from the uploaded images includes: {comprehensive_style}"
+                f"- Avoid redundant or duplicate compositions."
+                f"- Create unique and diverse subjects while maintaining consistent style."
+                f"- User instructions: {prompt.strip()}"
+            )
+
+            print(f"Generating batch of {batch_size} images...")
+            image_urls = generate_images(client, full_prompt, batch_size)
+
+            for url in image_urls:
+                image_response = requests.get(url)
+                if image_response.status_code == 200:
+                    # Save image to folder
+                    filename = f"synthetic_{start_index + total_generated}.png"
+                    file_path = os.path.join(folder_path, filename)
+
+                    with open(file_path, 'wb') as f:
+                        f.write(image_response.content)
+
+                    # Convert to base64 for frontend
+                    base64_image = image_to_base64(file_path)
+
+                    if base64_image:
+                        generated_images_info.append({
+                            'filename': filename,
+                            'path': file_path,
+                            'base64': base64_image,
+                            'index': start_index + total_generated
+                        })
+
+                    total_generated += 1
+                    print(f"Generated image {total_generated}/{requested_count}: {filename}")
+
+                    if total_generated >= requested_count:
+                        break
+
+        except Exception as e:
+            return JsonResponse({'error': f"Image generation failed: {str(e)}"}, status=500)
+
+    # Prepare response with all generated images in base64 format
+    response_data = {
+        'success': True,
+        'message': f'Successfully generated {total_generated} images',
+        'total_generated': total_generated,
+        'folder_path': folder_path,
+        'images': generated_images_info
+    }
+
+    return JsonResponse(response_data)
+
+
+GENERATED_IMAGES_FOLDER = "generated_synthetic_images"
+def ensure_images_folder():
+    """Create the images folder if it doesn't exist"""
+    if not os.path.exists(GENERATED_IMAGES_FOLDER):
+        os.makedirs(GENERATED_IMAGES_FOLDER)
+    return GENERATED_IMAGES_FOLDER
+
+def get_next_image_index(folder_path):
+    """Get the next image index based on existing files in the folder"""
+    existing_files = [f for f in os.listdir(folder_path) if f.startswith('synthetic_') and f.endswith('.png')]
+    if not existing_files:
+        return 1
+
+    # Extract numbers from filenames and find the maximum
+    indices = []
+    for filename in existing_files:
+        try:
+            # Extract number from filename like "synthetic_123.png"
+            number = int(filename.replace('synthetic_', '').replace('.png', ''))
+            indices.append(number)
+        except ValueError:
+            continue
+
+    return max(indices) + 1 if indices else 1
+
+def image_to_base64(image_path):
+    """Convert image file to base64 string"""
+    try:
+        with open(image_path, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+            return f"data:image/png;base64,{encoded_string}"
+    except Exception as e:
+        print(f"Error converting image to base64: {str(e)}")
+        return None
 
 
 # Predictive Maintenence Apis.
