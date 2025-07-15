@@ -38,6 +38,7 @@ urlpatterns = [
     # path('api/forecasts', forecast_sales, name='forecasting'),
     path('api/synthetic_data', handle_synthetic_data_api, name='synthetic_data_generation'),
     path('api/synthetic_data_extended', handle_synthetic_data_extended, name='extended_synthetic_data_generation'),
+    path('api/synthetic_images', generate_synthetic_images, name='synthetic image generation'),
 
     # #Sql_agentic_system
     # path('api/process_files', processing_files, name='processing_files'),
