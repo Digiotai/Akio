@@ -39,82 +39,263 @@ def initialize_llm():
 
 # -----------------------------------------------------------------------------------------------------------------
 # For DataScout with Excel Generation
-# Data Extraction Tools
-def parse_prompt_with_semantic_ai(prompt: str) -> Tuple[Optional[int], List[str]]:
+# ----------------- Step 1: Enhanced Prompt Parser ---------------------
+def parse_prompt_metadata(prompt: str) -> Dict:
     llm = initialize_llm()
 
-    system_instruction = (
-        """You are a prompt parser for synthetic data generation. 
-        Given a user input prompt, extract:
-        1. The number of rows requested (as an integer).
-        2. The list of column/field names (as a list of lowercase snake_case strings).
+    system_instruction = """
+    You are a data prompt parser for synthetic time-series generation. Given any natural language prompt, extract structured metadata:
 
-        Respond with a JSON object strictly in the form:
-        {"num_rows": <int or null>, "columns": ["col1", "col2", ...]}.
-        Do not include any commentary.
-        """
-    )
+    {
+      "num_rows": <int or null>,
+      "columns": ["col1", "col2", ...],
+      "time_columns": {
+        "<col_name>": {
+          "type": "timestamp/date/datetime/time",
+          "start": "<YYYY-MM-DD HH:MM:SS>",
+          "end": "<YYYY-MM-DD HH:MM:SS>",
+          "frequency": "<pandas freq string>"
+        }
+      },
+      "default_frequency": "1D",
+      "constraints": [
+        "<if condition then constraint rule>"
+      ]
+    }
+
+    Consider all hints in the prompt:
+    - Frequency (e.g., every 5 minutes, 15-min interval)
+    - Explicit or implicit row count ("create 20,000 rows", or inferred from date range and frequency)
+    - Timestamp format inference from examples (e.g., 01/06/2025 8:00)
+    - Time columns with names like date, datetime, timestamp, time
+    - Multiple time columns (e.g., shift_start_time, shift_end_time)
+    - Fallback to date-only column if no time mentioned
+    - Use UTC now if no start/end date is given
+    - Normalize frequency string to valid pandas format (e.g., min → T, hour → H, daily → D)
+    - Infer rules and relationships in columns (e.g., If Obs_Obj is Signal, then Type is Planned)
+    - Do NOT return extra text. Output must be JSON only.
+    """
 
     response = llm.invoke(f"{system_instruction}\n\nPrompt: {prompt}")
     content = response.content if hasattr(response, 'content') else str(response)
 
     try:
-        parsed = eval(content) if isinstance(content, str) else content
-        num_rows = parsed.get("num_rows")
-        columns = parsed.get("columns", [])
-        return num_rows, columns
-    except Exception:
-        return None, []
+        parsed = json.loads(content) if isinstance(content, str) else content
+
+        if not parsed.get("columns") or not isinstance(parsed["columns"], list):
+            raise ValueError("No valid columns detected in prompt")
+
+        parsed["time_columns"] = parsed.get("time_columns", {})
+        parsed["constraints"] = parsed.get("constraints", [])
+
+        def is_valid_timestamp(ts: str) -> bool:
+            return ts and isinstance(ts, str) and not ts.startswith("<") and not ts.endswith(">")
+
+        import datetime
+        import re
+        now = datetime.datetime.utcnow()
+
+        # Custom date format handling (e.g., 01/06/2025 8:00)
+        example_match = re.search(r"(\d{2}/\d{2}/\d{4}\s+\d{1,2}:\d{2})", prompt)
+        if example_match:
+            example_dt = example_match.group(1)
+            try:
+                parsed_dt = datetime.datetime.strptime(example_dt, "%d/%m/%Y %H:%M")
+                for col, config in parsed["time_columns"].items():
+                    config["start"] = parsed_dt.strftime("%Y-%m-%d %H:%M:%S")
+                    config["frequency"] = config.get("frequency") or "1D"
+                    freq_unit = config["frequency"][0].upper()
+                    config["end"] = (parsed_dt + pd.to_timedelta(parsed.get("num_rows", 100) - 1, unit=freq_unit)).strftime("%Y-%m-%d %H:%M:%S")
+                    config["type"] = "datetime"
+            except Exception as ex:
+                print(f"Failed to parse custom datetime example: {ex}")
+
+        parsed_valid = False
+        for col, config in parsed["time_columns"].items():
+            start, end, freq = config.get("start"), config.get("end"), config.get("frequency")
+            freq = freq or parsed.get("default_frequency", "1D")
+
+            freq_unit = freq[0].upper()
+            freq_unit = 'T' if freq_unit == 'M' else freq_unit
+
+            if not (is_valid_timestamp(start) and is_valid_timestamp(end)):
+                config["start"] = now.strftime("%Y-%m-%d %H:%M:%S")
+                config["end"] = (now + pd.to_timedelta(parsed.get("num_rows", 100) - 1, unit=freq_unit)).strftime("%Y-%m-%d %H:%M:%S")
+                config["type"] = "datetime"
+                parsed["num_rows"] = parsed.get("num_rows", 100)
+                parsed_valid = True
+                break
+            else:
+                try:
+                    if not parsed.get("num_rows"):
+                        date_range = pd.date_range(start=start, end=end, freq=freq)
+                        parsed["num_rows"] = len(date_range)
+                    config["type"] = "datetime"
+                    parsed_valid = True
+                    break
+                except:
+                    pass
+
+        if not parsed_valid and not parsed.get("num_rows"):
+            parsed["num_rows"] = 100
+
+        return parsed
+
+    except Exception as e:
+        print(f"Error parsing metadata: {str(e)}")
+        return {
+            "num_rows": 100,
+            "columns": [],
+            "time_columns": {},
+            "default_frequency": "1D",
+            "constraints": []
+        }
 
 
-def extrapolate_from_seed(seed_df: pd.DataFrame, target_rows: int) -> pd.DataFrame:
-    factor = (target_rows + len(seed_df) - 1) // len(seed_df)
-    repeated_df = pd.concat([seed_df] * factor, ignore_index=True)
-    extrapolated_df = resample(repeated_df, n_samples=target_rows, random_state=42)
-    extrapolated_df.reset_index(drop=True, inplace=True)
-    return extrapolated_df
 
 
-def generate_data_from_text(text_sample: str, column_names: List[str], num_rows: int = 10, seed_limit: int = 150) -> \
-        Tuple[str, pd.DataFrame]:
+
+# ----------------- Step 2: Enhanced Seed Data Generator ---------------------
+def generate_seed_data(column_names: List[str], seed_limit: int, text_sample: str,
+                       time_columns: Dict = {}) -> pd.DataFrame:
     llm = initialize_llm()
 
-    sysp = """You are a data generator. Follow these rules:
-    1. Generate only the requested data format
-    2. No additional commentary
-    3. No markdown or code fences
-    4. No null values generation
-    5. Strictly follow the output format"""
+    # Prepare column type hints for LLM
+    type_hints = []
+    for col in column_names:
+        if col in time_columns:
+            col_type = time_columns[col].get("type", "datetime")
+            type_hints.append(f"{col} ({col_type})")
+        else:
+            type_hints.append(f"{col} (random appropriate data)")
 
-    column_names_str = ", ".join(column_names)
-    generated_rows = []
+    column_hint_str = ", ".join(type_hints)
 
-    prompt = (
-        f"{sysp}\n\n"
-        f"Description: '{text_sample}'\n"
-        f"Generate {min(seed_limit, num_rows)} rows of synthetic data with columns: {column_names_str}.\n"
-        f"Tilde-separated only. No column headers or extra text."
-    )
+    sysp = f"""You are a data generator. Follow these rules:
+1. Generate exactly {seed_limit} rows of synthetic data
+2. Columns: {column_hint_str}
+3. Format: tilde-separated values (no headers)
+4. For time columns: use ISO 8601 format (YYYY-MM-DD HH:MM:SS)
+5. For date columns: use YYYY-MM-DD
+6. For time-only columns: use HH:MM:SS
+7. No null values
+8. No additional text or markdown"""
 
+    prompt = f"{sysp}\n\nPrompt: {text_sample}"
     response = llm.invoke(prompt)
     content = response.content if hasattr(response, 'content') else str(response)
 
+    # Process the generated data
+    generated_rows = []
     for line in content.strip().split('\n'):
         parts = [cell.strip() for cell in line.split('~')]
         if len(parts) == len(column_names):
             generated_rows.append(parts)
 
-    df_seed = pd.DataFrame(generated_rows, columns=column_names)
+    df = pd.DataFrame(generated_rows, columns=column_names)
 
-    if num_rows <= seed_limit:
-        df = df_seed
-    else:
-        df = extrapolate_from_seed(df_seed, num_rows)
+    # Convert time columns to proper types
+    for col, config in time_columns.items():
+        if col in df.columns:
+            col_type = config.get("type", "datetime")
+            if col_type == "date":
+                df[col] = pd.to_datetime(df[col]).dt.date
+            elif col_type == "time":
+                df[col] = pd.to_datetime(df[col]).dt.time
+            else:  # datetime/timestamp
+                df[col] = pd.to_datetime(df[col])
 
-    file_path = "data_output.xlsx"
-    df.to_excel(file_path, index=False)
-    return file_path, df
+    return df
 
+
+# ----------------- Step 3: Enhanced Extrapolation ---------------------
+def extrapolate_from_seed(seed_df: pd.DataFrame, target_rows: int, time_columns: Dict = {}) -> pd.DataFrame:
+    time_cols = [col for col in time_columns.keys() if col in seed_df.columns]
+    non_time_cols = [col for col in seed_df.columns if col not in time_cols]
+
+    if not time_cols:
+        factor = (target_rows + len(seed_df) - 1) // len(seed_df)
+        repeated_df = pd.concat([seed_df] * factor, ignore_index=True)
+        return resample(repeated_df, n_samples=target_rows, random_state=42)
+
+    result_df = pd.DataFrame()
+
+    for col in time_cols:
+        config = time_columns[col]
+        if "start" in config and "frequency" in config:
+            try:
+                new_times = pd.date_range(
+                    start=config["start"],
+                    periods=target_rows,
+                    freq=config["frequency"]
+                )
+            except Exception as e:
+                raise ValueError(f"Error generating time range for column '{col}': {e}")
+
+            col_type = config.get("type", "datetime")
+            if col_type == "date":
+                result_df[col] = new_times.date
+            elif col_type == "time":
+                result_df[col] = new_times.time
+            else:
+                result_df[col] = new_times
+
+    for col in non_time_cols:
+        factor = (target_rows + len(seed_df) - 1) // len(seed_df)
+        repeated = pd.concat([seed_df[col]] * factor, ignore_index=True)
+        sampled = resample(repeated, n_samples=target_rows, random_state=42)
+        sampled.index = range(target_rows)  # ensure no duplicate index
+        result_df[col] = sampled
+
+    result_df.reset_index(drop=True, inplace=True)
+    return result_df
+
+
+# ----------------- Step 4: Robust Final Generator ---------------------
+def generate_data_from_text(prompt: str) -> Tuple[str, pd.DataFrame]:
+    try:
+        # Parse metadata with enhanced parser
+        meta = parse_prompt_metadata(prompt)
+        print("Parsed Metadata:", meta)
+
+        # Validate
+        if not meta.get("columns"):
+            raise ValueError("No columns specified in prompt")
+
+        num_rows = meta.get("num_rows", 100)
+        time_columns = meta.get("time_columns", {})
+
+        # Generate seed data with time column awareness
+        seed_limit = min(150, num_rows)  # Don't generate more seed than needed
+        df_seed = generate_seed_data(
+            meta["columns"],
+            seed_limit,
+            prompt,
+            time_columns
+        )
+
+        # Extrapolate with time series support
+        df_final = extrapolate_from_seed(
+            df_seed,
+            num_rows,
+            time_columns
+        )
+
+        # Ensure proper column ordering (time columns first)
+        time_cols = [col for col in time_columns.keys() if col in df_final.columns]
+        other_cols = [col for col in df_final.columns if col not in time_cols]
+        df_final = df_final[time_cols + other_cols]
+
+        # Save to Excel
+        file_path = "data_output.xlsx"
+        df_final.to_excel(file_path, index=False)
+
+        return file_path, df_final
+
+    except Exception as e:
+        error_msg = f"Error generating data: {str(e)}"
+        print(error_msg)
+        return error_msg, pd.DataFrame()
 
 # ----------------------------------------------------------------------------------------------------------------
 # For DataScout with PDF Generation
@@ -146,6 +327,7 @@ def extract_pdf_prompt_semantics(user_prompt: str) -> Tuple[Optional[int], List[
         return parsed.get("num_pages"), parsed.get("sections", [])
     except Exception:
         return None, []
+
 
 def parse_llm_json_response(response_text: str) -> Optional[dict]:
     if not response_text.strip():
@@ -235,24 +417,21 @@ def pdf_generator_tool(prompt: str, sections: List[str] = None, number_of_pages:
         number_of_pages = 1
     return generate_structured_content(prompt, sections, number_of_pages)
 
+
 def extract_sections_tool(prompt: str) -> List[str]:
     _, sections = extract_pdf_prompt_semantics(prompt)
     return sections
+
 
 def extract_num_pages_tool(prompt: str) -> int:
     num_pages, _ = extract_pdf_prompt_semantics(prompt)
     return num_pages if num_pages else 1
 
+
 # -----------------------------------------------------------------------------------------------------------------
 def excel_generator_tool(prompt: str) -> tuple[str, DataFrame]:
-    num_rows, columns = parse_prompt_with_semantic_ai(prompt)
-    if not columns:
-        raise ValueError("Could not extract column names from prompt.")
-    if not num_rows or num_rows <= 0:
-        raise ValueError("Could not extract valid number of rows from prompt.")
 
-    return generate_data_from_text(prompt, columns, num_rows)
-
+    return generate_data_from_text(prompt)
 
 
 # -----------------------------------------------------------------------------------------------------------------
@@ -263,11 +442,14 @@ def DataScout_agent():
         Tool(
             func=excel_generator_tool,
             name="GenerateExcelFromPrompt",
-            description="Generate an Excel file from a free-text prompt. The prompt should include both the number of records and fields.",
+            description=(
+                "Generate a synthetic Excel file from a natural language prompt. "
+                "The tool automatically detects whether the data should be time-series or not based on the prompt. "
+                "It supports fields like number of records, column names, duration, start time, and frequency (e.g., per minute, monthly, per second). "
+                "If no time-series context is provided, it generates generic tabular data."
+            ),
             return_direct=True
-        )
-
-    ]
+        )]
     agent = initialize_agent(
         tools=tools,
         llm=llm,
